@@ -57,3 +57,8 @@ export * from './scrambleOrder';
 export {
   forgiveUnheard, isHeardOnlyCheck, heardMeaningKey, marksTense, hasTaPronoun, taKey, UNHEARD_TENSE_MARKERS,
 } from './heardCheck';
+export {
+  SENTENCE_CHECK_VERSION, SENTENCE_FIX_VERSION, SENTENCE_GRADES, sentenceCheckView, sentenceGradeOf, sentenceGradeChip,
+  normalizeSentenceFeedback, normalizeSentenceFix, pickSentenceCheckInput, sentenceCheckCacheText, guardSentenceGrade, namesProblem,
+} from './sentenceCheck';
+export type { SentenceGrade, SentenceFix, SentenceCheckView, SentenceCheckInput } from './sentenceCheck';

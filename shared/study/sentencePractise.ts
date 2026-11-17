@@ -24,6 +24,7 @@ import { TAKE_LOCK_CHECKING, TAKE_LOCK_STOP } from '../voice/takeLock';
 import { practiseSentence, type PractisedSentence } from '../coach/practise';
 import type { SpokenResultState } from '../cards/spoken-result';
 import { hasHan, type AnswerCheckInput, type AnswerCheckVerdict } from '../lesson/answerCheck';
+import { scrubSpokenTranscript } from '../cards/answer';
 
 export type SentencePractiseMode = 'read' | 'translate';
 
@@ -104,7 +105,7 @@ export function sentenceAnswerCheckInput(
   const input: AnswerCheckInput = {
     prompt_en: (row.translation ?? '').trim(),
     model_answer: row.hanzi,
-    answer: said,
+    answer: scrubSpokenTranscript(said),
     exercise_type: 'translate',
     input: 'spoken',
   };

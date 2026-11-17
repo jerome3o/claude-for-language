@@ -296,6 +296,39 @@ export function stripSpokenQuotes(text: string): string {
 /** A pause between two Chinese characters: spaces and pause marks (the next character stays). */
 const PAUSE_BETWEEN_HAN = /(\p{Script=Han})[\s。．.！!？?，,、；;：:…~～]+(?=\p{Script=Han})/gu;
 
+/** CJK pause marks a recogniser writes (never part of what was said). */
+const SCRUB_CJK_MARKS = /[。．！？，、；：…～·]+/g;
+/** ASCII pause marks — kept only between two digits (3.5). */
+const SCRUB_ASCII_MARKS = /(?<![0-9])[.!?,;:~]+|[.!?,;:~]+(?![0-9])/g;
+/** Spaces where the recogniser paused: between two Chinese characters, or a Chinese character and a digit. */
+const SCRUB_SPACE_HAN = /(?<=\p{Script=Han})\s+(?=[\p{Script=Han}0-9])|(?<=[0-9])\s+(?=\p{Script=Han})/gu;
+const HAS_HAN = /\p{Script=Han}/u;
+
+/**
+ * A SPOKEN answer as every check reads it (Jerome, Nov 2026: "the grammar injection from the transcription from me
+ * pausing is causing issues… we should just scrub out the grammar"): the recogniser writes 。 ， ？ and spaces where
+ * he PAUSED — 我不知道。 我妹妹有，不有新电脑。 is 我不知道我妹妹有不有新电脑. Every pause mark (。，、！？；：… and
+ * their ASCII forms, a dot between two digits kept), the quote marks, and the spaces between Chinese characters go;
+ * other spaces collapse to one. A transcript with no Chinese (an English meaning answer) is only trimmed. ONE helper
+ * for what a model is sent, its cache key and the lessons' "You said" (docs/STUDY_SESSION.md "A pause is never
+ * grammar"); typed answers keep their punctuation. Lab: `AnswerKey.scrubSpokenTranscript`, parity-tested.
+ */
+export function scrubSpokenTranscript(transcript: string): string {
+  const text = (transcript ?? '').trim();
+  if (!HAS_HAN.test(text)) return text;
+  return stripSpokenQuotes(text)
+    .replace(SCRUB_CJK_MARKS, ' ')
+    .replace(SCRUB_ASCII_MARKS, ' ')
+    .replace(SCRUB_SPACE_HAN, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** The answer a check reads: spoken / edited-after-speaking → `scrubSpokenTranscript`, typed → as written (trimmed). */
+export function spokenCheckAnswer(text: string, input: string | null | undefined): string {
+  return input === 'spoken' || input === 'edited' ? scrubSpokenTranscript(text) : (text ?? '').trim();
+}
+
 /**
  * What was said, as shown and used as the answer: the recogniser ends a take with 。 (撤销。 /
  * chè xiāo。) — dropped when the card's answer itself doesn't end in punctuation (a word card); a

@@ -1238,6 +1238,47 @@ keyed children only moved). Analytics `lesson.scramble_reorder { how: drag | key
 the last tile is placed, so there is nothing to rearrange), the in-call "sentence building" activity (its tiles live in the
 CallRoom's shared state — a reorder would need a new room action) and the VR mini-lesson panel (tap only).
 
+### Sentence making: an honest verdict (`sentence_making`)
+
+Jerome (Nov 2026), 本来 + 要: he said 我本来要去健身馆，但是我学中文。 and got a green "✓ Natural and correct" over an
+explanation saying the second half didn't follow and 健身馆 is usually 健身房 — "this answer probably shouldn't be correct,
+or it should be orange… and then have a button that allows me to practise the corrected sentence… without the UI getting
+too cluttered, and without having to wait a long time." Rules: `shared/lesson/sentenceCheck.ts` (Lab core
+`SentenceCheck.kt`, parity-tested by `parity/fixtures/sentence-check.ts`); worker `services/sentence-making.ts`; web
+`components/lessons/SentenceCheck.tsx`; Lab `ui/lessons/SentenceCheckViews.kt`.
+
+- **Three grades** (`POST /api/lessons/sentence-feedback` → `feedback.grade`): **right** (✓ green — natural, every target
+  word used well), **needs_work** (≈ orange — the target words ARE used right, but the sentence has a real problem
+  elsewhere: it doesn't make sense or hang together, a wrong word, a grammar slip), **wrong** (✗ red — a target word
+  misused or missing). The legacy `verdict` (correct / minor / incorrect) and `comment` are still sent for older apps.
+- **Coherent** — `guardSentenceGrade`: a "right" whose headline / reason / more names a problem ("but", "should",
+  "usually", "instead", "unnatural", "doesn't follow"…; praise like "nothing to fix" excluded) is needs_work, its headline
+  "本来 and 要 used right — one thing to fix" and its reason the clause that names the problem; a typed sentence without a
+  target word is wrong. Applied by the worker AND by both apps on what they get (`sentenceCheckView`), so an older cached
+  check or a stored attempt can't show green over a correction either.
+- **Slim and fast**: ONE coloured headline (icon + colour, never colour alone; no box — #751), at most one short reason
+  line, the fuller text behind "More ▸" only when it adds something. The first call is the small model through
+  `structuredCall` (forced tool, thinking off, 500 tokens, 20 s; cached for everyone in `lesson_answer_checks` by
+  `sentenceCheckCacheText`, version `SENTENCE_CHECK_VERSION` = 2) and returns NO corrected sentence — only a `fixable` flag.
+- **Scored**: only right counts as right first time; needs_work comes back in the lesson's retry round / revision, like the
+  answer check's "almost" (it suggests Missed it). Before, "minor" counted as right.
+- **Iterate** (needs_work / wrong only; two compact actions, nothing pre-made):
+  - **🎤 Try again** — say or type a new sentence; checked the same way, in place, as often as he likes ("🎤 Try 2 …" +
+    its grade; right → felt + a small burst, the actions go). Practice only: the exercise's recorded first grade never
+    changes. Offline: "Claude can't check it offline — compare it with the example." and the example opens (the self-check).
+  - **✨ Show a fixed version** — only on tap, `POST /api/lessons/sentence-fix`: HIS sentence with the smallest edits
+    (我本来要去健身房，可是后来去学中文了。), cached per (words + task, his sentence) on the server and the device; shown as
+    "Fixed" vs "You said" with the slim answer diff (▶ + pinyin + English), then **🎤 Say it** — the fixed sentence
+    practised and checked on the device like Say it again. Offline: "A fixed version needs a connection…".
+- **Decluttered**: while Claude grades, the unrelated example stays folded under "Example sentence ▸" (shown at once for a
+  handwritten answer or offline); once Claude's grade is in, the self-check line "Is your sentence grammatical, and does
+  it use every word?" and its Got it / Not quite go — Continue stays.
+- Analytics: `lesson.sentence_verdict { verdict, downgraded, ms, cached, input }`, `lesson.sentence_fix_shown { result, ms,
+  cached }`, `lesson.sentence_retry { result, try, input }`. E2E stand-in `services/sentence-making-fake.ts` (本来…要 +
+  健身馆 → needs_work + its fix; the paused 不知道 / 有没有 take → needs_work on 有不有 only). Other exercises don't use
+  `sentence-feedback` (speak / oral_expression go through the speaking check).
+
+
 ### Claude checks your speaking (free speaking: `oral_expression`, `speak`)
 
 Jerome (Oct 2026): in "口语 · Speaking — recorded 🎙" he records a long answer to a task like "Annie
@@ -2104,6 +2145,27 @@ translate / listen-said-back, the answer side's 🎤 rows, the Coach's "Practise
   single missing / doubled little word is the recogniser's (correct, at worst acceptable, no tip), real mistakes (a
   content word, the meaning, a negation, word order) still count. `ANSWER_CHECK_VERSION` / `MEANING_CHECK_VERSION` = 2, so
   no older, harsher cached verdict is served.
+
+**Scrubbed before any check (Nov 2026).** Jerome said 我不知道我妹妹有没有新电脑 with pauses; the transcript came out as
+我不知道。 我妹妹有，不有新电脑。 and the check blamed "splitting into separate sentences" — "either it should be prompted to
+know about the transcription issues, or we should just scrub out the grammar". Both, for every check of a SPOKEN answer:
+- ONE helper, `scrubSpokenTranscript` (shared/cards/answer.ts; Lab `AnswerKey.scrubSpokenTranscript`, parity-tested in
+  `sentence-check.ts`): every pause mark (。，、！？；：… and their ASCII forms; a dot between two digits kept), quote marks
+  and the spaces between Chinese characters go — 我不知道我妹妹有不有新电脑. `spokenCheckAnswer(text, input)` applies it to
+  spoken / edited answers only; typed answers keep their punctuation. It is what the model is sent, what the cache key is
+  made from, and what the lessons' "You said" shows: the lesson answer check (`pickAnswerCheckInput` scrubs every
+  spoken / edited / read-aloud / free-speaking answer on the server, whatever app sent it), sentence_making
+  (`/sentence-feedback` + `/sentence-fix` take `input`), the Sentence round's checks (`listenCheckInput`,
+  `sentenceAnswerCheckInput`), a read card's check (`readTakeCheckInput`), translate / listen & translate in lessons.
+- Every spoken-check prompt says the transcript has its punctuation removed and is ONE continuous utterance; fillers,
+  restarts and a near-sound misrecognition aren't the learner's when the meaning is clear (`SPOKEN_SENTENCE_RULE`,
+  `ANSWER_CHECK_SYSTEM`, the speaking and read-aloud user turns). A misheard target word (有没有 → 有不有) is the model's
+  call on a spoken sentence, never "Use every target word" by string match alone.
+- **Guard**: on a spoken answer a tip or headline that complains about punctuation or "split into separate sentences"
+  (`punctuationComplaint`) is dropped — the headline becomes the neutral / plain one (`normalizeAnswerCheck(…, spoken)`;
+  Lab `LessonAnswerCheck.normalize(…, spoken)`).
+- Caches: `ANSWER_CHECK_VERSION` 6, `SPEAKING_CHECK_VERSION` 2, `SENTENCE_CHECK_VERSION` 2 — no punctuation-blaming verdict
+  is served again.
 
 ### Answer feedback: one line and a diff (every "how your answer differs" surface)
 

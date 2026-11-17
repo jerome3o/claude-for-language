@@ -189,7 +189,7 @@ describe('speaking: which answers', () => {
     const long = '我们团队最近忙到没有时间吃午饭。'.repeat(100);
     const r = pickAnswerCheckInput({ prompt_en: ANNIE, answer: long, exercise_type: 'oral_expression', input: 'spoken', hints: ['就是', 7, '就在'], question_audio: '她是谁？' });
     if ('problems' in r) throw new Error(r.problems.join());
-    expect(r.input.answer.length).toBe(1500);
+    expect(r.input.answer.length).toBe(1500 - 93); // the long take, its recogniser's 。 scrubbed (a pause is never grammar)
     expect(r.input.model_answer).toBe('');
     expect(r.input.hints).toEqual(['就是', '就在']);
     expect(r.input.question_audio).toBe('她是谁？');
@@ -199,7 +199,7 @@ describe('speaking: which answers', () => {
   it('cache text: its own version, hints and question count, punctuation does not', () => {
     const base = { prompt_en: ANNIE, model_answer: '', answer: SAID, exercise_type: 'oral_expression', input: 'spoken' as const };
     const t = answerCheckCacheText(base);
-    expect(t.startsWith('s1|oral_expression|')).toBe(true);
+    expect(t.startsWith('s2|oral_expression|')).toBe(true);
     expect(answerCheckCacheText({ ...base, answer: SAID.replace(/[，。？]/g, ' ') })).toBe(t);
     expect(answerCheckCacheText({ ...base, hints: ['就是'] })).not.toBe(t);
   });
@@ -353,7 +353,7 @@ describe('sanity rules (Jerome, Nov 2026: "因为 clause should come before the 
   });
 
   it('the cache text carries the new version, so the bad v2 / v3 checks are never served again', () => {
-    expect(ANSWER_CHECK_VERSION).toBe(5);
-    expect(answerCheckCacheText({ prompt_en: 'x', model_answer: model, answer, exercise_type: 'translate', input: 'spoken' })).toMatch(/^v5\|/);
+    expect(ANSWER_CHECK_VERSION).toBe(6);
+    expect(answerCheckCacheText({ prompt_en: 'x', model_answer: model, answer, exercise_type: 'translate', input: 'spoken' })).toMatch(/^v6\|/);
   });
 });

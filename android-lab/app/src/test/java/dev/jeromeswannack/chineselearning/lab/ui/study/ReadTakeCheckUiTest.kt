@@ -65,7 +65,7 @@ class ReadTakeCheckUiTest : LabScreenshotTest() {
         assertEquals("read_aloud", asked[0].exerciseType)
         assertEquals("spoken", asked[0].input)
         assertEquals(card, asked[0].modelAnswer)
-        assertEquals("我越学中文，越觉得英语很繁琐。", asked[0].answer)
+        assertEquals("我越学中文越觉得英语很繁琐", asked[0].answer) // a pause is never grammar: what Claude reads is scrubbed
         gate.complete(AnswerCheckResult(close, cached = false))
         compose.mainClock.advanceTimeBy(800)
         compose.onNodeWithTag("$YOU_SAID_TAG-close", useUnmergedTree = true).assertIsDisplayed()

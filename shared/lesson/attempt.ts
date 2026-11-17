@@ -9,7 +9,7 @@
  * by media key (see exerciseMediaKey) once the attempt is on the server.
  */
 
-import type { LessonSentence } from './types';
+import type { SentenceFeedback } from './sentenceCheck';
 import { parseAnswerCheck, type AnswerCheck, type AnswerTry } from './answerCheck';
 
 /** Handwriting as vector strokes — small, and re-drawable at any size. */
@@ -56,16 +56,8 @@ export interface HandwritingAnswer {
   engine?: string;
 }
 
-/** Claude's feedback on a sentence the learner made. */
-export interface SentenceFeedback {
-  verdict: 'correct' | 'minor' | 'incorrect';
-  /** Did the sentence use every target word? */
-  uses_all_words: boolean;
-  /** The corrected sentence (absent when already correct). */
-  corrected?: LessonSentence;
-  /** 1-3 sentences in English. */
-  comment: string;
-}
+/** Claude's feedback on a sentence the learner made (shared/lesson/sentenceCheck.ts). */
+export type { SentenceFeedback } from './sentenceCheck';
 
 export interface ExerciseAnswer {
   /** Typed text (translate, writing, dictation, sentence making, listen & translate). */
@@ -304,6 +296,15 @@ function cleanAnswer(v: unknown): ExerciseAnswer | undefined {
           ? { hanzi: f.corrected.hanzi.slice(0, 300), pinyin: str(f.corrected.pinyin, 500), english: str(f.corrected.english, 500) }
           : undefined,
       };
+      // v2 (shared/lesson/sentenceCheck.ts): the grade and its lines.
+      if (f.grade === 'right' || f.grade === 'needs_work' || f.grade === 'wrong') out.feedback.grade = f.grade;
+      const headline = str(f.headline, 200);
+      const reason = str(f.reason, 400);
+      const more = str(f.more, 1000);
+      if (headline) out.feedback.headline = headline;
+      if (reason) out.feedback.reason = reason;
+      if (more) out.feedback.more = more;
+      if (typeof f.fixable === 'boolean') out.feedback.fixable = f.fixable;
     }
   }
   // A word order Claude checked (shared/lesson/scrambleCheck.ts) carries its check with the order, no text.

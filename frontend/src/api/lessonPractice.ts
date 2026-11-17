@@ -5,6 +5,8 @@
  */
 
 import type { CustomLessonSpec, LessonAttemptData, SentenceFeedback } from '@shared/lesson';
+import { sentenceCheckCacheText, type SentenceFix } from '@shared/lesson/sentenceCheck';
+import { spokenCheckAnswer } from '@shared/cards/answer';
 import { API_BASE, getAuthHeaders } from './client';
 
 const API_PATH = `${API_BASE}/api`;
@@ -18,34 +20,59 @@ async function getJSON<T>(url: string): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-export class FeedbackUnavailable extends Error {}
+export class FeedbackUnavailable extends Error {
+  /** offline = no connection (vs Claude busy / declined / not set up). */
+  constructor(message: string, readonly offline = false) { super(message); }
+}
 
-/**
- * Claude's verdict on a sentence the learner made. Retries once when the
- * server says Claude is busy (503); throws FeedbackUnavailable when there is
- * no answer to be had (offline, no API key, declined) so the exercise falls
- * back to self-assessment.
- */
-export async function checkMadeSentence(words: string[], task: string | undefined, sentence: string): Promise<SentenceFeedback> {
-  if (!navigator.onLine) throw new FeedbackUnavailable('offline');
+type SentenceInputMode = 'spoken' | 'edited' | 'typed';
+
+/** POST a sentence call; retries once on a retryable 503; throws FeedbackUnavailable when there is no answer to be had. */
+async function postSentence<T>(path: string, body: Record<string, unknown>): Promise<T> {
+  if (!navigator.onLine) throw new FeedbackUnavailable('offline', true);
   for (let attempt = 0; attempt < 2; attempt++) {
     let response: Response;
     try {
-      response = await fetch(`${API_PATH}/lessons/sentence-feedback`, {
+      response = await fetch(`${API_PATH}${path}`, {
         method: 'POST',
         credentials: 'include',
         headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ words, task, sentence }),
+        body: JSON.stringify(body),
       });
     } catch {
-      throw new FeedbackUnavailable('network');
+      throw new FeedbackUnavailable('network', true);
     }
-    if (response.ok) return ((await response.json()) as { feedback: SentenceFeedback }).feedback;
-    const body = await response.json().catch(() => ({})) as { error?: string; retryable?: boolean };
-    if (response.status === 503 && body.retryable && attempt === 0) continue;
-    throw new FeedbackUnavailable(body.error || `HTTP ${response.status}`);
+    if (response.ok) return (await response.json()) as T;
+    const err = await response.json().catch(() => ({})) as { error?: string; retryable?: boolean };
+    if (response.status === 503 && err.retryable && attempt === 0) continue;
+    throw new FeedbackUnavailable(err.error || `HTTP ${response.status}`);
   }
   throw new FeedbackUnavailable('busy');
+}
+
+/**
+ * Claude's grade of a sentence the learner made (right / needs_work / wrong; shared/lesson/sentenceCheck.ts). A spoken
+ * sentence is sent with `input` so the server reads it without the recogniser's punctuation. Throws
+ * FeedbackUnavailable when there is no answer (offline, no API key, declined) → the exercise self-assesses.
+ */
+export async function checkMadeSentence(
+  words: string[], task: string | undefined, sentence: string, input?: SentenceInputMode | null,
+): Promise<{ feedback: SentenceFeedback; cached: boolean; ms?: number }> {
+  const r = await postSentence<{ feedback: SentenceFeedback; cached?: boolean; ms?: number }>('/lessons/sentence-feedback', { words, task, sentence, input: input ?? undefined });
+  return { feedback: r.feedback, cached: !!r.cached, ms: r.ms };
+}
+
+/** ✨ Show a fixed version: his sentence minimally fixed. Cached per (exercise, sentence) on the device for the session. */
+const fixCache = new Map<string, SentenceFix>();
+export async function fixMadeSentence(
+  words: string[], task: string | undefined, sentence: string, input?: SentenceInputMode | null,
+): Promise<{ fix: SentenceFix; cached: boolean }> {
+  const key = sentenceCheckCacheText({ words, task, sentence: spokenCheckAnswer(sentence, input) }, 'fix');
+  const hit = fixCache.get(key);
+  if (hit) return { fix: hit, cached: true };
+  const r = await postSentence<{ fix: SentenceFix; cached?: boolean }>('/lessons/sentence-fix', { words, task, sentence, input: input ?? undefined });
+  fixCache.set(key, r.fix);
+  return { fix: r.fix, cached: !!r.cached };
 }
 
 export interface AttemptSummary {

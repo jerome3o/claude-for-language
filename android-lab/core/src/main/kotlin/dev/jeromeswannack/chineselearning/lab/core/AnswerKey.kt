@@ -378,6 +378,32 @@ object AnswerKey {
         return jsTrim(DOUBLE_SPACES.replace(t, " "))
     }
 
+    private val SCRUB_CJK_MARKS = Regex("[。．！？，、；：…～·]+")
+    private val SCRUB_ASCII_MARKS = Regex("(?<![0-9])[.!?,;:~]+|[.!?,;:~]+(?![0-9])")
+    private val SCRUB_SPACE_HAN = Regex("(?<=\\p{IsHan})[$JS_WS]+(?=[\\p{IsHan}0-9])|(?<=[0-9])[$JS_WS]+(?=\\p{IsHan})")
+    private val SCRUB_WS = Regex("[$JS_WS]+")
+    private val HAS_HAN = Regex("\\p{IsHan}")
+
+    /**
+     * Port of `scrubSpokenTranscript`: a SPOKEN answer as every check reads it — the recogniser's pause marks
+     * (。，、！？；：… and their ASCII forms; a dot between two digits kept), quote marks and the spaces between Chinese
+     * characters go (我不知道。 我妹妹有，不有新电脑。 → 我不知道我妹妹有不有新电脑); other spaces collapse. No Chinese →
+     * only trimmed. What a model is sent, its cache key and the lessons' "You said".
+     */
+    fun scrubSpokenTranscript(transcript: String): String {
+        val text = jsTrim(transcript)
+        if (!HAS_HAN.containsMatchIn(text)) return text
+        var t = stripSpokenQuotes(text)
+        t = SCRUB_CJK_MARKS.replace(t, " ")
+        t = SCRUB_ASCII_MARKS.replace(t, " ")
+        t = SCRUB_SPACE_HAN.replace(t, "")
+        return jsTrim(SCRUB_WS.replace(t, " "))
+    }
+
+    /** Port of `spokenCheckAnswer`: spoken / edited → [scrubSpokenTranscript], typed → trimmed. */
+    fun spokenCheckAnswer(text: String, input: String?): String =
+        if (input == "spoken" || input == "edited") scrubSpokenTranscript(text) else jsTrim(text)
+
     /**
      * Port of `tidySpokenTranscript`: what was said, as shown and used as the answer — the
      * recogniser's trailing 。 (撤销。 / chè xiāo。) is dropped when the card's answer doesn't end in
