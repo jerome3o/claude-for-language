@@ -225,8 +225,14 @@ class ListenContextUiTest : LabScreenshotTest() {
      * own sentence where it was, with its badge — then the rest (the contrived one last, as always).
      */
     @Test fun answerSideKeepsTheQuestionsOrder() {
+        // A showing whose shuffle moved the card's own sentence off the top (so the check means something).
+        val seed = (1..50).map { "shuffle-$it" }.first { sd ->
+            ListenContext.pick(listenRows(view()), emptyMap(), sd, Samples.note.hanzi).rows.first().key != clueKey
+        }
+        ListenSeeds.fixed = seed
         screen(dark = true)
-        val question = order().map { it.hanzi }
+        val question = ListenContext.pick(listenRows(view()), emptyMap(), seed, Samples.note.hanzi).rows.map { it.hanzi }
+        assertTrue(question.first() != "你周末打算做什么？")
         // EN on every row, so the screenshot says which sentence is where.
         for (i in 0 until question.size) compose.onAllNodesWithTag(LISTEN_EN_TAG)[i].performClick()
         shot("study-listen-10-question-order")
@@ -237,6 +243,9 @@ class ListenContextUiTest : LabScreenshotTest() {
         val answer = answerRowHanzi(view())
         assertEquals(question, answer.take(question.size))
         assertEquals("他算了算钱，打算买那辆车。", answer.last())
+        // The list on screen: scrolled down to the last of the question's sentences.
+        compose.onAllNodesWithText(question.last(), useUnmergedTree = true)[0].performScrollTo()
+        compose.mainClock.advanceTimeBy(400)
         shot("study-listen-11-answer-matches")
     }
 

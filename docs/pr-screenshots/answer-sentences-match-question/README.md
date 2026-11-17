@@ -8,7 +8,7 @@ Phone viewport (412×915 @2×). Lab app in the dark theme, web app in the light 
 Lab, listening card: "Listen in context" in this showing's shuffled order. EN is opened on every row so you can see which sentence is which.
 
 ![Lab: the answer side, the same sentences in the same order](lab-02-listen-answer-dark.png)
-Lab, the answer side after Show all: the same sentences in the same order. "From the card" moved with its row.
+Lab, the answer side after Show all: 你打算什么时候回家 · 我打算学中文 · 你周末打算做什么. That is the same order as the question side, including the card's own sentence in third place.
 
 ![Lab: the Sentence round](lab-03-round-question-dark.png)
 Lab, Hard mode's Sentence round on a reading card. The card's own sentence is not in the round.
