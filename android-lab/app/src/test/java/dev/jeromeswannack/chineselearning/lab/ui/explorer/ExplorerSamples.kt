@@ -74,17 +74,23 @@ object ExplorerSamples {
         ownCards: Map<String, dev.jeromeswannack.chineselearning.lab.data.chars.OwnCardInfo> = emptyMap(),
         addActions: dev.jeromeswannack.chineselearning.lab.ui.study.SentenceActions = dev.jeromeswannack.chineselearning.lab.ui.study.SentenceActions(),
         bump: dev.jeromeswannack.chineselearning.lab.ui.bumps.BumpHanzi = { h, _ -> "⚡ ${h.first()} is in today's study" },
+        /** The word dictionary; default = [word] at once. */
+        wordLookup: (suspend (String) -> WordDict.Lookup)? = null,
+        gloss: suspend (String, String?) -> Pair<String, String>? = { _, _ -> null },
+        /** Online as it changes; default = [online]. */
+        onlineNow: (() -> Boolean)? = null,
     ) = ExplorerEnv(
         chars = CharSheetActions(
             lookup = { c -> records[c]?.let { CharDict.Lookup.Ok(it) } ?: CharDict.Lookup.Missing },
             statuses = { words, _ -> words.map { dev.jeromeswannack.chineselearning.lab.core.CharWordRow(it, statuses[it.hanzi] ?: CharWordStatus.None, emptyList(), false) } },
         ),
-        wordLookup = { word },
+        wordLookup = wordLookup ?: { word },
+        gloss = gloss,
         myWord = myWord ?: { _, _ -> mine },
         ownCards = { cs -> cs.associateWith { ownCards[it] ?: dev.jeromeswannack.chineselearning.lab.data.chars.OwnCardInfo(CharWordStatus.None, emptyList(), emptyList()) } },
         rank = { ranks[it] },
         decal = decals,
-        online = { online },
+        online = onlineNow ?: { online },
         canWrite = true,
         bump = bump,
         addActions = addActions,

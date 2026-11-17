@@ -7,6 +7,7 @@ import {
   prefetchSentenceSets,
   explainNoteSentence,
   explainSentenceText,
+  translateNoteSentence,
   ensureSentenceAudio as ensureSentenceAudioApi,
   topUpSentenceSetsApi,
   GenerateSentenceSetOptions,
@@ -15,6 +16,7 @@ import { SentenceBriefExplanation } from '../types';
 import { preCacheAudio } from './audioCache';
 import { isEffectivelyOffline } from './offlineMode';
 import { listenContextRows, listenNaturalCount, needsSentenceTopUp } from '@shared/study/listenContext';
+import { withCardSentence, type NoteCardSentenceFields } from '@shared/study/cardSentence';
 import { isContrivedSentence } from '@shared/study/sentenceFocus';
 
 /**
@@ -49,16 +51,32 @@ function toLocal(sentence: NoteSentence): LocalNoteSentence {
     focus: (sentence.focus as string | null) ?? null,
     focus_note: sentence.focus_note,
     explanation: sentence.explanation ?? null,
+    is_card: sentence.is_card ? 1 : 0,
     created_at: sentence.created_at,
     updated_at: sentence.updated_at,
     _synced_at: Date.now(),
   };
 }
 
-/** A note's sentence set from the local cache, easiest first. */
+/** A note's sentence rows as stored on the device (the card's own row first, by position). */
 export async function getLocalNoteSentences(noteId: string): Promise<LocalNoteSentence[]> {
   const rows = await db.noteSentences.where('note_id').equals(noteId).toArray();
   return rows.sort((a, b) => a.position - b.position);
+}
+
+/**
+ * A note's sentences as ONE list for every reader (the card's list, the Sentence round, Listen in context):
+ * the card's own sentence row first, then the set — the card row made from the note when this device has
+ * none for it yet (shared/study/cardSentence.ts `withCardSentence`), so it shows offline right after a sync.
+ */
+export async function getNoteSentenceRows(
+  noteId: string,
+  note: NoteCardSentenceFields | null | undefined,
+): Promise<LocalNoteSentence[]> {
+  const local = await getLocalNoteSentences(noteId);
+  return withCardSentence(note ?? null, local).map((r) =>
+    '_synced_at' in r ? (r as LocalNoteSentence) : { ...r, created_at: '', updated_at: '', _synced_at: 0 } as LocalNoteSentence
+  );
 }
 
 /** How many sentences each of these notes has locally (for badges/counts). */
@@ -92,8 +110,9 @@ export async function putLocalNoteSentences(
   return rows.sort((a, b) => a.position - b.position);
 }
 
+/** Drop a note's generated set on the device (its card sentence row stays, as on the server). */
 export async function clearLocalNoteSentences(noteId: string): Promise<void> {
-  const existing = await db.noteSentences.where('note_id').equals(noteId).primaryKeys();
+  const existing = await db.noteSentences.where('note_id').equals(noteId).filter((r) => !r.is_card).primaryKeys();
   if (existing.length > 0) await db.noteSentences.bulkDelete(existing);
 }
 
@@ -230,25 +249,31 @@ export async function syncSentenceSets(): Promise<{ synced: number }> {
   }
   const data = (await response.json()) as {
     sentences: NoteSentence[];
+    /** Every note these rows are for, a note left with none included (null / absent on a full dump). */
+    note_ids?: string[] | null;
     server_time: string;
   };
 
   const sentences = data.sentences || [];
-  if (sentences.length > 0) {
-    // Group by note so each touched note's local set is replaced wholesale —
-    // that also drops rows the server no longer has (e.g. a shorter new set).
-    const byNote = new Map<string, NoteSentence[]>();
-    for (const sentence of sentences) {
-      const list = byNote.get(sentence.note_id);
-      if (list) list.push(sentence);
-      else byNote.set(sentence.note_id, [sentence]);
-    }
-
+  // Group by note so each touched note's local rows are replaced wholesale — that also drops rows the
+  // server no longer has (a shorter new set, a removed card sentence: `note_ids` lists that note too).
+  const byNote = new Map<string, NoteSentence[]>();
+  for (const noteId of data.note_ids ?? []) byNote.set(noteId, []);
+  for (const sentence of sentences) {
+    const list = byNote.get(sentence.note_id);
+    if (list) list.push(sentence);
+    else byNote.set(sentence.note_id, [sentence]);
+  }
+  if (byNote.size > 0 || !since) {
     await db.transaction('rw', db.noteSentences, async () => {
+      // A full dump is everything the account has: rows of any other note are stale.
+      if (!since) await db.noteSentences.clear();
       for (const [noteId, rows] of byNote) {
-        const existing = await db.noteSentences.where('note_id').equals(noteId).primaryKeys();
-        if (existing.length > 0) await db.noteSentences.bulkDelete(existing);
-        await db.noteSentences.bulkPut(rows.map(toLocal));
+        if (since) {
+          const existing = await db.noteSentences.where('note_id').equals(noteId).primaryKeys();
+          if (existing.length > 0) await db.noteSentences.bulkDelete(existing);
+        }
+        if (rows.length > 0) await db.noteSentences.bulkPut(rows.map(toLocal));
       }
     });
   }
@@ -300,11 +325,10 @@ export async function topUpSentenceSets(): Promise<{ queued: number; remaining: 
 /** Notes a listening top-up was asked for this session (the server keeps its own once-a-day rule). */
 const topUpAsked = new Set<string>();
 
-/** Card sentence + set rows, counted like the "Listen in context" list (a repeated card sentence once). */
-export async function countListenSentences(noteId: string, clue: string | null | undefined): Promise<number> {
-  const rows = await getLocalNoteSentences(noteId);
+/** The note's sentence rows (its card sentence included), counted like the "Listen in context" list. */
+export async function countListenSentences(noteId: string, note: NoteCardSentenceFields | null | undefined): Promise<number> {
   // Natural sentences only: a contrived row (sentenceFocus.ts) never makes "enough".
-  return listenNaturalCount(listenContextRows(noteId, { hanzi: clue }, rows));
+  return listenNaturalCount(listenContextRows(await getNoteSentenceRows(noteId, note)));
 }
 
 /**
@@ -320,7 +344,7 @@ export async function topUpListeningSentences(noteIds: string[]): Promise<number
     if (topUpAsked.has(noteId)) continue;
     const note = await db.notes.get(noteId);
     if (!note) continue;
-    if (!needsSentenceTopUp(await countListenSentences(noteId, note.sentence_clue))) continue;
+    if (!needsSentenceTopUp(await countListenSentences(noteId, note))) continue;
     ask.push(noteId);
   }
   if (ask.length === 0) return 0;
@@ -387,7 +411,8 @@ async function getUpcomingNoteIds(limit = 120): Promise<string[]> {
  * local row, so a second tap is instant and works offline.
  */
 export async function getSentenceExplanation(
-  sentenceId: string
+  sentenceId: string,
+  hanzi?: string,
 ): Promise<SentenceBriefExplanation> {
   const local = await db.noteSentences.get(sentenceId);
   if (local?.explanation) {
@@ -396,6 +421,13 @@ export async function getSentenceExplanation(
     } catch {
       // Corrupt cache — fall through and refetch
     }
+  }
+  // The same text explained before by its text (the card's own sentence before it was a row, the Coach's Explain):
+  // that breakdown, offline too.
+  const byText = hanzi ? await getCachedTextExplanation(hanzi) : null;
+  if (byText) {
+    if (local) await db.noteSentences.update(sentenceId, { explanation: JSON.stringify(byText) });
+    return byText;
   }
 
   const explanation = await explainNoteSentence(sentenceId);
@@ -406,9 +438,9 @@ export async function getSentenceExplanation(
 }
 
 /**
- * Same breakdown for a sentence with no row of its own — the card's example
- * sentence. Cached locally by its text, so it is instant and offline after the
- * first look, and a regenerated clue simply gets a new cache key.
+ * Same breakdown for a sentence with no row of its own (a chat message, the Coach's Explain). Cached
+ * locally by its text, so it is instant and offline after the first look. The card's own sentence is a
+ * row (`getSentenceExplanation`).
  */
 export async function getTextExplanation(sentence: {
   hanzi: string;
@@ -433,7 +465,7 @@ export async function getCachedTextExplanation(hanzi: string): Promise<SentenceB
   }
 }
 
-/** Keep a breakdown by its sentence text (shared by the card's clue and the Coach's Explain). */
+/** Keep a breakdown by its sentence text (the Coach's Explain, chat messages). */
 export async function cacheTextExplanation(hanzi: string, explanation: SentenceBriefExplanation): Promise<void> {
   try {
     await db.sentenceTextExplanations.put({
@@ -446,64 +478,47 @@ export async function cacheTextExplanation(hanzi: string, explanation: SentenceB
   }
 }
 
-/** Where a card sentence's fetched English is kept (beside the breakdowns, keyed by the text). */
-export function clueTranslationKey(hanzi: string): string {
-  return `translation:${hanzi}`;
-}
-
 /**
- * The English this device already holds for a card sentence that has none on
- * the note (many clues were written without one): the breakdown's one-line
- * translation when it was explained here, else one fetched earlier by
- * {@link getClueTranslation}. Null when neither — offline that means "needs a
- * connection".
+ * The English of a row this device already holds: the row's own, else its cached breakdown's one-line
+ * translation. Null when neither — offline that means "needs a connection".
  */
-export async function getCachedClueTranslation(hanzi: string): Promise<string | null> {
-  const fromBreakdown = (await getCachedTextExplanation(hanzi))?.translation?.trim();
-  if (fromBreakdown) return fromBreakdown;
+export function cachedSentenceTranslation(row: { translation?: string | null; explanation?: string | null }): string | null {
+  const own = row.translation?.trim();
+  if (own) return own;
+  if (!row.explanation) return null;
   try {
-    const row = await db.sentenceTextExplanations.get(clueTranslationKey(hanzi));
-    if (!row) return null;
-    const parsed = JSON.parse(row.explanation) as { translation?: string };
-    return parsed.translation?.trim() || null;
+    return (JSON.parse(row.explanation) as SentenceBriefExplanation).translation?.trim() || null;
   } catch {
     return null;
   }
 }
 
 /**
- * The English line for a card sentence with no translation on the note: the
- * same `/api/sentences/explain-text` breakdown "What's going on here?" uses
- * carries a one-line translation. Only the translation is kept (so opening the
- * row later doesn't unfold a breakdown nobody asked for); cached by text, so
- * it is instant and offline after the first time.
+ * The English line of a row that has none (many card sentences were written without one):
+ * `POST /api/sentences/:id/translate` (the breakdown's one-line translation, kept on the row server-side).
+ * Cached on the local row, so it is instant and offline after the first time. One request per row at a time.
  */
-export function getClueTranslation(sentence: { hanzi: string; pinyin?: string | null }): Promise<string> {
-  // One request per sentence at a time (a re-render or a second list asking again shares it).
-  const pending = clueTranslationsInFlight.get(sentence.hanzi);
+export function getSentenceTranslation(row: { id: string; translation?: string | null; explanation?: string | null }): Promise<string> {
+  const have = cachedSentenceTranslation(row);
+  if (have) return Promise.resolve(have);
+  const pending = translationsInFlight.get(row.id);
   if (pending) return pending;
-  const request = fetchClueTranslation(sentence).finally(() => clueTranslationsInFlight.delete(sentence.hanzi));
-  clueTranslationsInFlight.set(sentence.hanzi, request);
+  const request = fetchSentenceTranslation(row.id).finally(() => translationsInFlight.delete(row.id));
+  translationsInFlight.set(row.id, request);
   return request;
 }
 
-const clueTranslationsInFlight = new Map<string, Promise<string>>();
+const translationsInFlight = new Map<string, Promise<string>>();
 
-async function fetchClueTranslation(sentence: { hanzi: string; pinyin?: string | null }): Promise<string> {
-  const cached = await getCachedClueTranslation(sentence.hanzi);
+async function fetchSentenceTranslation(sentenceId: string): Promise<string> {
+  const local = await db.noteSentences.get(sentenceId).catch(() => undefined);
+  const cached = local ? cachedSentenceTranslation(local) : null;
   if (cached) return cached;
-  const explanation = await explainSentenceText({ hanzi: sentence.hanzi, pinyin: sentence.pinyin ?? null });
-  const translation = explanation.translation?.trim();
+  // Only the line is kept (here and on the server): opening the row later must not unfold a breakdown
+  // nobody asked for.
+  const translation = (await translateNoteSentence(sentenceId))?.trim();
   if (!translation) throw new Error('No translation came back');
-  try {
-    await db.sentenceTextExplanations.put({
-      key: clueTranslationKey(sentence.hanzi),
-      explanation: JSON.stringify({ translation }),
-      cached_at: Date.now(),
-    });
-  } catch (err) {
-    console.warn('[sentence-sets] Could not cache the translation:', err);
-  }
+  await db.noteSentences.update(sentenceId, { translation }).catch(() => 0);
   return translation;
 }
 

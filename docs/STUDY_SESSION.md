@@ -1789,10 +1789,10 @@ The question side of an **audio → hanzi** card is a short list of the note's s
 picked fresh for this showing and shuffled** (below) — as **audio-only rows**: ▶, the row's number,
 a small dot while a sentence never heard here waits, and a ✓ once heard. The Chinese, the pinyin and the English
 stay hidden (they would give the answer away); **EN** on a row shows just that row's English, a hint,
-never the characters. The card's own sentence always has EN, even when the note carries no English
-for it (~⅓ of notes — MCP-added / older; Nov 2026: row 1 had no EN): the line is fetched on the tap
-like the sentence list's clue row (`getClueTranslation` / Lab `SentenceActions.translate`, cached by
-text — offline once fetched), "…" while it comes, "Translation needs a connection" offline. Under the list **+ More sentences** (online) writes more for the note
+never the characters. Every row has EN, even one with no English (~⅓ of card sentences — MCP-added /
+older; Nov 2026: row 1 had no EN): the line is fetched on the tap like the sentence list's
+(`getSentenceTranslation` → `POST /api/sentences/:id/translate` / Lab `CardTools.rowTranslation`, kept on
+the row — offline once fetched), "…" while it comes, "Translation needs a connection" offline. Under the list **+ More sentences** (online) writes more for the note
 (`POST /api/notes/:id/sentences/generate { count, keepExisting: true }`, enough to reach about 8, at
 least 3); the new rows appear when they are made, their clips through ensure-audio ("Audio coming…"
 on ▶ while one is being made). At the bottom **▶ The word** (the note's clip / voices in turn, as
@@ -2534,7 +2534,9 @@ truth on every device: written on the device first (web: own IndexedDB `sentence
 the account's own notes only) and fetched back from `GET /api/me/sentence-practice?since=` in every sync
 (D1 `sentence_practice_events`, migration 0138; account deletion removes them). Each device folds a note's
 events into per-sentence stats (`sentenceStats`: attempts / rights / misses / last time per mode, hidden).
-The sentence key is the set row's id, or `clue` for the note's own sentence.
+The sentence key is the row's id — the card's own sentence is the row `<note>-card` (see "Example sentences — one
+model"); events written before Nov 2026 carry `clue` for it and are folded into that id (`canonicalSentenceKey`), and so
+are a resume point's `listen_shown` keys and the last Listen-in-context set saved as `clue:<note>`.
 
 - **Fresh sentences first** (Nov 2026, Jerome: "I'm just memorizing new sentences"): each of the round's four
   slots (read, translate, read, translate) takes a FRESH sentence first — never practised in EITHER mode, not
@@ -2568,6 +2570,38 @@ The sentence key is the set row's id, or `clue` for the note's own sentence.
   `SentenceRoundUi.kt`, `Sentences.kt`. Worker `routes/sentence-practice.ts`, `services/sentence-practice.ts`.
   Analytics `study.sentence_hidden { reason, where, unhidden }`, `study.sentence_topup_requested { why,
   queued }`, `server.sentence_practice_events { count }`.
+
+### Example sentences — one model (the card's own sentence is a row)
+
+Jerome (Nov 2026): *"the first example sentence is coded differently and embedded differently … have it just
+another one of the example sentences."* Since migration 0154 the card's own sentence (what the card standard calls
+`sentence_clue`) is a **`note_sentences` row** like every generated one: id **`<note id>-card`** (deterministic — a
+device can make the same row from a note it cached earlier), **`is_card = 1`**, **position −1** (first; the set keeps
+0..n), its clip the SAME R2 key the note had (nothing regenerated). Rules: `shared/study/cardSentence.ts` (Lab core
+`CardSentence.kt`, parity-tested `parity/fixtures/card-sentence.ts`).
+
+- **Every reader takes rows**: the answer side's list (`SentenceSet`, Lab `sentenceRows`), the Sentence round
+  (`roundSentences(rows)`), Listen in context (`listenContextRows(rows)`), the practice history (key = row id),
+  explanations (`/api/sentences/:id/explain`, cached on the row), the English of a row without one
+  (`POST /api/sentences/:id/translate` — only the line is kept), ▶ with no clip (`/api/sentences/:id/ensure-audio`; the
+  card row's clip is made through its note's), counts and top-ups. "From the card" is a badge drawn from `is_card`.
+  Gone: the clue row synthesised beside the set, `clue:<note>` keys, the clue-only explain-text / translation caches
+  (`getClueTranslation`, Lab `clueTranslation`), the Listen-in-context `device` state.
+- **Offline right after a sync**: `withCardSentence(note, rows)` puts the card row first — the stored one, or one made
+  from the note's (deprecated) fields while the device has none / holds an older text (a device that synced before
+  the migration, an edit not synced back yet, the editor's unsaved text). That is the only display read of the old
+  fields. Web `getNoteSentenceRows` (no Dexie bump: `is_card` isn't indexed); Lab Room v14 `sentences.isCard`.
+- **Writing it**: still through the note's `sentence_clue` / `_pinyin` / `_translation` fields (the editor, Claude's
+  `edit_current_card` / `create_flashcards`, the MCP tools, paste a list, copies, older app builds). Every DB write of
+  those fields is followed by `syncCardSentences` (worker `db/card-sentence.ts`), and `/api/sentences/changes`
+  reconciles the caller's recently changed notes before it reads; regenerating / clearing a set never touches the
+  card row; top-ups append after it.
+- **Sync**: `/api/sentences/changes` hands out whole notes (every row of a note one of whose rows — or the note —
+  changed) plus `note_ids` (a note left with no row included), so a removed card sentence leaves every device.
+- **Transition**: the `notes.sentence_clue*` columns stay as a mirror the worker keeps identical to the row (API
+  responses, older builds, MCP). Drop them once no supported build reads them (web: next deploy; Lab: once every
+  installed Lab build is ≥ the one with Room v14) — then the API projects `sentence_clue*` from the row and the
+  `clue` clip kind becomes the row's.
 
 ### Natural sentences (no sentences built around a look-alike)
 

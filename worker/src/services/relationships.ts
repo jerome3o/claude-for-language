@@ -1,4 +1,5 @@
 import { insertNoteCopy } from '../db/queries';
+import { syncCardSentences } from '../db/card-sentence';
 import { getKnownCounts } from './known-counts';
 import { sqliteDayModifier } from '../../../shared/study/studyDay';
 import { getStudyDayUser, userProgressShiftMinutes } from './study-day';
@@ -1295,6 +1296,8 @@ export async function updateSharedDeckCopy(
           .prepare(`UPDATE notes SET ${changes.map(ch => `${ch.column} = ?`).join(', ')}, updated_at = datetime('now') WHERE id = ?`)
           .bind(...changes.map(ch => ch.value), existing.id)
           .run();
+        // The copy's card sentence row follows its (possibly new) sentence (db/card-sentence.ts).
+        if (changes.some(ch => ch.column.startsWith('sentence_clue'))) await syncCardSentences(db, [existing.id]);
         updated++;
       }
       continue;

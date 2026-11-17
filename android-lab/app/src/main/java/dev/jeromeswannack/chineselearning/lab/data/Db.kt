@@ -129,6 +129,10 @@ data class ReviewEventEntity(
     val synced: Boolean,
 )
 
+/**
+ * One example sentence of a note. The card's own sentence is one of them (core CardSentence.kt, server
+ * migration 0154): id `<note>-card`, [isCard], position −1 (v14).
+ */
 @Entity(tableName = "sentences", indices = [Index("noteId")])
 data class SentenceEntity(
     @PrimaryKey val id: String,
@@ -140,6 +144,7 @@ data class SentenceEntity(
     val audioUrl: String?,
     val focus: String?,
     val focusNote: String?,
+    @androidx.room.ColumnInfo(defaultValue = "0") val isCard: Boolean = false,
 )
 
 /**
@@ -335,6 +340,11 @@ interface LabDao {
     @Query("DELETE FROM sentences WHERE noteId IN (:noteIds)") suspend fun deleteSentencesOf(noteIds: List<String>)
     @Upsert suspend fun upsertSentences(sentences: List<SentenceEntity>)
     @Query("DELETE FROM sentences WHERE noteId NOT IN (SELECT id FROM notes)") suspend fun deleteOrphanSentences()
+    @Query("DELETE FROM sentences") suspend fun deleteAllSentences()
+    /** A note's generated set (its card sentence row stays, as on the server). */
+    @Query("DELETE FROM sentences WHERE noteId = :noteId AND isCard = 0") suspend fun deleteSetOf(noteId: String)
+    /** A row's English fetched through its breakdown (rows written without one — many card sentences). */
+    @Query("UPDATE sentences SET translation = :translation WHERE id = :id AND (translation IS NULL OR translation = '')") suspend fun setSentenceTranslation(id: String, translation: String)
 
     // study bumps ("⚡ Study it today", data/bumps/BumpStore.kt)
     @Query("SELECT * FROM study_bumps") suspend fun studyBumps(): List<StudyBumpEntity>
@@ -382,7 +392,7 @@ interface LabDao {
         CardHoldEntity::class,
         CardForgetEntity::class,
     ],
-    version = 13,
+    version = 14,
     exportSchema = true,
 )
 abstract class LabDatabase : RoomDatabase() {

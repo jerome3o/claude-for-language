@@ -467,6 +467,46 @@
   width: 100%;
 }
 
+/* "+ Add as card" with no meaning (offline, or a word the dictionary lacks): the meaning to type. */
+.xp-fill {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.xp-fill-q {
+  font-size: 1.0625rem;
+  font-weight: 600;
+}
+
+.xp-fill-hint {
+  font-size: 0.875rem;
+  color: var(--color-text-light);
+}
+
+.xp-fill-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.8125rem;
+  color: var(--color-text-light);
+}
+
+.xp-fill-field input {
+  min-height: 44px;
+  font-size: 1rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md, 8px);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.xp-fill-field input:focus {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -1px;
+}
+
 /* ── ExplorableText ── */
 .xt-tap {
   cursor: pointer;

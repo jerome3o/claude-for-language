@@ -48,7 +48,7 @@ class SentenceRoundExplorerTest : LabScreenshotTest() {
         SentenceEntity("s2", "n1", 1, "你知道这句话的来源吗？", "Nǐ zhīdào zhè jù huà de láiyuán ma?", "Do you know where this saying comes from?", null, "core", null),
         SentenceEntity("s3", "n1", 2, "新闻的来源要写清楚。", "Xīnwén de láiyuán yào xiě qīngchu.", "The source of the news must be written clearly.", null, "core", null),
     )
-    private val clueKey = clueRowKey("n1")
+    private val clueKey = cardRowKey("n1")
     private val prefs get() = StudyPrefs.get(ApplicationProvider.getApplicationContext())
     private val events = ArrayList<Pair<String, Map<String, Any?>>>()
     private val controller = ExplorerController(track = { e, p -> events += e to p })

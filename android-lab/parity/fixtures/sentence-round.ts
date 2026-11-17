@@ -50,15 +50,16 @@ for (let i = 0; i < 160; i++) {
   const n = Math.floor(r() * 9);
   const set: RoundSentence[] = Array.from({ length: n }, (_, k) => ({ key: `s${k}`, hanzi: HANZI[Math.floor(r() * HANZI.length)] + k, translation: translation() }));
   const clueKind = r();
-  const clue = clueKind < 0.3 ? null
-    : clueKind < 0.4 && n > 0 ? { key: 'clue:n1', hanzi: set[0].hanzi, translation: translation() }
-    : clueKind < 0.45 ? { key: 'clue:n1', hanzi: '  ', translation: 'x' }
-    : { key: 'clue:n1', hanzi: '我去银行。', translation: translation() };
-  const sentences = roundSentences({ clue, set });
+  // The note's rows as one list (shared/study/cardSentence.ts): sometimes its card row `n1-card` first.
+  const card = clueKind < 0.3 ? null
+    : clueKind < 0.4 && n > 0 ? { key: 'n1-card', hanzi: `${set[0].hanzi}。`, translation: translation() }
+    : { key: 'n1-card', hanzi: '我去银行。', translation: translation() };
+  const input = [...(card ? [card] : []), ...set];
+  const sentences = roundSentences(input);
   const exercises = pickRoundExercises(sentences);
   const rights = [[], exercises.slice(0, 1).map((e) => e.id), exercises.slice(1, 3).map((e) => e.id), [...exercises.map((e) => e.id), 'read:zzz'], ['read:zzz', 'translate:s0']];
   lists.push({
-    clue, set, sentences, exercises,
+    input, sentences, exercises,
     progress: rights.map((ids) => {
       const p = sentenceRoundProgress(exercises, ids);
       return { ids, progress: p, counter: sentenceRoundCounter(p), intro: sentenceRoundIntro(p, exercises.length), cheer: sentenceRoundCheer(p) };
@@ -74,11 +75,11 @@ const SMALL: Array<Array<[string, string | null]>> = [
 ];
 for (const small of SMALL) {
   const set: RoundSentence[] = small.map(([key, t]) => ({ key, hanzi: `${key}我只有周末才有时间。`, translation: t }));
-  const sentences = roundSentences({ clue: null, set });
+  const sentences = roundSentences(set);
   const exercises = pickRoundExercises(sentences);
   const rights = [[], exercises.slice(0, 1).map((e) => e.id), exercises.map((e) => e.id)];
   lists.push({
-    clue: null, set, sentences, exercises,
+    input: set, sentences, exercises,
     progress: rights.map((ids) => {
       const p = sentenceRoundProgress(exercises, ids);
       return { ids, progress: p, counter: sentenceRoundCounter(p), intro: sentenceRoundIntro(p, exercises.length), cheer: sentenceRoundCheer(p) };
@@ -88,7 +89,7 @@ for (const small of SMALL) {
 
 // The round on the answer side: marks, order, exercises back from the log.
 const RESULTS = [undefined, null, 'right', 'close', 'wrong'] as const;
-const IDS = ['read:a', 'translate:a', 'read:b', 'translate:c', 'read:clue:n1', 'translate:d', 'bogus', ':x', 'read:', 'listen:a'];
+const IDS = ['read:a', 'translate:a', 'read:b', 'translate:c', 'read:n1-card', 'translate:d', 'bogus', ':x', 'read:', 'listen:a'];
 const answerSide = [] as unknown[];
 for (let i = 0; i < 120; i++) {
   const log: RoundLogEntry[] = Array.from({ length: Math.floor(r() * 6) }, () => {
@@ -98,7 +99,7 @@ for (let i = 0; i < 120; i++) {
   });
   const right = IDS.filter(() => r() < 0.2);
   const marks = roundRowMarks(log, right);
-  const keys = ['a', 'b', 'c', 'd', 'clue:n1', 'e'].filter(() => r() < 0.8);
+  const keys = ['a', 'b', 'c', 'd', 'n1-card', 'e'].filter(() => r() < 0.8);
   const sentences = keys.map((k) => ({ key: k, hanzi: `${k}好`, translation: 'x' }));
   const hiddenKey = r() < 0.3 ? 'a' : null;
   answerSide.push({
@@ -181,7 +182,7 @@ for (let i = 0; i < 80; i++) {
   const n = Math.floor(r() * 7);
   const card = CARD_TEXTS[Math.floor(r() * CARD_TEXTS.length)];
   const sentences: RoundSentence[] = Array.from({ length: n }, (_, k) => ({
-    key: k === 0 && r() < 0.6 ? 'clue:n1' : `s${k}`,
+    key: k === 0 && r() < 0.6 ? 'n1-card' : `s${k}`,
     hanzi: r() < 0.35 ? CARD_TEXTS[Math.floor(r() * CARD_TEXTS.length)] : HANZI[Math.floor(r() * HANZI.length)] + k,
     translation: translation(),
   }));
@@ -205,11 +206,11 @@ for (let i = 0; i < 120; i++) {
     const focus = FOCUSES[Math.floor(r() * FOCUSES.length)];
     return { key: `s${k}`, hanzi: HANZI[Math.floor(r() * HANZI.length)] + k, translation: translation(), ...(focus !== undefined ? { focus } : {}) };
   });
-  const clue = r() < 0.4 ? null : { key: 'clue:n1', hanzi: '我去银行。', translation: translation() };
-  const sentences = roundSentences({ clue, set });
+  const input = [...(r() < 0.4 ? [] : [{ key: 'n1-card', hanzi: '我去银行。', translation: translation() }]), ...set];
+  const sentences = roundSentences(input);
   const ids = sentences.filter(() => r() < 0.5).map((s) => `${r() < 0.5 ? 'read' : 'translate'}:${s.key}`);
   naturalLists.push({
-    clue, set, sentences,
+    input, sentences,
     exercises: pickRoundExercises(sentences),
     count: roundSentenceCount(sentences),
     listen: pickListenRoundExercises(sentences, '银行'),
@@ -237,6 +238,6 @@ writeFileSync(join(OUT, 'sentence-round.json'), JSON.stringify({
     listenSize: LISTEN_ROUND_SIZE, listenLead: LISTEN_ROUND_LEAD, listenSelfCheck: LISTEN_ROUND_SELF_CHECK_NOTE,
     listenShowChinese: LISTEN_ROUND_SHOW_CHINESE, listenSelfRight: LISTEN_ROUND_SELF_RIGHT, listenSelfWrong: LISTEN_ROUND_SELF_WRONG,
     listenIntros: [[0, 2, 3], [1, 2, 3], [0, 1, 1], [0, 2, 2]].map(([got, needed, n]) => ({ got, needed, n, intro: listenRoundIntro({ got, needed, done: got >= needed }, n) })),
-    cardKeys: ['clue:n1', 'clue:', 'clue', 's1', 'xclue:a'].map((key) => ({ key, card: isCardSentenceKey(key) })),
+    cardKeys: ['n1-card', 'clue:n1', 'clue:', 'clue', 's1', 'xclue:a', 'card', '-card'].map((key) => ({ key, card: isCardSentenceKey(key) })),
   },
 }, null, 1));

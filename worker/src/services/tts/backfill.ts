@@ -49,7 +49,8 @@ const KIND_SQL: Record<ClipKind, KindSql> = {
     order: 'n.updated_at DESC, n.id', noteId: 'n.id',
   },
   sentence: {
-    from: "note_sentences s JOIN notes n ON n.id = s.note_id JOIN decks d ON d.id = n.deck_id WHERE TRIM(s.hanzi) != ''",
+    // The card sentence row's clip is the note's ('clue' kind above, db/card-sentence.ts): never counted twice.
+    from: "note_sentences s JOIN notes n ON n.id = s.note_id JOIN decks d ON d.id = n.deck_id WHERE TRIM(s.hanzi) != '' AND s.is_card = 0",
     id: 's.id', url: 's.audio_url', provider: 's.audio_provider', settings: 's.audio_settings',
     order: 's.note_id, s.position, s.id', noteId: 'n.id',
   },

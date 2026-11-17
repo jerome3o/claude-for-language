@@ -148,7 +148,7 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   ├── study/             # "New day starts at" — the study day (studyDay.ts: `studyDayAt` / `studyDayKey` / edges in a zone, java.time gap / overlap rules, rollover 0–6 default 4, `studyCutoffMs`, the fixed-offset day + SQL shift for the server; web services/studyDay.ts, Lab data/StudyDayClock.kt, core StudyDayRule.kt (object StudyDay) parity-tested incl. DST; docs/STUDY_SESSION.md "When does a new day start"), Hard mode (hardMode.ts: Off · Red cards only · All — reading, meaning AND listening cards; the question's own answer checked first, ✗ Try again, 👁 Show answer = the answer in place then "Continue to the sentences ›"; Good / Easy GREYED never locked — `goodEasyGate` + `overrideTap`: a second tap within 3 s rates, Hard suggested, `study.hard_mode_override`; a right answer you can feel — `StudyFeel` haptic + sound per moment, web services/studyFeel.ts, Lab fx/StudyFeel.kt; then the Sentence round; docs/STUDY_SESSION.md "Hard mode"), a meaning → hanzi SENTENCE the device didn't accept checked by Claude on Hard mode's question — the lesson answer check, correct / acceptable = right, almost = ≈ Nearly, the card's answer + "You said" vs it shown AT ONCE with the verdict loading in under them (`sentenceCheckView`; since Nov 2026 the slim answer feedback — Claude's verdict is the chip of ONE line over the diff + ONE why sentence, its tips / fix only behind "Explain more ›"; 🎤 Read it again under "You said" until Claude says right, practice only), 🔁 Try again / ✏️ Type it (sentenceAnswerCheck.ts; docs/STUDY_SESSION.md "Sentence answers checked by Claude"), a read card's take the device judged ✗ (2+ characters, online) checked by Claude as a read-aloud check — Checking… → ✓ Right / ≈ Close / ✗ with ONE line from the diff + ONE why sentence (Claude's reason), the tip behind "Explain more ›" (readTakeCheck.ts; docs/STUDY_SESSION.md "Read takes checked by Claude"), "Today is the session": active study time per day (activeTime.ts), resume the card left on screen (resume.ts), celebrate-once rule (celebration.ts), Home's numbers right after a session — the newest of the session's own and Home's recount (homeCounts.ts; web services/sessionCounts.ts + the ONE shared live count services/queueCountsStore.ts, Lab data/study/SessionCountsBus.kt; docs/STUDY_SESSION.md "Back on Home"), mini lesson runs — saved, the retry round (lessonRun.ts) — and revise until right first time (lessonRevision.ts), graded readers read once / one a day / ▶ Play whole story (daily-reader.ts), never-seen characters shimmer on the card (newCharacters.ts; docs/STUDY_SESSION.md "New characters shimmer"), 🎤 on the sentence rows + the Good / Easy gate (sentencePractise.ts) and the Sentence round between question and answer — 4 exercises, any 2 right, FRESH sentences first (never practised in either mode) then the least known, a buffer of fresh ones refilled in the background (`moreSentencesWanted`, sentenceHistory.ts); **Sentences by ear** (Settings → Study, per device, ON by default): a read slot is a 👂 listen exercise when the sentence has a clip — autoplay, no text, the meaning in English voice-first, checked by the lesson answer check as a meaning check (`listenCheckInput`, `isMeaningCheck` in shared/lesson/answerCheck.ts) online / self-check offline — never faulting what the ear can't tell (he / she / it = tā, an unmarked tense or number: `forgiveUnheard` in shared/lesson/heardCheck.ts, Lab `HeardCheck.kt`, parity-tested; docs/STUDY_SESSION.md "What the ear can't tell") —, the reveal at once with the verdict below; history mode `listen` (sentenceRound.ts `canListenTo` / `listenActiveId` / `exerciseAsRead`; docs/STUDY_SESSION.md "Sentences by ear"); the listening card's round = up to 3 "Say it in Chinese" over the English sentences carrying the word, offline self-check (sentenceRound.ts `pickListenRoundExercises`); stopping a 🎤 take is intentional — no tap-anywhere, a pinned "■ Stop recording" (sentencePractise.ts `sentenceStopBar`), practice per sentence + hidden sentences (sentenceHistory.ts), the listening card's "Listen in context" question — audio-only sentence rows, the word last, "Try the sentences first?", auto-play, top-up (listenContext.ts), 🎤 on the example sentence rows + "Get two sentences right before Good / Easy" (sentencePractise.ts), the reader word recap — words tapped while reading → "📝 Recap N words" one-off pass + 🎤 Say it, switches OFF by default → "From my readers" + Up next or ⚡ (wordRecap.ts; docs/STUDY_SESSION.md "Reader word recap") — parity-tested by the Lab app
 │   ├── progress/          # Progress numbers (daily 30-day summary, day cards, streak, mastery): the definition the server's /api/progress SQL follows (worker my-progress-parity test) and the Lab app ports; cardSql.ts = THE server SQL for "mastered" (`MASTERED_CARD_SQL`: Review + stability > 21 d = `masteryLevel`) and "reviews due" (`reviewDueSql`) — never `interval > 21` (guard test `worker/src/services/__tests__/card-sql-guard.test.ts`)
 │   ├── folders/           # Folders for decks / library lessons / readers: groupIntoFolders (any depth), nesting rule (parentProblem: ≤ MAX_FOLDER_DEPTH = 5 levels, no cycles), folderPath / findFolderByPath, name rules, spliceGroupOrder, collapsed keys, copy (deleteFolderMessage, movedMessage) — parity-tested by the Lab app
-│   ├── explorer/          # The language explorer (docs/LANGUAGE_EXPLORER.md): the view stack (stack.ts: open / push / pop / popTo / close, breadcrumbTrail, itemForText), Word view facts (word.ts: wordChars + tones, wordFrequencyLabel, resolveWord dictionary-first), related words (related.ts), ExplorableText's segments (segments.ts), quick drills (drill.ts) — parity-tested by the Lab app
+│   ├── explorer/          # The language explorer (docs/LANGUAGE_EXPLORER.md): the view stack (stack.ts: open / push / pop / popTo / close, breadcrumbTrail, itemForText), Word view facts (word.ts: wordChars + tones, wordFrequencyLabel, resolveWord dictionary-first), related words (related.ts), ExplorableText's segments (segments.ts), quick drills (drill.ts), "+ Add as card" before the meaning has loaded — wait, gloss, else the fill sheet (addCard.ts) — parity-tested by the Lab app
 │   ├── chars/             # The character dictionary (card-independent): CharRecord, build rules from CC-CEDICT / Make Me a Hanzi / wordfreq (build.ts, msgpack.ts; scripts/build-char-dict.ts), the sheet's word statuses known / in_decks / none (status.ts — parity-tested by the Lab app)
 │   ├── chinese/           # Deterministic word segmentation (segment.ts, jieba-style DAG + DP over the shipped word-freq.txt + segment-words.txt, a few rules: numbers + measure words, AA / AABB, A一A / A不A, word + 儿): word chips without an LLM for Ask Claude (always), chat + reader pages (while Claude's words are missing / failed) — Lab chinese/Segmenter.kt, parity-tested over __fixtures__/corpus.txt
 │   ├── feedback/          # In-app feedback (docs/FEEDBACK.md): the context filter (pickFeedbackContext — diagnostics only), routePattern, the context line, copy, limits; shake.ts = the ONE "shake the phone" rule (shakeStep) — Lab core feedback/Feedback.kt, parity-tested
@@ -303,6 +303,11 @@ route / Ask-Claude tool / coach tool / queue job / MCP (via HTTP)  →  services
 
 ### Data Model
 - **Note**: The source of truth. Contains hanzi, pinyin, english, audio URL, fun facts.
+- **Example sentences**: ONE model — `note_sentences` rows. The card's own sentence (the card standard's `sentence_clue`)
+  is the row `<note id>-card` (`is_card = 1`, position −1, migration 0154; `shared/study/cardSentence.ts`, Lab core
+  `CardSentence.kt`, docs/STUDY_SESSION.md "Example sentences — one model"); the generated set follows it.
+  `notes.sentence_clue*` are a DEPRECATED mirror (still how the card sentence is written; the worker keeps the row
+  identical — `worker/src/db/card-sentence.ts`); readers read rows.
 - **Card**: Generated from Notes. Three types per note:
   1. `hanzi_to_meaning`: Show hanzi → user speaks → reveal audio/pinyin/english
   2. `meaning_to_hanzi`: Show english → user types hanzi → reveal audio/pinyin/hanzi
@@ -370,7 +375,7 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `podcast_subscriptions` / `podcast_feed_cache` / `podcast_episodes` / `podcast_episode_users` - 🎙 Podcasts (migration 0125, docs/PODCASTS.md; Lab app only for now): a user's subscribed RSS feeds, the parsed feeds (shared, 30 min), ONE shared transcription per episode (id = hash of feed + guid; status queued → downloading → transcribing → translating → ready | failed, the R2 copy `podcast-episodes/<id>.<ext>`, Soniox job id, `segments_json` = `{ i, start_ms, end_ms, text, speaker, lang, pinyin, english }[]`), and who asked for which episode + the mini lesson made from it
 - `podcast_feeds` - The private podcast feed of a user's audio lessons (migration 0112): one row per user, `token_hash` (SHA-256, how a feed request finds the user), `token_enc` (AES-GCM, so Settings can show the link again), created / rotated / last fetched, fetch count. Reset = new token; Turn off = row deleted
 - `card_flags` - A student flags one card for their tutor with a note (relationship, student, tutor, note, card, message, status open/resolved, tutor_reply, student_seen_reply_at). Migration 0070. See "Card flags & card hub" below
-- `note_sentences` - Graded sentence set per note (position, hanzi, pinyin, translation, audio_url, focus, explanation). Written as whole sets; synced to IndexedDB for offline study.
+- `note_sentences` - Every example sentence of a note (position, hanzi, pinyin, translation, audio_url, focus, explanation, `is_card`): the card's own sentence is the row `<note id>-card` (`is_card = 1`, position −1, migration 0154 — kept in step with the deprecated `notes.sentence_clue*` by `db/card-sentence.ts`), then the generated set (0..n). `/api/sentences/changes` hands out whole notes + `note_ids`; synced to IndexedDB / Room for offline study. "Has a set" = a row with `is_card = 0`.
 - `note_sentence_jobs` - Tracks which notes have been queued for background sentence-set generation (status, attempts)
 - `clips` / `clip_events` - 🎬 Clips (migration 0137, docs/CLIPS.md): one row per clip in its owner's account (status ready/generating/failed, source agent/generated/manual, title / topic / theme, `spec` JSON per `shared/clips`, the generation `request` + progress / error / tokens, the clip's one mini lesson `lesson_status` / `lesson_id`), and the learner's events (view / complete / like / unlike / save / unsave / skip / double_tap / quiz / learn_more / interact — an interactive scene settled, value wrong 0 · right 1 · close 2 · done 3 · skipped −1; client ids, idempotent)
 - `idioms` - 成语 Idioms (migration 0115, docs/IDIOMS.md): ONE generated entry per idiom for every account, keyed by the normalised hanzi (status generating/ready/failed/not_idiom, `entry` JSON per `shared/idioms`, error, suggestion, attempts, generator_version, view_count). No user ids
@@ -1260,9 +1265,10 @@ older rows with focus `shared_character` / `contrast` stay stored but are listed
 "enough sentences" for any top-up (`shared/study/sentenceFocus.ts`, Lab `core/…/SentenceFocus.kt`,
 parity-tested; docs/STUDY_SESSION.md "Natural sentences"). Each sentence gets its own TTS clip and is cached in
 IndexedDB, so the whole set works offline. Generated with Sonnet for speed.
-On the study card there is ONE sentence list: the note's own `sentence_clue` is rendered as
-row 1 (badged "From the card", read straight from the note — never copied into the set, so
-editing it stays reflected), followed by the generated set. The list is always visible under the
+On the study card there is ONE sentence list: the note's rows — the card's own sentence row
+`<note>-card` first (badged "From the card" from `is_card`; migration 0154, docs/STUDY_SESSION.md "Example
+sentences — one model"; until a device has the row it is made from the note, `withCardSentence`), then the
+generated set. The list is always visible under the
 meaning and scrolls under the card's footer. Rows start blank (listen first): **▶** on the right
 plays the clip, and each tap on the row uncovers one more line — hanzi, then pinyin, then the
 English — with a tap on a fully open row hiding it again (steps a row hasn't got are skipped;
@@ -1272,16 +1278,13 @@ reveal chain drops the translation step (hanzi, then pinyin) so you translate ba
 before checking. A fully open row carries a tools line: "What's going on here?" (an on-demand
 breakdown — word glosses + the construction — generated with Haiku; each word in it is tappable
 to add as a card) and **+ Add as card** for the whole sentence.
-Set rows cache their breakdown server-side; the clue row has no row to cache on, so it uses
-`/api/sentences/explain-text` and caches in the `sentenceTextExplanations` IndexedDB table.
-**The clue row reveals like every row even when the note has no clue pinyin / translation** (~⅓ of
-notes — MCP-added / older ones): missing pinyin is made on the device (`devicePinyinLine`, Lab
-`devicePinyinLine` in `ui/study/Sentences.kt`), and the English step is always there — the line is
-fetched once as the row starts opening (`getClueTranslation` → explain-text's `translation`, only the
-line cached, key `translation:<hanzi>`; Lab `CardTools.clueTranslation`, `study/clue-translation/<hanzi>`);
-offline and never fetched → "Translation needs a connection". Not written back to the note (that
-would bump `updated_at` and break the tutor→student copy rules). "From the card" is a small badge on
-its own line at the row's top right.
+Every row (the card's own one too) caches its breakdown on the row (`/api/sentences/:id/explain`).
+**A row reveals like every row even with no pinyin / translation** (~⅓ of card sentences — MCP-added / older
+ones): missing pinyin is made on the device (`devicePinyinLine`, Lab `devicePinyinLine` in `ui/study/Sentences.kt`),
+and the English step is always there — the line is fetched once as the row starts opening
+(`getSentenceTranslation` → `POST /api/sentences/:id/translate`, which keeps only the line on the row — and on the
+card row's note's empty `sentence_clue_translation`, never bumping `updated_at`; Lab `CardTools.rowTranslation`);
+offline and never fetched → "Translation needs a connection". "From the card" is a small badge in the row's line.
 **🎤 on a row** (docs/STUDY_SESSION.md "Practise a sentence aloud"; `shared/study/sentencePractise.ts`, Lab
 `SentencePractise.kt`, parity-tested): left of ▶ once something is open — read it aloud (judged like the Coach's
 "Practise saying it") or, English-first with the Chinese hidden, say it in Chinese (the sentence / a homophone is
@@ -1299,16 +1302,19 @@ later.
 - `GET /api/notes/:id/sentences` - List a note's sentence set
 - `POST /api/notes/:id/sentences/generate` - Generate a set (`{ count?: 3-10, customPrompt?, keepExisting? }`)
 - `DELETE /api/notes/:id/sentences` - Delete a note's set
-- `GET /api/sentences/changes?since=` - Offline sync: every sentence changed since a timestamp
+- `GET /api/sentences/changes?since=` - Offline sync: `{ sentences, note_ids, server_time }` — every row of every note one of whose rows (or the note) changed since a timestamp, the card row included (reconciled with the note first); replace each listed note's rows whole
 - `POST /api/sentences/prefetch` - Queue background generation (`{ note_ids?, limit? }`, default 20/call)
 - `POST /api/sentences/top-up` - `{ note_ids, reason?: fresh | few, counts? }` → `{ queued, note_ids }`: with a reason = the Sentence round's fresh buffer (3–8 more ADDED to any set up to 80, one job in flight per note, no daily limit, clips at interactive priority; docs/STUDY_SESSION.md "The fresh buffer"); without one = listening cards ("Listen in context", docs/STUDY_SESSION.md) — notes with fewer than five sentences (card sentence + set) get a `top_up` job on sentence-set-queue that ADDS sentences after the set (`appendNoteSentences`, rows kept); one job per note a day, never one given up on
 - `POST /api/sentences/:id/ensure-audio` - One set row's clip for a ▶ on a row with none: `{ status: ready|queued|failed, audio_url }` (made now, else queued at interactive priority; both apps show "Audio coming…" and ask again)
 - `POST /api/sentences/:id/explain` - Brief breakdown of one sentence (cached on the row)
-- `POST /api/sentences/explain-text` - Same breakdown for a sentence with no row (the card's own clue); breakdowns carry a one-line `translation` (Haiku via `structuredCall`; 503 retryable / 502 declined)
+- `POST /api/sentences/:id/translate` - `{ translation, cached }`: the English line of a row written without one (the breakdown's line; only the line is stored, on the row — and the card row's note mirror). 503 retryable / 502
+- `POST /api/sentences/explain-text` - Same breakdown for a sentence with no row (the Coach's Explain, chat messages; older builds' card sentence); breakdowns carry a one-line `translation` (Haiku via `structuredCall`; 503 retryable / 502 declined)
 - `GET /api/sentences/stats` - Coverage + background-job state, for the settings overview
 - `POST /api/sentences/clue-audio` - Backfill TTS for card sentences that have none (`{ limit? }`, default 50, max 250; queued one per message)
 
-**Card-sentence audio**: `sentence_clue` is written by several paths that don't generate TTS
+**Card-sentence audio** (the card row `<note>-card`'s clip — made through its note's `clue` clip kind until the
+deprecated columns go: `ensureClip` redirects a card row to it and `writeClip` mirrors the clip onto the row, one R2
+key for both): `sentence_clue` is written by several paths that don't generate TTS
 (MCP `add_note`/`batch_add_notes`, `PUT /api/notes/:id`, Claude's `edit_current_card`), which left
 those sentences with a ▶ that had nothing to play. `ensureSentenceClueAudio` now fills it in from
 `POST /api/notes/:id/generate-audio` (the endpoint both MCP paths call), on a note update whose clue

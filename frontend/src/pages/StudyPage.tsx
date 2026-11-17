@@ -615,7 +615,7 @@ export function StudyCard({
   // The Sentence round (shared/study/sentenceRound.ts): with the setting on, the question goes to a
   // round of four sentence exercises before the answer; two right open it with Good / Easy unlocked.
   const roundCardType = hardApplies && SENTENCE_GATE_CARD_TYPES.includes(card.card_type);
-  const roundSentenceRowsAll = useRoundSentences(card.note, roundCardType, { fetchClueEnglish: card.card_type === 'audio_to_hanzi' });
+  const roundSentenceRowsAll = useRoundSentences(card.note, roundCardType, { fetchMissingEnglish: card.card_type === 'audio_to_hanzi' });
   // His practice history of these sentences: hidden ones never come (docs/STUDY_SESSION.md "Sentence practice history").
   const roundStats = useSentenceStats(card.note.id);
   // (null until both the sentences and the history are read)
@@ -1701,12 +1701,7 @@ export function StudyCard({
               key={card.id}
               noteId={card.note.id}
               word={card.note.hanzi}
-              cardSentence={{
-                hanzi: card.note.sentence_clue,
-                pinyin: card.note.sentence_clue_pinyin,
-                translation: card.note.sentence_clue_translation,
-                audio_url: card.note.sentence_clue_audio_url,
-              }}
+              note={card.note}
               online={aiAvailable}
               playAudio={(url, text) => playAudio(url, text, API_BASE)}
               isPlaying={isPlaying}
@@ -3534,16 +3529,7 @@ export function StudyCard({
                 <div className="study-sentences" data-testid="study-sentences">
                   <SentenceSet
                     noteId={card.note.id}
-                    cardSentence={
-                      card.note.sentence_clue
-                        ? {
-                            hanzi: card.note.sentence_clue,
-                            pinyin: card.note.sentence_clue_pinyin,
-                            translation: card.note.sentence_clue_translation,
-                            audio_url: card.note.sentence_clue_audio_url,
-                          }
-                        : null
-                    }
+                    note={card.note}
                     {...(pass ? { variant: 'pass' as const } : { compact: true })}
                     practise
                     showingKey={card.id}

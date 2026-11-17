@@ -2,6 +2,7 @@
 
 package dev.jeromeswannack.chineselearning.lab.ui.study
 
+import dev.jeromeswannack.chineselearning.lab.core.CardSentence
 import dev.jeromeswannack.chineselearning.lab.ui.kit.buttonBorder
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
@@ -79,12 +80,14 @@ import dev.jeromeswannack.chineselearning.lab.ui.theme.Palette
 import dev.jeromeswannack.chineselearning.lab.core.SentencePractise
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import kotlinx.coroutines.delay
+import dev.jeromeswannack.chineselearning.lab.core.explorer.ExplorerAdd
+import dev.jeromeswannack.chineselearning.lab.core.explorer.ExplorerAddFillReason
 import kotlinx.coroutines.launch
 
-/** A sentence row: the card's own clue first, then the generated graded set. */
+/** A sentence row: one of the note's rows — the card's own sentence first (core CardSentence), then the set. */
 data class SentenceRow(
     val key: String,
-    /** The set row's id; null for the card's own sentence (explained by its text). */
+    /** The row's id (the card's own sentence: `<note>-card`); null only for a row with no server row (previews). */
     val sentenceId: String?,
     val hanzi: String,
     val pinyin: String?,
@@ -121,27 +124,43 @@ private val FOCUS_LABELS = mapOf(
 
 fun sentenceRows(view: CardView): List<SentenceRow> = sentenceRows(view.note, view.sentences)
 
+/** The note's card-sentence fields (the deprecated mirror) as core [CardSentence] reads them. */
+fun cardSentenceFields(note: dev.jeromeswannack.chineselearning.lab.data.NoteEntity) = CardSentence.NoteFields(
+    note.id, note.sentenceClue, note.sentenceCluePinyin, note.sentenceClueTranslation, note.sentenceClueAudioUrl,
+)
+
+/**
+ * The note's sentence rows as ONE list (core [CardSentence.withCardSentence]): the card's own sentence row first —
+ * the stored one, or one made from the note while this phone has none yet / an older text — then the set.
+ */
+fun noteSentenceRows(
+    note: dev.jeromeswannack.chineselearning.lab.data.NoteEntity,
+    sentences: List<dev.jeromeswannack.chineselearning.lab.data.SentenceEntity>,
+): List<dev.jeromeswannack.chineselearning.lab.data.SentenceEntity> =
+    CardSentence.withCardSentence(
+        cardSentenceFields(note),
+        sentences.map { CardSentence.Row(it.id, it.noteId, it.position, it.hanzi, it.pinyin, it.translation, it.audioUrl, it.focus, it.focusNote, isCard = it.isCard) },
+    ).map { dev.jeromeswannack.chineselearning.lab.data.SentenceEntity(it.id, it.noteId, it.position, it.hanzi, it.pinyin, it.translation, it.audioUrl, it.focus, it.focusNote, isCard = CardSentence.isCardRow(it)) }
+
 fun sentenceRows(note: dev.jeromeswannack.chineselearning.lab.data.NoteEntity, sentences: List<dev.jeromeswannack.chineselearning.lab.data.SentenceEntity>): List<SentenceRow> {
-    val rows = ArrayList<SentenceRow>()
-    val clue = note.sentenceClue?.takeIf { it.isNotBlank() }
-    if (clue != null && sentences.none { it.hanzi == clue }) {
-        // A clue written without pinyin gets the device's own (the app's one automatic pinyin), so
-        // it reveals hanzi → pinyin → English like every other row.
-        val pinyin = note.sentenceCluePinyin?.takeIf { it.isNotBlank() } ?: devicePinyinLine(clue).takeIf { it.isNotEmpty() }
-        val translation = note.sentenceClueTranslation?.takeIf { it.isNotBlank() }
-        rows += SentenceRow(
-            clueRowKey(note.id), null, clue, pinyin, translation, note.sentenceClueAudioUrl, "From the card",
-            fromCard = true, fetchTranslation = translation == null,
-        )
+    val all = noteSentenceRows(note, sentences)
+    val card = all.firstOrNull()?.takeIf { it.isCard }
+    // The card's own row first; then natural sentences, the ones once written around a look-alike / homophone after them (core SentenceFocus).
+    val ordered = listOfNotNull(card) + dev.jeromeswannack.chineselearning.lab.core.SentenceFocus.naturalFirst(all.drop(if (card != null) 1 else 0)) { it.focus }
+    return ordered.map { s ->
+        // A row written without pinyin (card sentences from MCP / older notes) gets the device's own (the app's one
+        // automatic pinyin), so it reveals hanzi → pinyin → English like every other row.
+        val pinyin = s.pinyin?.takeIf { it.isNotBlank() } ?: devicePinyinLine(s.hanzi).takeIf { it.isNotEmpty() }
+        val translation = s.translation?.takeIf { it.isNotBlank() }
+        if (s.isCard) {
+            SentenceRow(s.id, s.id, s.hanzi, pinyin, translation, s.audioUrl, "From the card", fromCard = true, fetchTranslation = translation == null)
+        } else {
+            SentenceRow(
+                s.id, s.id, s.hanzi, pinyin, translation, s.audioUrl, s.focus?.let { FOCUS_LABELS[it] ?: it.takeIf { f -> f != "core" }?.replace('_', ' ') }, s.focusNote,
+                fetchTranslation = translation == null, focus = s.focus,
+            )
+        }
     }
-    // Natural sentences first; the ones once written around a look-alike / homophone after them (core SentenceFocus).
-    dev.jeromeswannack.chineselearning.lab.core.SentenceFocus.naturalFirst(sentences.sortedBy { it.position }) { it.focus }.forEach { s ->
-        rows += SentenceRow(
-            s.id, s.id, s.hanzi, s.pinyin, s.translation, s.audioUrl, s.focus?.let { FOCUS_LABELS[it] ?: it.takeIf { f -> f != "core" }?.replace('_', ' ') }, s.focusNote,
-            focus = s.focus,
-        )
-    }
-    return rows
 }
 
 private val HAN_RUN = Regex("\\p{IsHan}+")
@@ -207,9 +226,9 @@ class SentenceActions(
     val ensureAudio: (suspend (sentenceId: String) -> String?)? = null,
     val cachedExplanation: suspend (SentenceRow) -> SentenceExplanation? = { null },
     val explain: suspend (SentenceRow) -> SentenceExplanation = { error("offline") },
-    /** The English this device holds for a card sentence without one (offline), or null. */
+    /** The English this device holds for a row without one (offline), or null. */
     val cachedTranslation: suspend (SentenceRow) -> String? = { null },
-    /** The English for a card sentence without one (`/api/sentences/explain-text`'s translation line). */
+    /** The English for a row without one (its breakdown's translation line, `/api/sentences/:id/explain`). */
     val translate: suspend (SentenceRow) -> String = { error("offline") },
     /** Decks (current note's deck first) and whether one already has this hanzi. */
     val decks: suspend () -> List<Pair<String, String>> = { emptyList() },
@@ -234,7 +253,7 @@ fun SentenceList(view: CardView, ui: StudyUi, playingKey: String?, actions: Stud
     SentenceList(
         view.note, view.sentences, view.presentation, ui.aiAvailable, playingKey, actions.sentences, actions.onPlay, startExplained, startShowAll, modifier,
         // Auto-audio: the card's own sentence clip is being made.
-        audioBusy = if (ui.cardAudio.sentence == ClipState.GENERATING) setOf(clueRowKey(view.note.id)) else emptySet(),
+        audioBusy = if (ui.cardAudio.sentence == ClipState.GENERATING) setOf(cardRowKey(view.note.id)) else emptySet(),
         practise = practise,
         history = history,
         roundMarks = roundMarks,
@@ -248,8 +267,8 @@ data class SentenceListHistory(
     val onUnhide: (rowKey: String) -> Unit,
 )
 
-/** The key of the row that is the card's own sentence (row 1). */
-fun clueRowKey(noteId: String) = "clue:" + noteId
+/** The key of the row that is the card's own sentence (row 1): its id `<note>-card` (core [CardSentence]). */
+fun cardRowKey(noteId: String) = CardSentence.id(noteId)
 
 /**
  * The same list for any note (the card editor's "Sentence Set" section): [presentation]
@@ -294,7 +313,7 @@ fun SentenceList(
         if (practise != null) Modifier.bringIntoViewRequester(practise.bringIntoView) else Modifier,
     ),
 ) {
-    val allRows = remember(presentation, sentences, note.sentenceClue, note.sentenceCluePinyin, note.sentenceClueTranslation) { sentenceRows(note, sentences) }
+    val allRows = remember(presentation, sentences, note.sentenceClue, note.sentenceCluePinyin, note.sentenceClueTranslation, note.sentenceClueAudioUrl) { sentenceRows(note, sentences) }
     fun isHidden(key: String) = history?.stats?.get(SentenceHistory.key(key))?.hidden != null
     var showHidden by remember(presentation) { mutableStateOf(false) }
     var hiding by remember(presentation) { mutableStateOf<SentenceRow?>(null) }
@@ -315,7 +334,8 @@ fun SentenceList(
     var error by remember(presentation) { mutableStateOf<String?>(null) }
     var adding by remember(presentation) { mutableStateOf<Chunk?>(null) }
     val scope = rememberCoroutineScope()
-    val hasSet = sentences.isNotEmpty()
+    // A generated set (the card's own sentence row isn't one).
+    val hasSet = sentences.any { !it.isCard }
     // ▶ on a set row whose clip isn't made yet: asking (spinner) / queued ("Audio coming…").
     val asking = remember(presentation) { mutableStateMapOf<String, Boolean>() }
     val coming = remember(presentation) { mutableStateMapOf<String, Boolean>() }
@@ -826,8 +846,120 @@ fun AddChunkSheet(
     onAddedTo: (AddedTo) -> Unit = {},
     /** The source deck it goes to (core SourceDecks); default: the bump source's. */
     sourceKey: String = SourceDecks.forBump(bumpSource),
+    /** The fill sheet (core ExplorerAdd): no meaning to save yet, or offline — the meaning to type first. */
+    fill: ExplorerAddFillReason? = null,
+    online: () -> Boolean = { true },
 ) {
-    LabFooterSheet(onDismiss = onDismiss) { AddChunkBody(chunk, preferredDeck, actions, onDismiss, bumpSource = bumpSource, bump = bump, existing = existing, onAdded = onAdded, onAddedTo = onAddedTo, sourceKey = sourceKey) }
+    LabFooterSheet(onDismiss = onDismiss) { AddChunkBody(chunk, preferredDeck, actions, onDismiss, bumpSource = bumpSource, bump = bump, existing = existing, onAdded = onAdded, onAddedTo = onAddedTo, sourceKey = sourceKey, fill = fill, online = online) }
+}
+
+const val ADD_CHUNK_FILL_TAG = "add-chunk-fill"
+const val ADD_CHUNK_FILL_PINYIN_TAG = "add-chunk-fill-pinyin"
+const val ADD_CHUNK_FILL_ENGLISH_TAG = "add-chunk-fill-english"
+const val ADD_CHUNK_FILL_SAVE_TAG = "add-chunk-fill-save"
+const val ADD_CHUNK_FILL_HINT_TAG = "add-chunk-fill-hint"
+
+/** The add sheet's fill mode: the meaning (and pinyin) to type before the card is saved. */
+@Composable
+private fun AddChunkFillBody(
+    chunk: Chunk,
+    reason: ExplorerAddFillReason,
+    actions: SentenceActions,
+    onDismiss: () -> Unit,
+    online: () -> Boolean,
+    onAdded: () -> Unit,
+    onAddedTo: (AddedTo) -> Unit,
+    sourceKey: String,
+) {
+    var pinyin by remember { mutableStateOf(chunk.pinyin) }
+    var english by remember { mutableStateOf(chunk.english) }
+    var isOnline by remember { mutableStateOf(online()) }
+    var added by remember { mutableStateOf<AddedNote?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+    // Offline: Add waits for the connection (checked every second while the sheet is up).
+    LaunchedEffect(Unit) {
+        while (true) {
+            isOnline = online()
+            delay(1000)
+        }
+    }
+    val problem = ExplorerAdd.problem(english, isOnline)
+    val hint = when {
+        !isOnline -> ExplorerAdd.hint(ExplorerAddFillReason.OFFLINE, chunk.english.isNotBlank())
+        reason == ExplorerAddFillReason.OFFLINE -> "You’re back online."
+        else -> ExplorerAdd.hint(ExplorerAddFillReason.NO_MEANING, false)
+    }
+    fun save() {
+        if (problem != null || busy) return
+        val c = chunk.copy(pinyin = pinyin.trim(), english = english.trim())
+        busy = true
+        error = null
+        scope.launch {
+            try {
+                val a = actions.addCard(SourceDecks.ref(sourceKey), c) ?: AddedNote(emptyList(), "", SourceDecks.name(sourceKey), sourceKey)
+                added = a
+                onAdded()
+                onAddedTo(AddedTo(c.hanzi, a.deckId, a.deckName, a.noteIds.firstOrNull()))
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                error = CardTools.message(e)
+            } finally {
+                busy = false
+            }
+        }
+    }
+    PinnedFooterColumn(
+        Modifier.testTag(ADD_CHUNK_FILL_TAG),
+        body = {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 22.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(chunk.hanzi, style = MaterialTheme.typography.headlineMedium, color = Lab.colors.ink, modifier = Modifier.align(Alignment.CenterHorizontally))
+                val a = added
+                if (a != null) {
+                    Text(english.trim(), style = MaterialTheme.typography.bodyLarge, color = Lab.colors.ink, modifier = Modifier.align(Alignment.CenterHorizontally))
+                    AddedToDeckRow(a, actions.move, onMoved = { added = it; onAddedTo(AddedTo(chunk.hanzi, it.deckId, it.deckName, it.noteIds.firstOrNull())) })
+                } else {
+                    Text(ExplorerAdd.prompt(chunk.hanzi), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = Lab.colors.ink)
+                    Text(hint, style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted, modifier = Modifier.testTag(ADD_CHUNK_FILL_HINT_TAG))
+                    OutlinedTextField(
+                        value = pinyin,
+                        onValueChange = { pinyin = it },
+                        modifier = Modifier.fillMaxWidth().testTag(ADD_CHUNK_FILL_PINYIN_TAG),
+                        singleLine = true,
+                        label = { Text("Pinyin") },
+                        shape = RoundedCornerShape(14.dp),
+                        colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Lab.colors.accent),
+                    )
+                    OutlinedTextField(
+                        value = english,
+                        onValueChange = { english = it },
+                        modifier = Modifier.fillMaxWidth().testTag(ADD_CHUNK_FILL_ENGLISH_TAG),
+                        singleLine = true,
+                        label = { Text("Meaning") },
+                        placeholder = { Text("In English") },
+                        shape = RoundedCornerShape(14.dp),
+                        colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Lab.colors.accent),
+                    )
+                    error?.let { InlineNotice(it, kind = NoticeKind.Error) }
+                }
+            }
+        },
+        footer = {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 22.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (added != null) {
+                    PrimaryPill("Done", Modifier.weight(1f).height(50.dp).testTag("add-chunk-done"), onClick = onDismiss)
+                } else {
+                    SecondaryPill("Cancel", Modifier.weight(1f).height(50.dp), onClick = onDismiss)
+                    PrimaryPill(
+                        if (busy) "Adding…" else if (!isOnline) "Waiting for a connection…" else "Add as card",
+                        Modifier.weight(1.4f).height(50.dp).testTag(ADD_CHUNK_FILL_SAVE_TAG),
+                        enabled = problem == null && !busy,
+                    ) { save() }
+                }
+            }
+        },
+    )
 }
 
 /** What "+ Add as card" made: the word and the deck it went into (the note reaches Room with the next sync). */
@@ -852,7 +984,18 @@ fun AddChunkBody(
     onAddedTo: (AddedTo) -> Unit = {},
     /** The source deck it goes to (core SourceDecks); default: the bump source's. */
     sourceKey: String = SourceDecks.forBump(bumpSource),
+    /**
+     * The fill sheet (docs/LANGUAGE_EXPLORER.md "Adding before the meaning has loaded"; web
+     * CardTieIn's MeaningFill): "What does 吴侬软语 mean?", the pinyin and the meaning to type, Add
+     * once there is a meaning and a connection — never a raw "english is required". Null = add at once.
+     */
+    fill: ExplorerAddFillReason? = null,
+    online: () -> Boolean = { true },
 ) {
+    if (fill != null) {
+        AddChunkFillBody(chunk, fill, actions, onDismiss, online, onAdded, onAddedTo, sourceKey)
+        return
+    }
     // Source decks (docs/STUDY_SESSION.md "Source decks"; web AddChunkModal): NO deck picker — a new
     // word is saved at once into its source deck, then "✓ Added to From example sentences · Change".
     @Suppress("UNUSED_VARIABLE") val unusedPreferred = preferredDeck

@@ -439,13 +439,16 @@ class Repository(context: Context, val db: LabDatabase, val api: Api, val prefs:
      * `pullNewSentencesSoon`). Returns how many rows came.
      */
     suspend fun pullSentenceChanges(): Int = withContext(Dispatchers.IO) { sentencesMutex.withLock {
-        val page = api.sentences(prefs.sentencesCursor)
-        if (page.sentences.isNotEmpty()) {
-            val byNote = page.sentences.groupBy { it.note_id }
+        val since = prefs.sentencesCursor
+        val page = api.sentences(since)
+        // Every note listed (or with rows here) is replaced whole: a shorter set, a removed card sentence.
+        val touched = (page.note_ids.orEmpty() + page.sentences.map { it.note_id }).toSet()
+        if (touched.isNotEmpty() || since == null) {
             db.withTransaction {
-                byNote.keys.chunked(500).forEach { dao.deleteSentencesOf(it) }
+                // A full dump is everything the account has: rows of any other note are stale.
+                if (since == null) dao.deleteAllSentences() else touched.chunked(500).forEach { dao.deleteSentencesOf(it) }
                 page.sentences.chunked(500).forEach { chunk ->
-                    dao.upsertSentences(chunk.map { SentenceEntity(it.id, it.note_id, it.position, it.hanzi, it.pinyin, it.translation, it.audio_url, it.focus, it.focus_note) })
+                    dao.upsertSentences(chunk.map { SentenceEntity(it.id, it.note_id, it.position, it.hanzi, it.pinyin, it.translation, it.audio_url, it.focus, it.focus_note, isCard = it.is_card == 1) })
                 }
                 dao.deleteOrphanSentences()
             }

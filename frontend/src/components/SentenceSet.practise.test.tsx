@@ -79,8 +79,8 @@ const SET = [
 vi.mock('../services/sentence-sets', () => ({
   getLocalNoteSentences: vi.fn(async () => SET),
   generateAndStoreSentenceSet: vi.fn(), putLocalNoteSentences: vi.fn(), clearLocalNoteSentences: vi.fn(), cacheSentenceAudio: vi.fn(),
-  resetSentenceSetSyncCursor: vi.fn(), getSentenceExplanation: vi.fn(), getTextExplanation: vi.fn(),
-  getCachedTextExplanation: vi.fn(async () => null), getClueTranslation: vi.fn(), getCachedClueTranslation: vi.fn(async () => null),
+  resetSentenceSetSyncCursor: vi.fn(), getSentenceExplanation: vi.fn(), getCachedTextExplanation: vi.fn(async () => null), getSentenceTranslation: vi.fn(),
+  cachedSentenceTranslation: (r: { translation?: string | null }) => r.translation?.trim() || null,
   awaitSentenceAudio: vi.fn(), ensureSentenceAudio: vi.fn(), SENTENCE_AUDIO_COMING_LABEL: 'Audio coming…',
 }));
 
@@ -262,20 +262,25 @@ describe('SentenceSet practice history', () => {
 
   it("keeps the question's order: Listen in context's rows first (the card's sentence where it was), then the rest", async () => {
     const { SentenceSet } = await import('./SentenceSet');
-    const clue = { hanzi: '他在银行工作。', pinyin: null, translation: 'He works at a bank.', audio_url: null };
+    // The card's own sentence: the row `n1-card`, made from the note while the device holds no row for it.
+    const note = { id: 'n1', sentence_clue: '他在银行工作。', sentence_clue_pinyin: null, sentence_clue_translation: 'He works at a bank.', sentence_clue_audio_url: null };
     const showAll = async () => {
       act(() => (host.querySelector('.sentence-set-action--text') as HTMLElement).click());
       await flush();
     };
-    await act(async () => root.render(<SentenceSet noteId="n1" cardSentence={clue} compact practise showingKey="c1" questionOrder={['s2', 'clue:n1', 'gone']} />));
+    await act(async () => root.render(<SentenceSet noteId="n1" note={note} compact practise showingKey="c1" questionOrder={['s2', 'n1-card', 'gone']} />));
     await flush();
     await showAll();
     expect(rows().map((r) => r.querySelector('.sentence-set-hanzi')!.textContent)).toEqual(['银行在哪儿？', '他在银行工作。', '我去银行。']);
     // "From the card" goes with its row.
     expect(rows()[1].className).toContain('is-from-card');
+    // A resume point saved before the card's sentence was a row (`clue:<note>`): the same place.
+    await act(async () => root.render(<SentenceSet noteId="n1" note={note} compact practise showingKey="c1" questionOrder={['s2', 'clue:n1']} />));
+    await flush();
+    expect(rows().map((r) => r.querySelector('.sentence-set-hanzi')!.textContent)).toEqual(['银行在哪儿？', '他在银行工作。', '我去银行。']);
     // Then the round's sentences that Listen in context didn't show.
     const { roundRowMarks } = await import('@shared/study/sentenceRound');
-    await act(async () => root.render(<SentenceSet noteId="n1" cardSentence={clue} compact practise showingKey="c1" questionOrder={['s2']} roundRows={roundRowMarks([{ id: 'translate:s1', result: 'right' }], [])} />));
+    await act(async () => root.render(<SentenceSet noteId="n1" note={note} compact practise showingKey="c1" questionOrder={['s2']} roundRows={roundRowMarks([{ id: 'translate:s1', result: 'right' }], [])} />));
     await flush();
     expect(rows().map((r) => r.querySelector('.sentence-set-hanzi')!.textContent)).toEqual(['银行在哪儿？', '我去银行。', '他在银行工作。']);
     expect(rows()[1].dataset.round).toBe('right');

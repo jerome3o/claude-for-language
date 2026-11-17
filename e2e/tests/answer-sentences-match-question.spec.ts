@@ -107,9 +107,9 @@ test('a listening card: the answer side lists the sentences in the question\'s o
   // Every sentence is still there once (the rest after them).
   const all = await answerKeys();
   expect(new Set(all).size).toBe(all.length);
-  expect(all).toContain(`clue:${note.id}`);
+  expect(all).toContain(`${note.id}-card`);
   // The card's own sentence keeps its badge wherever it landed.
-  await expect(page.locator(`[data-testid="study-sentences"] .sentence-set-row[data-key="clue:${note.id}"]`)).toHaveClass(/is-from-card/);
+  await expect(page.locator(`[data-testid="study-sentences"] .sentence-set-row[data-key="${note.id}-card"]`)).toHaveClass(/is-from-card/);
   if (SHOTS) {
     await page.getByRole('button', { name: 'Show all' }).click();
     await page.locator('[data-testid="study-sentences"]').scrollIntoViewIfNeeded();
@@ -172,7 +172,7 @@ test('screenshots: the Sentence round and its answer side in the same order', as
   const answerRows = page.locator('[data-testid="study-sentences"] .sentence-set-row');
   await expect(answerRows.first()).toBeVisible({ timeout: 30000 });
   await expect.poll(async () => (await answerRows.evaluateAll((els) => els.map((el) => el.getAttribute('data-key')))).slice(0, 4))
-    .toEqual(['ro-s1', 'ro-s2', 'ro-s4', `clue:${note.id}`]);
+    .toEqual(['ro-s1', 'ro-s2', 'ro-s4', `${note.id}-card`]);
   await page.locator('[data-testid="study-sentences"]').scrollIntoViewIfNeeded();
   await page.waitForTimeout(500);
   await page.screenshot({ path: `${SHOTS}/web-04-round-answer.png` });

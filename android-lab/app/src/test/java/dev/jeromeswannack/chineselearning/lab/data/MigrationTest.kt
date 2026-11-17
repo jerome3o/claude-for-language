@@ -383,4 +383,33 @@ class MigrationTest {
         }
         room.close()
     }
+
+    /**
+     * v14 adds sentences.isCard (the card's own example sentence is one of the note's rows — core CardSentence,
+     * server migration 0154): every old row is a set row; the card row arrives with the next sync and is told apart.
+     */
+    @Test fun v13ToV14MarksTheCardSentenceRowAndKeepsEverything() {
+        createFromExportedSchema(13).use { db ->
+            db.execSQL("INSERT INTO decks (id, name, description, newCardsPerDay, secondaryCardsPerDay, studyPriority, createdAt, folderId, sourceKey) VALUES ('d1', 'HSK 2', NULL, 3, 6, 2, '2026-11-17 10:00:00', NULL, NULL)")
+            db.execSQL("INSERT INTO notes (id, deckId, hanzi, pinyin, english, createdAt) VALUES ('n1', 'd1', '银行', 'yínháng', 'bank', '2026-11-17 10:00:00')")
+            db.execSQL("INSERT INTO cards (id, noteId, deckId, cardType, queue, stability, difficulty, scheduledDays, reps, lapses, easeFactor) VALUES ('c1', 'n1', 'd1', 'hanzi_to_meaning', 2, 5, 5, 5, 2, 0, 1.3)")
+            db.execSQL("INSERT INTO review_events (id, cardId, rating, reviewedAt, timeSpentMs, userAnswer, synced) VALUES ('e1', 'c1', 2, '2026-11-17T08:00:00.000Z', 4200, NULL, 0)")
+            db.execSQL("INSERT INTO sentences (id, noteId, position, hanzi, pinyin, translation, audioUrl, focus, focusNote) VALUES ('s1', 'n1', 0, '这是银行。', NULL, 'This is a bank.', NULL, 'core', NULL)")
+        }
+        val room = Room.databaseBuilder(context, LabDatabase::class.java, name)
+            .addMigrations(*LabMigrations.ALL)
+            .allowMainThreadQueries()
+            .build()
+        runBlocking {
+            val dao = room.dao()
+            assertEquals(1, dao.unsyncedCount())
+            assertEquals(listOf(false), dao.sentencesFor("n1").map { it.isCard })
+            dao.upsertSentences(listOf(SentenceEntity("n1-card", "n1", -1, "我去银行。", null, null, "generated/c.mp3", null, null, isCard = true)))
+            assertEquals(listOf("n1-card" to true, "s1" to false), dao.sentencesFor("n1").sortedBy { it.position }.map { it.id to it.isCard })
+            // Clearing the set keeps the card's own row (as on the server).
+            dao.deleteSetOf("n1")
+            assertEquals(listOf("n1-card"), dao.sentencesFor("n1").map { it.id })
+        }
+        room.close()
+    }
 }

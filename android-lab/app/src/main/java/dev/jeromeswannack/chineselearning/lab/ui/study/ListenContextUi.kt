@@ -127,11 +127,9 @@ const val LISTEN_PROMPT_TAG = "listen-prompt"
 const val LISTEN_MORE_TAG = "listen-more"
 const val LISTEN_NEW_TAG = "listen-new"
 
-/** All the rows of [view] (the card's own sentence first, then the set) — the showing offers a few of them. */
+/** All the rows of [view] (the card's own sentence row first, then the set) — the showing offers a few of them. */
 fun listenRows(view: CardView): List<ListenContext.Row> = ListenContext.rows(
-    view.note.id,
-    ListenContext.Clue(view.note.sentenceClue, view.note.sentenceClueTranslation, view.note.sentenceClueAudioUrl),
-    view.sentences.map { ListenContext.Sentence(it.id, it.hanzi, it.translation, it.audioUrl, it.position, it.focus) },
+    noteSentenceRows(view.note, view.sentences).map { ListenContext.Sentence(it.id, it.hanzi, it.translation, it.audioUrl, it.position, it.focus, it.isCard) },
 )
 
 /** Rows added during the showing ("+ More sentences"): natural ones not there when it was pressed. */
@@ -167,7 +165,7 @@ fun freezeListenPick(
 }
 
 fun listenStates(rows: List<ListenContext.Row>, view: CardView, online: Boolean): List<ListenContext.RowState> =
-    rows.map { ListenContext.rowState(it.audioUrl, it.sentenceId, online, it.audioUrl != null && it.audioUrl in view.cachedClips) }
+    rows.map { ListenContext.rowState(it.audioUrl, online, it.audioUrl != null && it.audioUrl in view.cachedClips) }
 
 /**
  * ▶ on a row: the clip (or the device voice for the card's own sentence still being made); a set
@@ -187,7 +185,7 @@ fun listenPlay(
     if (listen.heardKeys.add(row.key)) listen.onHeard?.invoke(row.key)
     val ensure = actions.sentences.ensureAudio
     val id = row.sentenceId
-    if (state == ListenContext.RowState.FETCH && id != null && ensure != null) {
+    if (state == ListenContext.RowState.FETCH && ensure != null) {
         if (listen.asking[row.key] == true) return
         listen.asking[row.key] = true
         scope.launch {
@@ -266,8 +264,8 @@ fun ListenContextPanel(
                     onEnglish = {
                         val open = !(listen.english[row.key] ?: false)
                         listen.english[row.key] = open
-                        if (open && row.translation == null && row.fromCard && listen.fetchedEnglish[row.key] == null && listen.englishBusy[row.key] != true) {
-                            fetchClueEnglish(row, view, ui.aiAvailable, listen, actions, scope)
+                        if (open && row.translation == null && listen.fetchedEnglish[row.key] == null && listen.englishBusy[row.key] != true) {
+                            fetchRowEnglish(row, ui.aiAvailable, listen, actions, scope)
                         }
                     },
                 )
@@ -345,11 +343,11 @@ fun ListenContextPanel(
     }
 }
 
-/** EN on the card's own sentence with no English on the note: the device's copy, else (online) fetched. */
-private fun fetchClueEnglish(row: ListenContext.Row, view: CardView, online: Boolean, listen: ListenState, actions: StudyActions, scope: CoroutineScope) {
+/** EN on a row with no English (many card sentences): the device's copy, else (online) fetched through its breakdown. */
+private fun fetchRowEnglish(row: ListenContext.Row, online: Boolean, listen: ListenState, actions: StudyActions, scope: CoroutineScope) {
     val sentence = SentenceRow(
-        key = row.key, sentenceId = null, hanzi = row.hanzi, pinyin = view.note.sentenceCluePinyin,
-        translation = null, audioUrl = row.audioUrl, badge = null, fromCard = true, fetchTranslation = true,
+        key = row.key, sentenceId = row.sentenceId, hanzi = row.hanzi, pinyin = null,
+        translation = null, audioUrl = row.audioUrl, badge = null, fromCard = row.fromCard, fetchTranslation = true,
     )
     listen.englishBusy[row.key] = true
     listen.englishFailed.remove(row.key)

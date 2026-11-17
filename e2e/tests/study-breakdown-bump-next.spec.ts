@@ -77,8 +77,8 @@ test('breakdown → word → + Add as card → ⚡: its listening card is the ve
       },
     });
   }
-  // The breakdown (Haiku on the real server).
-  await page.route('**/api/sentences/explain-text', async (route) => {
+  // The breakdown (Haiku on the real server): the card's sentence is a row (`<note>-card`), explained by its id.
+  const breakdown = async (route: import('@playwright/test').Route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -94,7 +94,9 @@ test('breakdown → word → + Add as card → ⚡: its listening card is the ve
         },
       }),
     });
-  });
+  };
+  await page.route('**/api/sentences/*/explain', breakdown);
+  await page.route('**/api/sentences/explain-text', breakdown);
 
   await page.goto(`/decks?session_token=${token}`);
   await page.locator('.header').waitFor({ timeout: 30000 });
@@ -116,12 +118,12 @@ test('breakdown → word → + Add as card → ⚡: its listening card is the ve
   }
   await expect(explain).toBeVisible();
   await explain.click();
-  const breakdown = page.getByTestId('sentence-word-breakdown');
-  await expect(breakdown).toBeVisible();
+  const breakdownView = page.getByTestId('sentence-word-breakdown');
+  await expect(breakdownView).toBeVisible();
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/01-breakdown.png` });
 
   // 喜欢 → the explorer → + Add as card (one tap) → ⚡ Study it today.
-  await breakdown.getByRole('button', { name: 'Explore 喜欢' }).click();
+  await breakdownView.getByRole('button', { name: 'Explore 喜欢' }).click();
   const wordView = page.getByRole('dialog', { name: 'The word 喜欢' });
   await expect(wordView).toBeVisible();
   await wordView.getByTestId('explorer-add-card').click();

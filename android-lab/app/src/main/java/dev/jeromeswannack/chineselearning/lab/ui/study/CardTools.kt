@@ -37,6 +37,7 @@ import dev.jeromeswannack.chineselearning.lab.data.api.createNote
 import dev.jeromeswannack.chineselearning.lab.data.api.deleteNote
 import dev.jeromeswannack.chineselearning.lab.data.api.deleteSentenceSet
 import dev.jeromeswannack.chineselearning.lab.data.api.explainSentence
+import dev.jeromeswannack.chineselearning.lab.data.api.translateSentence
 import dev.jeromeswannack.chineselearning.lab.data.api.explainSentenceText
 import dev.jeromeswannack.chineselearning.lab.data.api.generateFunFact
 import dev.jeromeswannack.chineselearning.lab.data.api.generateNoteAudio
@@ -114,7 +115,7 @@ class CardTools(private val app: LabApp) {
 
     // ---------------- sentence sets ----------------
 
-    private fun SentenceDto.entity(noteId: String) = SentenceEntity(id, noteId, position, hanzi, pinyin, translation, audio_url, focus, focus_note)
+    private fun SentenceDto.entity(noteId: String) = SentenceEntity(id, noteId, position, hanzi, pinyin, translation, audio_url, focus, focus_note, isCard = is_card == 1)
 
     /** Replace the local set of one note (the server writes a set whole). */
     private suspend fun storeSet(noteId: String, rows: List<SentenceDto>): List<SentenceEntity> = withContext(Dispatchers.IO) {
@@ -131,9 +132,9 @@ class CardTools(private val app: LabApp) {
     suspend fun generateSet(noteId: String, count: Int? = 6, customPrompt: String? = null, keepExisting: Boolean = false): List<SentenceEntity> =
         storeSet(noteId, api.generateSentenceSet(noteId, GenerateSentencesBody(count, customPrompt, if (keepExisting) true else null)))
 
-    /** Nothing cached but online: the set may exist server-side and not have synced down yet. */
+    /** No set cached (the card's own row isn't one) but online: the set may exist server-side and not have synced down yet. */
     suspend fun fetchSetIfMissing(noteId: String): List<SentenceEntity>? {
-        if (repo.dao.sentencesFor(noteId).isNotEmpty()) return null
+        if (repo.dao.sentencesFor(noteId).any { !it.isCard }) return null
         val remote = api.noteSentences(noteId)
         return if (remote.isEmpty()) null else storeSet(noteId, remote)
     }
@@ -155,7 +156,8 @@ class CardTools(private val app: LabApp) {
     suspend fun clearSet(noteId: String) {
         runCatching { api.deleteSentenceSet(noteId) }
             .onFailure { app.prefs.sentencesCursor = null } // offline: re-reconcile the sets on the next sync
-        withContext(Dispatchers.IO) { repo.dao.deleteSentencesOf(listOf(noteId)) }
+        // The card's own sentence row stays, as on the server.
+        withContext(Dispatchers.IO) { repo.dao.deleteSetOf(noteId) }
     }
 
     /**
@@ -165,7 +167,7 @@ class CardTools(private val app: LabApp) {
      */
     suspend fun ensureSentenceSet(noteId: String) {
         if (!app.online.value || StudyPrefs.get(app).forcedOffline.value || noteId in setStarted) return
-        if (repo.dao.sentencesFor(noteId).isNotEmpty()) return
+        if (repo.dao.sentencesFor(noteId).any { !it.isCard }) return
         setStarted += noteId
         try {
             generateSet(noteId, count = 6)
@@ -189,9 +191,7 @@ class CardTools(private val app: LabApp) {
             noteIds.distinct().filter { it !in topUpAsked }.filter { id ->
                 val note = repo.dao.note(id) ?: return@filter false
                 val rows = dev.jeromeswannack.chineselearning.lab.core.ListenContext.rows(
-                    id,
-                    dev.jeromeswannack.chineselearning.lab.core.ListenContext.Clue(note.sentenceClue),
-                    repo.dao.sentencesFor(id).map { dev.jeromeswannack.chineselearning.lab.core.ListenContext.Sentence(it.id, it.hanzi, it.translation, it.audioUrl, it.position, it.focus) },
+                    noteSentenceRows(note, repo.dao.sentencesFor(id)).map { dev.jeromeswannack.chineselearning.lab.core.ListenContext.Sentence(it.id, it.hanzi, it.translation, it.audioUrl, it.position, it.focus, it.isCard) },
                 )
                 // Natural sentences only: a contrived row (core SentenceFocus) never makes "enough".
                 dev.jeromeswannack.chineselearning.lab.core.ListenContext.needsTopUp(dev.jeromeswannack.chineselearning.lab.core.ListenContext.naturalCount(rows))
@@ -214,9 +214,13 @@ class CardTools(private val app: LabApp) {
 
     suspend fun cacheTextExplanation(hanzi: String, e: SentenceExplanation) = cache.put(explainTextKey(hanzi), TutorNotes.KIND, e)
 
-    /** A cached breakdown (set row or the card's own clue), or null. */
+    /**
+     * A cached breakdown, or null: the row's own, else one this device holds for the same text (the card's own
+     * sentence explained before it was a row, the Coach's Explain) — offline too.
+     */
     suspend fun cachedExplanation(sentenceId: String?, hanzi: String): SentenceExplanation? =
-        cache.get(if (sentenceId != null) explainKey(sentenceId) else explainTextKey(hanzi))
+        (if (sentenceId != null) cache.get<SentenceExplanation>(explainKey(sentenceId)) else null)
+            ?: cache.get(explainTextKey(hanzi))
 
     /** `getSentenceExplanation` / `getTextExplanation`: cached first, then the API, then cached. */
     suspend fun explain(sentenceId: String?, hanzi: String, pinyin: String?, translation: String?): SentenceExplanation {
@@ -227,25 +231,24 @@ class CardTools(private val app: LabApp) {
     }
 
     /**
-     * The English this device holds for a card sentence the note has no translation for
-     * (web `getCachedClueTranslation`): the breakdown's translation line when it was explained
-     * here, else the line fetched earlier by [clueTranslation]. Null = needs a connection.
+     * The English this device holds for a row without one (web `cachedSentenceTranslation`): the row's breakdown's
+     * translation line when it was explained here. Null = needs a connection.
      */
-    suspend fun cachedClueTranslation(hanzi: String): String? =
-        cachedTextExplanation(hanzi)?.translation?.trim()?.takeIf { it.isNotEmpty() }
-            ?: runCatching { cache.get<String>(clueTranslationKey(hanzi)) }.getOrNull()?.trim()?.takeIf { it.isNotEmpty() }
+    suspend fun cachedRowTranslation(sentenceId: String?): String? =
+        sentenceId?.let { runCatching { cache.get<SentenceExplanation>(explainKey(it)) }.getOrNull() }?.translation?.trim()?.takeIf { it.isNotEmpty() }
 
     /**
-     * Web `getClueTranslation`: the one-line English of `/api/sentences/explain-text` for a card
-     * sentence with none on the note. Only the line is kept (opening the row later must not unfold
-     * a breakdown nobody asked for), by text, so it is instant and offline after the first time.
+     * Web `getSentenceTranslation`: the one-line English of a row written without one — many card sentences
+     * (`POST /api/sentences/:id/translate`, kept on the row server-side). Kept on the local row, so it is instant and
+     * offline after the first time.
      */
-    suspend fun clueTranslation(hanzi: String, pinyin: String?): String {
-        cachedClueTranslation(hanzi)?.let { return it }
-        val fresh = api.explainSentenceText(ExplainTextBody(hanzi, pinyin, null))
-        val line = fresh.translation?.trim().orEmpty()
+    suspend fun rowTranslation(sentenceId: String?, hanzi: String, pinyin: String?): String {
+        cachedRowTranslation(sentenceId)?.let { return it }
+        // Only the line is kept (here and on the server): opening the row later must not unfold a breakdown nobody asked for.
+        val line = if (sentenceId != null) api.translateSentence(sentenceId).trim()
+            else explain(null, hanzi, pinyin, null).translation?.trim().orEmpty()
         if (line.isEmpty()) error("No translation came back")
-        cache.put(clueTranslationKey(hanzi), TutorNotes.KIND, line)
+        if (sentenceId != null) withContext(Dispatchers.IO) { repo.dao.setSentenceTranslation(sentenceId, line) }
         return line
     }
 
@@ -398,6 +401,5 @@ class CardTools(private val app: LabApp) {
         fun explainTextKey(hanzi: String) = "study/explain-text/$hanzi"
 
         /** The English line fetched for a card sentence with none on the note, by its text. */
-        fun clueTranslationKey(hanzi: String) = "study/clue-translation/$hanzi"
     }
 }

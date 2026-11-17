@@ -142,6 +142,17 @@ object LabMigrations {
         }
     }
 
+    /**
+     * v14: sentences.isCard — the card's own example sentence is one of the note's sentence rows (server migration
+     * 0154, core CardSentence.kt). Old rows are set rows (0); a note's card row comes with the next sentence sync,
+     * and until then it is made from the note (CardSentence.withCardSentence), so nothing shows less meanwhile.
+     */
+    val MIGRATION_13_14 = object : Migration(13, 14) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE `sentences` ADD COLUMN `isCard` INTEGER NOT NULL DEFAULT 0")
+        }
+    }
+
     /** Every migration, oldest first. Append new ones here. */
-    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13)
+    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14)
 }

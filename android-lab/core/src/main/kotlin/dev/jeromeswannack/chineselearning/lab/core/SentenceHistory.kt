@@ -7,7 +7,6 @@ package dev.jeromeswannack.chineselearning.lab.core
  * sentence" / "Show again" is an event (synced by client id); [stats] folds a note's events per sentence.
  */
 object SentenceHistory {
-    const val CLUE_KEY = "clue"
     const val KNOWN_RIGHTS = 3
     const val MIN_VISIBLE = 4
     val HIDE_REASONS = listOf("weird", "wrong", "not_useful", "too_rare")
@@ -63,8 +62,8 @@ object SentenceHistory {
         }
     }
 
-    /** `sentenceHistoryKey`: `clue:<noteId>` → `clue`. */
-    fun key(rowKey: String): String = if (rowKey.startsWith("clue:")) CLUE_KEY else rowKey
+    /** `sentenceHistoryKey`: the row id (an older build's `clue:<noteId>` → `<noteId>-card`, [CardSentence]). */
+    fun key(rowKey: String): String = if (rowKey.startsWith("clue:")) CardSentence.id(rowKey.removePrefix("clue:")) else rowKey
 
     /** `sentenceStats`: one note's events per sentence key (ids once, junk ignored, last hide / unhide decides). */
     fun stats(events: List<Event>, noteId: String): Map<String, Stats> {
@@ -73,7 +72,9 @@ object SentenceHistory {
         val mine = events.filter { it.noteId == noteId }.sortedWith(compareBy<Event> { it.at }.thenBy { it.id })
         for (e in mine) {
             if (!seen.add(e.id)) continue
-            val s = out[e.sentenceKey]
+            // An older event's `clue` key is the card row's ([CardSentence.canonicalKey]).
+            val key = CardSentence.canonicalKey(e.sentenceKey, noteId)
+            val s = out[key]
             when (e.kind) {
                 "attempt" -> {
                     if (e.mode !in MODES) continue
@@ -86,14 +87,14 @@ object SentenceHistory {
                         misses = m.misses + if (e.result == "right") 0 else 1,
                         lastAt = if (m.lastAt == null || e.at > m.lastAt) e.at else m.lastAt,
                     )
-                    out[e.sentenceKey] = cur.with(e.mode, next)
+                    out[key] = cur.with(e.mode, next)
                 }
-                "hide" -> out[e.sentenceKey] = (s ?: Stats()).copy(hidden = Hidden(e.at, e.reason?.takeIf { it in HIDE_REASONS }))
-                "unhide" -> out[e.sentenceKey] = (s ?: Stats()).copy(hidden = null)
+                "hide" -> out[key] = (s ?: Stats()).copy(hidden = Hidden(e.at, e.reason?.takeIf { it in HIDE_REASONS }))
+                "unhide" -> out[key] = (s ?: Stats()).copy(hidden = null)
                 "heard" -> {
                     val cur = s ?: Stats()
                     val h = cur.heard
-                    out[e.sentenceKey] = cur.copy(heard = Heard(h.count + 1, if (h.lastAt == null || e.at > h.lastAt) e.at else h.lastAt))
+                    out[key] = cur.copy(heard = Heard(h.count + 1, if (h.lastAt == null || e.at > h.lastAt) e.at else h.lastAt))
                 }
             }
         }

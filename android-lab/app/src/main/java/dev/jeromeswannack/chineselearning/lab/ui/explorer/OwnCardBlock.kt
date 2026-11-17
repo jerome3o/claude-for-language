@@ -93,8 +93,9 @@ fun OwnCardBlock(char: String, ui: OwnCardUi, onOpenCard: () -> Unit, onBump: ()
                 }
             }
             own.status == CharWordStatus.None -> PrimaryPill(
-                CharWords.addOwnCardLabel(char),
+                if (ui.adding) "Adding…" else CharWords.addOwnCardLabel(char),
                 Modifier.fillMaxWidth().height(52.dp).testTag(EXPLORER_CHAR_ADD_TAG),
+                enabled = !ui.adding,
                 onClick = onAdd,
             )
             else -> {
