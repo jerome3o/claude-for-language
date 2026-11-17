@@ -73,9 +73,9 @@ describe('deriveNavRole', () => {
 });
 
 describe('tabsFor', () => {
-  it('student: Study · Chats · Claude · Progress · More (no Tutor tab — the tutor is in Chats)', () => {
+  it('student: Study · Chats · Add · Progress · More (no Tutor tab — the tutor is in Chats)', () => {
     expect(tabsFor({ hasStudents: false, isTutorOnly: false }).map((t) => t.label))
-      .toEqual(['Study', 'Chats', 'Claude', 'Progress', 'More']);
+      .toEqual(['Study', 'Chats', 'Add', 'Progress', 'More']);
   });
 
   it('the learner tab list is a copy (not shared state)', () => {
@@ -84,11 +84,12 @@ describe('tabsFor', () => {
     expect(tabsFor({ hasStudents: false, isTutorOnly: false })).toHaveLength(5);
   });
 
-  it('the Claude tab opens /claude and only learners have it', () => {
-    const claude = tabsFor({ hasStudents: false, isTutorOnly: false }).find((t) => t.id === 'claude');
-    expect(claude?.to).toBe('/claude');
+  it('the ＋ Add tab opens /add and only learners have it', () => {
+    const add = tabsFor({ hasStudents: false, isTutorOnly: false }).find((t) => t.id === 'add');
+    expect(add?.to).toBe('/add');
+    expect(add?.label).toBe('Add');
     for (const role of [{ hasStudents: true, isTutorOnly: false }, { hasStudents: true, isTutorOnly: true }, { hasStudents: false, isTutorOnly: true, isTutorAccount: true }]) {
-      expect(tabsFor(role).map((t) => t.id)).not.toContain('claude');
+      expect(tabsFor(role).map((t) => t.id)).not.toContain('add');
     }
   });
 
@@ -126,7 +127,7 @@ describe('activeTab', () => {
     ['/settings/sentences', 'more'],
     ['/coach', 'more'],
     ['/lesson-notes', 'more'],
-    ['/claude', 'claude'],
+    ['/add', 'add'],
     ['/chats/claude/new', 'chats'],
   ])('%s → %s', (path, id) => {
     expect(activeTab(tabs, path)).toBe(id);
@@ -143,7 +144,7 @@ describe('isImmersiveRoute', () => {
     '%s hides the bar', (p) => expect(isImmersiveRoute(p)).toBe(true),
   );
   it.each(['/', '/study/review/abc', '/quests', '/picture-hunt', '/readers', '/readers/generate', '/library', '/library/l1', '/library/catalogue',
-    '/lessons', '/connections/1', '/decks', '/chats', '/more', '/settings', '/calls', '/calls/c1/review', '/group-classes', '/homework', '/tutor-notes', '/coach', '/coach/chat/c1/other', '/chats/claude/t1/other', '/connections/1/claude-chats', '/claude'])(
+    '/lessons', '/connections/1', '/decks', '/chats', '/more', '/settings', '/calls', '/calls/c1/review', '/group-classes', '/homework', '/tutor-notes', '/coach', '/coach/chat/c1/other', '/chats/claude/t1/other', '/connections/1/claude-chats', '/claude', '/add'])(
     '%s keeps the bar', (p) => expect(isImmersiveRoute(p)).toBe(false),
   );
 });
@@ -172,7 +173,7 @@ describe('tutor account (users.role = tutor)', () => {
 
   it('a student account is unchanged', () => {
     const role = deriveNavRole({ relationships: relationships(), deckCount: 2, dueCount: 5, accountRole: 'student' });
-    expect(tabsFor(role).map((t) => t.id)).toEqual(['study', 'chats', 'claude', 'progress', 'more']);
+    expect(tabsFor(role).map((t) => t.id)).toEqual(['study', 'chats', 'add', 'progress', 'more']);
   });
 
   it('try pages are immersive', () => {

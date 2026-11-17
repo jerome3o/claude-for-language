@@ -7,6 +7,7 @@ import dev.jeromeswannack.chineselearning.lab.ui.today.todayGraph
 import dev.jeromeswannack.chineselearning.lab.ui.cards.cardsGraph
 import dev.jeromeswannack.chineselearning.lab.ui.chat.chatGraph
 import dev.jeromeswannack.chineselearning.lab.ui.chats.chatsGraph
+import dev.jeromeswannack.chineselearning.lab.ui.add.addGraph
 import dev.jeromeswannack.chineselearning.lab.ui.connections.connectionsGraph
 import dev.jeromeswannack.chineselearning.lab.ui.decks.decksGraph
 import dev.jeromeswannack.chineselearning.lab.ui.editor.editorGraph
@@ -78,6 +79,7 @@ fun NavGraphBuilder.featureGraphs(nav: LabNav) {
     todayGraph(nav)         // "/today/lessons[/:id]", "/today/reader" — Lab-only today split
     materialsGraph(nav)     // "/materials", "/materials/:id"  J (calls round 4 PR 5)
     chatsGraph(nav)         // "/chats"       the Chats tab inbox
+    addGraph(nav)           // "/add"         the learner's ＋ Add tab (docs/ADD_TAB.md)
     homeworkLibraryGraph(nav) // "/homework-library", "/connections/:relId/homework" F
     audioLessonsGraph(nav)  // "/audio-lessons", "/audio-lessons/:id" (player: background playback, AudioLessonService)
     idiomsGraph(nav)        // "/idioms", "/idioms/:hanzi" — 成语 Idioms (beta)

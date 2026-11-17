@@ -38,7 +38,7 @@ export interface Env {
   CARD_CHECK_QUEUE?: Queue<import('./services/card-check').CardCheckMessage>;
   /** Sentence Coach replies in the background (services/coach-replies.ts). */
   /** Coach replies `{ messageId }` and Claude thread turns `{ kind: 'claude_turn', messageId }` (the watchdog). */
-  COACH_REPLY_QUEUE?: Queue<import('./services/coach-replies').CoachReplyMessage | import('./services/claude-agent/thread-turn').ClaudeTurnQueueMessage>;
+  COACH_REPLY_QUEUE?: Queue<import('./services/coach-replies').CoachReplyMessage | import('./services/claude-agent/thread-turn').ClaudeTurnQueueMessage | import('./services/lesson-requests').LessonRequestQueueMessage>;
   RECORDING_CHECK_QUEUE?: Queue<import('./services/recording-checks').RecordingCheckMessage>;
   /** 成语 Idioms (beta): one generated entry per idiom (services/idioms.ts, docs/IDIOMS.md). */
   IDIOM_QUEUE?: Queue<import('./services/idioms').IdiomQueueMessage>;

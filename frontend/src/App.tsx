@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useRef } from 'react';
 import { startAnalytics, track, trackScreen } from './services/analytics';
 import { BUILD_TIME } from './utils/appUpdates';
-import { BrowserRouter, Routes, Route, useLocation, useNavigate } from 'react-router-dom';
+import { BrowserRouter, Navigate, Routes, Route, useLocation, useNavigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { NetworkProvider } from './contexts/NetworkContext';
@@ -72,7 +72,7 @@ const MiniLessonsPage = lazy(() => import('./pages/MiniLessonsPage').then(m => (
 const LessonReplayPage = lazy(() => import('./pages/LessonReplayPage').then(m => ({ default: m.LessonReplayPage })));
 const StudentClaudeThreadPage = lazy(() => import('./pages/tutor/StudentClaudeThreadPage').then(m => ({ default: m.StudentClaudeThreadPage })));
 const ClaudeThreadPage = lazy(() => import('./pages/ClaudeThreadPage').then(m => ({ default: m.ClaudeThreadPage })));
-const ClaudeTabPage = lazy(() => import('./pages/ClaudeTabPage').then(m => ({ default: m.ClaudeTabPage })));
+const AddPage = lazy(() => import('./pages/AddPage').then(m => ({ default: m.AddPage })));
 const CoachChatRedirect = lazy(() => import('./pages/ClaudeThreadPage').then(m => ({ default: m.CoachChatRedirect })));
 const ClaudeChatRecapPage = lazy(() => import('./pages/ClaudeChatRecapPage').then(m => ({ default: m.ClaudeChatRecapPage })));
 const CoachLessonPage = lazy(() => import('./pages/CoachLessonPage').then(m => ({ default: m.CoachLessonPage })));
@@ -753,8 +753,9 @@ function AppRoutes() {
       <Route path="/coach/:conversationId/lesson/:messageId" element={<ProtectedRoute><CoachLessonPage /></ProtectedRoute>} />
       {/* Claude threads (docs/CHAT.md "Claude thread view"): every chat with Claude, one screen. The
           Coach's "💬 Ask Claude" chats were /coach/chat/:id — the same rows, redirected. */}
-      {/* The learner's ✦ Claude tab: a new chat, 🎤 at once; the first message moves to /chats/claude/:id. */}
-      <Route path="/claude" element={<ProtectedRoute><ClaudeTabPage /></ProtectedRoute>} />
+      {/* The learner's ＋ Add tab (docs/ADD_TAB.md). The old ✦ Claude tab (/claude) → the Chats tab's Claude box. */}
+      <Route path="/add" element={<ProtectedRoute><Header /><AddPage /></ProtectedRoute>} />
+      <Route path="/claude" element={<Navigate to="/chats?compose=1" replace />} />
       <Route path="/chats/claude/:id" element={<ProtectedRoute><ClaudeThreadPage /></ProtectedRoute>} />
       <Route path="/chats/claude/:id/recap" element={<ProtectedRoute><ClaudeChatRecapPage /></ProtectedRoute>} />
       <Route path="/coach/chat/:id" element={<ProtectedRoute><CoachChatRedirect /></ProtectedRoute>} />

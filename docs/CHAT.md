@@ -1254,20 +1254,22 @@ routes), `data/claude/ClaudeThreads.kt` (JsonCache `claude/t/<id>` + Outbox kind
   after every poll that grew the reply), web `hooks/useFollowEnd.ts` + `followEnd.ts` (it used to pull the reader
   down on every streamed chunk).
 
-## The Claude tab (web + Lab)
+## The Claude tab → ＋ Add; its box lives on the Chats tab (web + Lab)
 
-The learner's tab bar is **Study · Chats · ✦ Claude · Progress · More** (Jerome, Nov 2026: "it's not obvious
-enough that you can just ask any question"; web `components/nav/tabs.ts` `LEARNER_TABS`, Lab `NavRules`). Only
-the learner tab set; tutor accounts and accounts with students keep theirs. The icon is the ✦ sparkle the app
-already marks Claude with (one SVG path, web `TabBar.tsx` / Lab `ClaudeSparkle`).
-- `/claude` (web `pages/ClaudeTabPage.tsx`, Lab `ClaudeTabRoute` in ui/claude/ClaudeThreadNav.kt): a NEW plain
-  (`general`) chat in the Claude thread view, the tab bar under it (not immersive, the tab lit), no ←. The
-  voice-first composer **starts dictating at once** (🎤 Say it, the live transcript; Ask) — the browser / Android
-  asks for the microphone the first time; refused, offline or no microphone → typing with the box's usual reason;
-  ✏️ Type is one tap away (web `ClaudeChatComposer` `listenRequest`, Lab `ClaudeThreadScreen(autoListen = true)`).
-- The first message starts a normal Claude thread (`source: 'claude_tab'`), which takes the tab screen's place
-  (`/chats/claude/:id`, listed in Chats); the tab is a new chat again next time.
-- Analytics `claude.tab_open { listening }` (true = the 🎤 started; false = it stayed on typing).
+From Nov 2026 the learner's tab bar is **Study · Chats · ＋ Add · Progress · More** (docs/ADD_TAB.md). Jerome, on
+the ✦ Claude tab: "I don't really use this page … move the input bar from the current Claude page into the chat
+page and keep that low bar … having those extra options there is actually kind of nice". So:
+- The ✦ Claude tab is gone; its slot is **＋ Add** (`/add`, web `pages/AddPage.tsx`, Lab `ui/add/`).
+- `/claude` (old links) → `/chats?compose=1`: the Chats tab's box, ready to type (web `<Navigate>` in App.tsx, Lab
+  `ClaudeTabRedirect` in ui/claude/ClaudeThreadNav.kt).
+- **The Chats tab's box carries the general chat's suggestion chips** (实用的句子 A useful phrase · 考考我 Quiz me ·
+  小故事 A short story — `chipsFor('general')`) above the voice-first box, for learners only (the tutor's compact box
+  has none): web `chatsComposerChips` in `components/chats/ChatsComposer.tsx`, Lab `ChatsCompose.chips`. A chip starts
+  a new general thread with its question and opens it (`chats.compose_send { chip: true }`). The box stays the low bar
+  pinned above the tab bar, the list of chats (people first — his tutor's chat on top when unread — then the Claude
+  threads) scrolling above it. "On top of all the chat screens" = on the Chats tab's list screen; a chat with a person
+  keeps its own composer.
+- Analytics: `claude.tab_open` is `replacedBy: 'add.open'`.
 
 ## Practice with Claude (role-play threads)
 

@@ -62,10 +62,12 @@ object NavRules {
     val LIBRARY = TabSpec(TabId.LIBRARY, "Library", "/library", listOf("/library"))
     val PROGRESS = TabSpec(TabId.PROGRESS, "Progress", "/progress", listOf("/progress"))
     /**
-     * A learner's ✦ Claude tab (Jerome, Nov 2026: "it's not obvious enough that you can just ask any
-     * question"): a new chat with Claude, 🎤 listening at once. The thread it starts lives in Chats.
+     * A learner's ＋ Add tab (docs/ADD_TAB.md; Jerome, Nov 2026: "a landing page where it's super easy
+     * to add a new card, super easy to ask for new content"): 📷 / ✏️ / 🎤 a word → the explorer, and
+     * one tile per thing Claude can make. It took the ✦ Claude tab's slot (the Claude box is on Chats;
+     * `/claude` goes there).
      */
-    val CLAUDE = TabSpec(TabId.CLAUDE, "Claude", "/claude", listOf("/claude"))
+    val ADD = TabSpec(TabId.ADD, "Add", "/add", listOf("/add"))
     val MORE = TabSpec(
         TabId.MORE, "More", "/more",
         listOf(
@@ -82,13 +84,13 @@ object NavRules {
 
     /**
      * A learner's tabs (web LEARNER_TABS). The Tutor tab went (Jerome, Nov 2026: "it seems like a dud
-     * page"); its slot is now ✦ Claude — ask anything, by voice, one tap away.
+     * page"); its slot became ✦ Claude, then ＋ Add ("I don't really use this page").
      */
-    val LEARNER_TABS: List<TabSpec> get() = listOf(STUDY, CHATS, CLAUDE, PROGRESS, MORE)
+    val LEARNER_TABS: List<TabSpec> get() = listOf(STUDY, CHATS, ADD, PROGRESS, MORE)
 
     /**
      * Tutor account (role):   Students · Chats · Decks · Library · More
-     * Student account:        Study · Chats · ✦ Claude · Progress · More (LEARNER_TABS)
+     * Student account:        Study · Chats · ＋ Add · Progress · More (LEARNER_TABS)
      * Account with students:  Students · Chats · Study · More (+ Progress if they also study)
      * Decks are also one tap away for everyone: More → Decks, and Home's deck list.
      */
@@ -160,7 +162,7 @@ object NavRules {
     }
 }
 
-enum class TabId { STUDY, CHATS, CLAUDE, DECKS, STUDENTS, LIBRARY, PROGRESS, MORE }
+enum class TabId { STUDY, CHATS, ADD, DECKS, STUDENTS, LIBRARY, PROGRESS, MORE }
 
 data class TabSpec(val id: TabId, val label: String, val to: String, val match: List<String>)
 

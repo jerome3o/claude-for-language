@@ -3,6 +3,9 @@
   padding-top: 0.5rem;
   padding-bottom: 1rem;
   max-width: 640px;
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100dvh - var(--tab-bar-total, 0px) - 4.5rem);
 }
 
 .chats-header {
@@ -180,7 +183,9 @@
 
 /* The bottom box (sticky above the tab bar: .page-footer). */
 .chats-compose {
-  margin-top: 0.5rem;
+  /* The low bar: at the bottom of the screen even when the list is short (it took the ✦ Claude tab's
+     box, docs/ADD_TAB.md), pinned above the tab bar once the list scrolls. */
+  margin-top: auto;
   padding-left: 0;
   padding-right: 0;
 }

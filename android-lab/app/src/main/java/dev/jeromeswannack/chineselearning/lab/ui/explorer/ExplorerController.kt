@@ -136,7 +136,14 @@ class ExplorerController(
     /** End / Keep exploring: back to the view. */
     fun endDrill() { drill = null }
 
-    fun record(event: String, props: Map<String, Any?> = emptyMap()) = track(event, props)
+    fun record(event: String, props: Map<String, Any?> = emptyMap()) {
+        track(event, props)
+        // Opened from the ＋ Add tab (docs/ADD_TAB.md): the word it found became a card / joined today.
+        if (openSource == "add") when (event) {
+            "explorer.add_card" -> track("add.word_added", mapOf("via" to "card"))
+            "explorer.bump" -> track("add.word_added", mapOf("via" to "bump"))
+        }
+    }
 
     companion object {
         const val DOUBLE_OPEN_MS = 600L

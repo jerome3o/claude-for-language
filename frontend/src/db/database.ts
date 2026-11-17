@@ -303,7 +303,7 @@ export interface LocalReader {
   _synced_at: number | null;
 }
 
-/** "Done for good" / "Bring back" on a lesson (readers' old marks are ignored) (shared/study/revisit.ts). */
+/** The legacy "Done for good" / "Bring back" mark on a lesson (readers' old marks are ignored; shared/study/lessonRevision.ts reads it). */
 export interface LocalRevisitEvent {
   id: string;
   item_kind: 'lesson' | 'reader';
