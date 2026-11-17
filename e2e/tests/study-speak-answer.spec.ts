@@ -299,7 +299,7 @@ test('Jerome\'s 狼 said 朗 (tones off): the answer once with its pinyin and me
   expect(meaning!.y).toBeGreaterThan(py!.y);
   expect(row!.y).toBeGreaterThan(meaning!.y);
   expect(row!.height).toBeLessThan(80); // one compact row (the old box alone was ≥ 88px)
-  await expect(said.getByTestId('you-said-play')).toBeVisible(); // ▶ the take
+  await expect(said.getByTestId('you-said-play')).toHaveCount(0); // no ▶ on the row: the take is in ⋯
   await expect(said.getByTestId('you-said-coach')).toBeVisible(); // ✎ Open in Coach
 });
 
@@ -587,11 +587,11 @@ test('the yellow "You said" box: the round ✎ Check in Coach opens the sentence
   await expect(said).toHaveAttribute('data-state', 'contains', { timeout: 8000 });
   const coach = said.getByTestId('you-said-coach');
   await expect(coach).toBeVisible();
-  // A round 44px button on the far right, named for screen readers.
+  // The result rows' one round button (a 36px circle with a hairline, a 44px target) on the right, named for screen readers.
   await expect(coach).toHaveAccessibleName('Check in Coach');
   const [box, btn] = [await said.boundingBox(), await coach.boundingBox()];
-  expect(btn!.height).toBeGreaterThanOrEqual(44);
-  expect(btn!.width).toBeGreaterThanOrEqual(44);
+  expect(btn!.height).toBeGreaterThanOrEqual(36);
+  expect(btn!.width).toBeGreaterThanOrEqual(36);
   expect(box!.x + box!.width - (btn!.x + btn!.width)).toBeLessThan(12);
   expect(Math.abs(btn!.width - btn!.height)).toBeLessThan(1);
   expect(await coach.evaluate((el) => getComputedStyle(el).borderRadius)).toBe('50%');

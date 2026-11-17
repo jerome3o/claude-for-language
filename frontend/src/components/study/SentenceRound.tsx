@@ -50,6 +50,7 @@ import {
 import { useSentencesByEar } from '../../services/hardModePrefs';
 import { isAudioCached } from '../../services/audioCache';
 import { SentenceListenExercise } from './SentenceListenExercise';
+import { RightMoment } from './RightMoment';
 import { RoundChinese } from './RoundChinese';
 import { roundTakeFeel } from '@shared/study/hardMode';
 import { studyFeel } from '../../services/studyFeel';
@@ -518,6 +519,7 @@ export function SentenceRound({ showingKey, noteId, question, questionIsChinese,
           onActivate={() => setChosenListen(ex.id)}
           onRevealed={() => setListenAnswered((p) => (p.includes(ex.id) ? p : [...p, ex.id]))}
           isRight={right.includes(ex.id)}
+          roundDone={progress.done && lastRight.current === ex.id}
           online={isOnline}
           micBusy={practise.listening || practise.finishing}
           onJudged={(result, afterReveal) => listenJudged(ex, index, result, afterReveal)}
@@ -561,13 +563,15 @@ export function SentenceRound({ showingKey, noteId, question, questionIsChinese,
         key={ex.id}
         {...longPress.bind(() => setHiding(ex))}
         onContextMenu={(e) => { e.preventDefault(); setHiding(ex); }}
-        className={`sentence-round-ex${status ? ` is-${status}` : ''}${busy ? ' is-active' : ''}`}
+        className={`sentence-round-ex${status ? ` is-${status}` : ''}${busy ? ' is-active' : ''}${isRight ? ' right-moment-host' : ''}`}
         data-testid="sentence-round-exercise"
         data-mode={ex.mode}
         data-status={status ?? 'open'}
         data-difference={difference ?? undefined}
         data-held={heldId === ex.id ? 'true' : undefined}
       >
+        {/* The "right" moment (shared/study/rightMoment.ts): small each time, a little bigger on the round's last one. */}
+        {isRight && <RightMoment where="round_exercise" roundDone={progress.done && lastRight.current === ex.id} />}
         <div className="sentence-round-ex-head">
           <span className="sentence-round-ex-num" aria-hidden="true">{status === 'right' ? '✓' : index + 1}</span>
           <span className="sentence-round-ex-prompt">{SENTENCE_ROUND_PROMPT[ex.mode]}</span>

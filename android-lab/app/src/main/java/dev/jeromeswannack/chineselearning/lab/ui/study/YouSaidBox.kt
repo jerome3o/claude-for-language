@@ -84,6 +84,9 @@ const val YOU_SAID_COACH_LABEL = "Check in Coach"
 const val YOU_SAID_PLAY_TAG = "you-said-play"
 const val YOU_SAID_PLAY_LABEL = "Play my recording"
 /** The verdict chip's icon: `you-said-verdict-check` / `-approx` / `-close` ([youSaidVerdictIcon]). */
+/** A result row's action button target (36dp circle inside). */
+val RESULT_ACTION_TARGET = 44.dp
+
 const val YOU_SAID_VERDICT_TAG = "you-said-verdict"
 
 /** The verdict chip's words (web `YOU_SAID_VERDICT` in components/study/YouSaid.tsx). */
@@ -130,83 +133,33 @@ private enum class YouSaidTone { MATCH, CONTAINS, MISS, PENDING, NEUTRAL }
 @Composable
 private fun isDarkCard(): Boolean = Lab.colors.card.luminance() < 0.5f
 
-@Composable
-private fun toneColor(t: YouSaidTone): Color = when (t) {
-    YouSaidTone.MATCH -> Palette.Good
-    YouSaidTone.CONTAINS -> if (isDarkCard()) Palette.PartialStrong else Palette.Partial
-    YouSaidTone.MISS -> Palette.Again
-    YouSaidTone.PENDING -> Palette.Easy
-    YouSaidTone.NEUTRAL -> Lab.colors.muted
+/** A tone → its result state (core ResultState): the one colour system every result shares. */
+private fun stateOf(t: YouSaidTone): String = when (t) {
+    YouSaidTone.MATCH -> dev.jeromeswannack.chineselearning.lab.core.ResultState.RIGHT
+    YouSaidTone.CONTAINS -> dev.jeromeswannack.chineselearning.lab.core.ResultState.CLOSE
+    YouSaidTone.MISS -> dev.jeromeswannack.chineselearning.lab.core.ResultState.WRONG
+    else -> dev.jeromeswannack.chineselearning.lab.core.ResultState.PENDING
 }
 
-/** The tone as text / icon colour: dark enough on the light card, light enough on the dark one. */
+/** The tone as text / icon colour (the state's ink, ResultColors). */
 @Composable
-private fun toneInk(t: YouSaidTone): Color {
-    val dark = isDarkCard()
-    return when (t) {
-        YouSaidTone.MATCH -> if (dark) Color(0xFF4ADE80) else Color(0xFF15803D)
-        YouSaidTone.CONTAINS -> if (dark) Palette.PartialStrong else Palette.PartialInk
-        YouSaidTone.MISS -> if (dark) Color(0xFFF87171) else Color(0xFFB91C1C)
-        YouSaidTone.PENDING -> if (dark) Color(0xFF93C5FD) else Color(0xFF1D4ED8)
-        YouSaidTone.NEUTRAL -> Lab.colors.muted
-    }
-}
+private fun toneInk(t: YouSaidTone): Color = if (t == YouSaidTone.NEUTRAL) Lab.colors.muted else ResultColors.ink(stateOf(t))
 
 /**
- * Every colour of one state's box. The quiet states are a soft wash of their tone; "Contains the
- * answer" is YELLOW and must read as yellow to red / green colour-blind eyes (the old orange looked like
- * the red miss): a lemon tint + a 1.5 dp lemon border, a SOLID lemon chip with dark brown words, and
- * ▶ / ✎ as solid lemon circles with dark icons (light) or a lemon wash with lemon icons (dark).
- * Web: `.you-said--contains` on index.css `--color-partial*`.
+ * Every colour of one state's box — the SAME treatment for every state, only the colour differs (Jerome, Nov 2026:
+ * the yellow "Contains" box with a thicker outline and solid lemon chip next to a bare green "Match" was "a
+ * discrepancy in the UX"): the one result surface (ResultStateUi `resultSurface`), the state's chip, its ink.
+ * Close stays yellow (never orange: red / green colour-blind eyes read orange as the red miss).
  */
 private data class YouSaidStyle(
-    val box: Color,
-    val border: Color,
-    val borderWidth: Float,
     val chip: Color,
     val chipInk: Color,
-    val round: Color,
-    val roundInk: Color,
 )
 
 @Composable
-private fun toneStyle(t: YouSaidTone): YouSaidStyle {
-    val card = Lab.colors.card
-    if (t == YouSaidTone.CONTAINS) {
-        return if (isDarkCard()) {
-            YouSaidStyle(
-                box = Palette.PartialStrong.copy(alpha = 0.10f).compositeOver(card),
-                border = Palette.PartialStrong,
-                borderWidth = 1.5f,
-                chip = Palette.PartialStrong,
-                chipInk = Palette.PartialInkDark,
-                round = Palette.PartialStrong.copy(alpha = 0.20f),
-                roundInk = Palette.PartialStrong,
-            )
-        } else {
-            YouSaidStyle(
-                box = Palette.PartialSoft,
-                border = Palette.Partial,
-                borderWidth = 1.5f,
-                chip = Palette.PartialStrong,
-                chipInk = Palette.PartialInk,
-                round = Palette.PartialStrong,
-                roundInk = Palette.PartialInk,
-            )
-        }
-    }
-    val c = toneColor(t)
-    val ink = toneInk(t)
-    return YouSaidStyle(
-        box = c.copy(alpha = 0.08f).compositeOver(card),
-        border = c.copy(alpha = 0.24f),
-        borderWidth = 1f,
-        chip = c.copy(alpha = 0.14f),
-        chipInk = ink,
-        round = c.copy(alpha = 0.16f),
-        roundInk = ink,
-    )
-}
+private fun toneStyle(t: YouSaidTone): YouSaidStyle =
+    if (t == YouSaidTone.NEUTRAL) YouSaidStyle(Lab.colors.faint, Lab.colors.muted)
+    else YouSaidStyle(chip = ResultColors.chip(stateOf(t)), chipInk = ResultColors.ink(stateOf(t)))
 
 /**
  * The shell every state shares (the web's `.you-said`): a tinted 14 dp rounded box, at least 88 dp
@@ -222,23 +175,24 @@ private fun YouSaidShell(
     sides: Boolean = left != null || right != null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    val style = toneStyle(tone)
     Row(
         modifier
             .fillMaxWidth()
-            // Not a box on the study card (Jerome, Nov 2026): the verdict chip, the hero text and the round buttons carry it.
+            // The one result surface (light outline + faint tint in the state's colour), the same for every state.
+            .then(if (tone == YouSaidTone.NEUTRAL) Modifier else Modifier.resultSurface(stateOf(tone)))
             .heightIn(min = 72.dp)
-            .padding(vertical = 4.dp),
+            .padding(horizontal = 8.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        if (sides) Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) { left?.invoke() }
+        if (sides) Box(Modifier.size(RESULT_ACTION_TARGET), contentAlignment = Alignment.Center) { left?.invoke() }
         Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally, content = content)
-        if (sides) Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) { right?.invoke() }
+        if (sides) Box(Modifier.size(RESULT_ACTION_TARGET), contentAlignment = Alignment.Center) { right?.invoke() }
     }
 }
 
-/** A quiet tinted circle in the box's colour (no border); long-press shows its label. */
+/** The result rows' one action button (▶ / ✎): a 36dp circle with a hairline in a 44dp target — the same in every
+ *  state (web `.you-said-round` / `.result-action`); long-press shows its label. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun YouSaidRound(icon: ImageVector, label: String, tone: YouSaidTone, tag: String, onClick: () -> Unit) {
@@ -247,18 +201,20 @@ private fun YouSaidRound(icon: ImageVector, label: String, tone: YouSaidTone, ta
         tooltip = { PlainTooltip { Text(label) } },
         state = rememberTooltipState(),
     ) {
-        val style = toneStyle(tone)
         Box(
             Modifier
-                .size(44.dp)
-                .clip(CircleShape)
-                .background(style.round)
+                .size(RESULT_ACTION_TARGET)
                 .clickable(onClick = onClick)
                 .semantics { contentDescription = label; role = Role.Button }
                 .testTag(tag),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(icon, contentDescription = null, tint = style.roundInk, modifier = Modifier.size(22.dp))
+            Box(
+                Modifier.size(36.dp).clip(CircleShape).background(Lab.colors.card).border(1.dp, Lab.colors.cardBorder, CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(icon, contentDescription = null, tint = Lab.colors.ink, modifier = Modifier.size(18.dp))
+            }
         }
     }
 }
@@ -324,6 +280,7 @@ fun YouSaidBox(
      * tip; its reason only when the take is too different for a count).
      */
     expected: String? = null,
+    modifier: Modifier = Modifier,
 ) {
     val device = if (r.isMatch) "match" else if (r.containsExpected) "contains" else if (r.tonesOff) "close" else "miss"
     val state = claude?.state ?: device
@@ -337,7 +294,7 @@ fun YouSaidBox(
     val coach = onCoach?.takeIf { state == "contains" }
     YouSaidShell(
         tone,
-        Modifier.testTag("$YOU_SAID_TAG-${if (waiting) "checking" else state}"),
+        modifier.testTag("$YOU_SAID_TAG-${if (waiting) "checking" else state}"),
         left = onPlay?.let { play -> { YouSaidRound(Icons.Rounded.PlayArrow, YOU_SAID_PLAY_LABEL, tone, YOU_SAID_PLAY_TAG, play) } },
         right = coach?.let { open -> { YouSaidRound(Icons.Rounded.Edit, YOU_SAID_COACH_LABEL, tone, YOU_SAID_COACH_TAG, open) } },
     ) {
@@ -407,10 +364,10 @@ fun YouSaidOffline() {
 fun YouSaidFailed(note: String, onRetry: () -> Unit, modifier: Modifier = Modifier, title: String = "Couldn’t transcribe") {
     YouSaidShell(
         YouSaidTone.MISS,
-        modifier.clip(RoundedCornerShape(14.dp)).clickable(onClick = onRetry),
+        modifier.clip(ResultShape).clickable(onClick = onRetry),
         left = {
-            Box(Modifier.size(44.dp).clip(CircleShape).background(toneColor(YouSaidTone.MISS).copy(alpha = 0.16f)), contentAlignment = Alignment.Center) {
-                Icon(Icons.Rounded.Refresh, contentDescription = null, tint = toneInk(YouSaidTone.MISS), modifier = Modifier.size(22.dp))
+            Box(Modifier.size(36.dp).clip(CircleShape).background(Lab.colors.card).border(1.dp, Lab.colors.cardBorder, CircleShape), contentAlignment = Alignment.Center) {
+                Icon(Icons.Rounded.Refresh, contentDescription = null, tint = toneInk(YouSaidTone.MISS), modifier = Modifier.size(18.dp))
             }
         },
         sides = true,
@@ -423,9 +380,13 @@ fun YouSaidFailed(note: String, onRetry: () -> Unit, modifier: Modifier = Modifi
 /** Test tag prefix of the spoken result row: `spoken-result-match` / `-sound` / `-contains` / `-close` / `-wrong`. */
 const val SPOKEN_RESULT_TAG = "spoken-result"
 
-/** The card's answer on the back of a spoken answer: green when the verdict counts (web `.spoken-answer-hanzi--right`). */
+/**
+ * The card's answer on the back of a spoken answer: normal ink whatever the verdict — the "You said" row under it
+ * carries the state (one result look; it used to turn green, a second, different way of saying "right").
+ */
+@Suppress("UNUSED_PARAMETER")
 @Composable
-fun spokenAnswerColor(accepted: Boolean): Color = if (accepted) toneInk(YouSaidTone.MATCH) else Lab.colors.ink
+fun spokenAnswerColor(accepted: Boolean): Color = Lab.colors.ink
 
 /** A "You said" mark → the slim answer diff's cell kind ([DiffMarkedText]). */
 private fun spokenCellKind(mark: SpokenAnswerResult.Mark): String = when (mark) {
@@ -497,19 +458,18 @@ fun SpokenResultRow(
     val coach = onCoach?.takeIf { r.coach }
     val sides = onPlay != null || coach != null
     val label = SpokenAnswerResult.label(r, correct, fullPinyin)
-    val shape = RoundedCornerShape(if (compact != null) 12.dp else 14.dp)
     Row(
         modifier
             .fillMaxWidth()
-            .clip(shape)
-            // The compact row (the Sentence round / sentence rows, inside the study card) is not a box: its chip says it.
-            .then(if (compact != null) Modifier else Modifier.background(style.box).border(style.borderWidth.dp, style.border, shape))
+            // The one result surface, compact or not, in every state (core ResultState; was: the full row boxed with a
+            // thicker yellow outline for "contains", the compact row bare — two looks for the same result).
+            .resultSurface(stateOf(tone))
             .padding(if (compact != null) 2.dp else 4.dp)
             .testTag("$SPOKEN_RESULT_TAG-$state"),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        if (sides) Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) {
+        if (sides) Box(Modifier.size(RESULT_ACTION_TARGET), contentAlignment = Alignment.Center) {
             onPlay?.let { YouSaidRound(Icons.Rounded.PlayArrow, YOU_SAID_PLAY_LABEL, tone, YOU_SAID_PLAY_TAG, it) }
         }
         androidx.compose.foundation.layout.FlowRow(
@@ -544,7 +504,7 @@ fun SpokenResultRow(
                 Text(r.chip, fontSize = 12.sp, lineHeight = 15.sp, fontWeight = FontWeight.SemiBold, color = style.chipInk, textAlign = TextAlign.Center)
             }
         }
-        if (sides) Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) {
+        if (sides) Box(Modifier.size(RESULT_ACTION_TARGET), contentAlignment = Alignment.Center) {
             coach?.let { YouSaidRound(Icons.Rounded.Edit, YOU_SAID_COACH_LABEL, tone, YOU_SAID_COACH_TAG, it) }
         }
     }

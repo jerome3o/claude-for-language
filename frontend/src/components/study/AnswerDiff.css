@@ -14,7 +14,7 @@
   --adiff-tone-tint: rgba(250, 204, 21, 0.18);
   --adiff-extra-bg: #fde68a;
   --adiff-extra-ink: #713f12;
-  --adiff-right: #15803d;
+  --adiff-right: var(--result-right-ink);
 }
 :root[data-theme='dark'] {
   --adiff-wrong: #fb7185;
@@ -23,7 +23,7 @@
   --adiff-tone-tint: rgba(253, 224, 71, 0.12);
   --adiff-extra-bg: rgba(253, 224, 71, 0.28);
   --adiff-extra-ink: #fde047;
-  --adiff-right: #4ade80;
+  --adiff-right: var(--result-right-ink);
 }
 
 .adiff-box {

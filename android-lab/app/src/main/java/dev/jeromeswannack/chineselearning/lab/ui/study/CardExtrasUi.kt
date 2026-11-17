@@ -75,21 +75,30 @@ import kotlinx.coroutines.launch
  */
 @Composable
 fun StudyActionRow(aiAvailable: Boolean, onAskClaude: () -> Unit, onEditCard: () -> Unit, onMore: () -> Unit, modifier: Modifier = Modifier) {
-    Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    // Light outlined buttons, evenly spaced (Jerome, Nov 2026: "Ask Claude and Edit Card could be more button-like with a
+    // light outline, and they're a bit awkwardly spaced"): two equal halves and ⋯ as a compact square of the same height.
+    Row(modifier.fillMaxWidth().testTag(STUDY_ACTION_ROW_TAG), horizontalArrangement = Arrangement.spacedBy(dev.jeromeswannack.chineselearning.lab.ui.theme.Spacing.gapMin)) {
         ActionButton("💬", if (aiAvailable) "Ask Claude" else "Ask Claude · offline", Modifier.weight(1f), enabled = aiAvailable, onClick = onAskClaude)
         ActionButton("✏️", "Edit card", Modifier.weight(1f), onClick = onEditCard)
-        ActionButton(null, "⋯", Modifier.width(56.dp), onClick = onMore)
+        ActionButton(null, "⋯", Modifier.width(ACTION_ROW_HEIGHT).testTag(STUDY_MORE_TAG), onClick = onMore)
     }
 }
 
+/** The action row's height: one touch target. ⋯ is a square of it. */
+private val ACTION_ROW_HEIGHT = 44.dp
+const val STUDY_ACTION_ROW_TAG = "study-action-row"
+const val STUDY_MORE_TAG = "study-more"
+
 @Composable
 private fun ActionButton(icon: String?, label: String, modifier: Modifier, enabled: Boolean = true, onClick: () -> Unit) {
-    val shape = RoundedCornerShape(12.dp)
+    val shape = RoundedCornerShape(10.dp)
     Row(
         modifier
-            // A light text button, one slim row (Jerome, Nov 2026: less boxy) — the ratings under it are the main action.
-            .height(44.dp)
+            .height(ACTION_ROW_HEIGHT)
             .clip(shape)
+            // A LIGHT 1dp outline in the theme's muted border token, no fill (web: 1px --color-border) — the ratings under it
+            // stay the main action. Disabled (offline Ask Claude): dashed, like every disabled button.
+            .then(if (enabled) Modifier.border(1.dp, Lab.colors.cardBorder, shape) else Modifier.buttonBorder(shape, enabled = false))
             .bouncyClickable(enabled = enabled, onClick = onClick),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
@@ -142,7 +151,8 @@ fun studyMenuItems(view: CardView, ui: StudyUi, actions: StudyActions, hasRecord
             // "Forget this card…": back to New, the warning first (docs/STUDY_SESSION.md "Forget").
             add(StudyMenuItem("forget", "Forget this card…", "↺", "Back to New", onSelect = { onHold("forget") }))
         }
-        if (hasRecording) add(StudyMenuItem("my-recording", "Play my recording", "🎙️", onSelect = actions.onPlayMyRecording))
+        // The take plays from here (the "You said" box has no ▶ of its own — Jerome, Nov 2026).
+        if (hasRecording) add(StudyMenuItem("my-recording", "Play my recording", "▶", onSelect = actions.onYouSaidPlay))
     }
 }
 

@@ -29,6 +29,7 @@ import { READ_TAKE_CHECKING, READ_TAKE_CHIP } from '@shared/study/readTakeCheck'
 import { answerDiff, answerDiffLabel, answerDiffLine } from '@shared/cards/answer-diff';
 import { AnswerDiffChars } from './AnswerDiff';
 import './YouSaid.css';
+import { RightMoment } from './RightMoment';
 import './AnswerDiff.css';
 
 export type YouSaidState = 'match' | 'contains' | 'close' | 'miss';
@@ -67,6 +68,11 @@ export interface YouSaidProps {
    * tip; its reason only when the take is too different for a count).
    */
   expected?: string;
+  /**
+   * The study card's "right" moment on a match (wash, ✓, a small burst, the feel — shared/study/rightMoment.ts);
+   * `celebrated` = Hard mode's check of the question already celebrated it (the tint only). Omitted = none.
+   */
+  celebrate?: { celebrated: boolean };
 }
 
 /** The pinyin line under the hanzi: no space before punctuation ("zhōng guó 。" → "zhōng guó。"). Lab: `tidyYouSaidPinyin`. */
@@ -103,21 +109,24 @@ export const YOU_SAID_VERDICT_ICON: Record<YouSaidState, 'check' | 'approx' | 'c
 };
 
 /** The shell every state shares: optional round buttons in equal side columns, the text centred between. */
-function Shell({ tone, state, left, right, children, testId = 'you-said' }: {
+function Shell({ tone, state, left, right, children, testId = 'you-said', moment }: {
   tone: string;
   state: string;
   left?: ReactNode;
   right?: ReactNode;
   children: ReactNode;
   testId?: string;
+  /** A match on the study card: the "right" moment over the box (shared/study/rightMoment.ts). */
+  moment?: ReactNode;
 }) {
   const sides = !!(left || right);
   return (
     <div
-      className={`transcription-result you-said you-said--${tone}${sides ? ' you-said--sides' : ''}`}
+      className={`transcription-result you-said you-said--${tone}${sides ? ' you-said--sides' : ''}${moment ? ' right-moment-host' : ''}`}
       data-testid={testId}
       data-state={state}
     >
+      {moment}
       {sides && <span className="you-said-side">{left}</span>}
       <div className="you-said-body">{children}</div>
       {sides && <span className="you-said-side">{right}</span>}
@@ -140,7 +149,7 @@ function RoundButton({ icon, label, onClick, testId }: { icon: string; label: st
   );
 }
 
-export function YouSaid({ hanzi, pinyin, isMatch, containsExpected, tonesOff = false, onCoach, onPlay, checking = false, claude = null, expected }: YouSaidProps) {
+export function YouSaid({ hanzi, pinyin, isMatch, containsExpected, tonesOff = false, onCoach, onPlay, checking = false, claude = null, expected, celebrate }: YouSaidProps) {
   const device: YouSaidState = isMatch ? 'match' : containsExpected ? 'contains' : tonesOff ? 'close' : 'miss';
   const state: YouSaidState = claude ? claude.state : device;
   const diff = expected && hanzi && (state === 'close' || state === 'miss') ? answerDiff(hanzi, expected) : null;
@@ -153,6 +162,9 @@ export function YouSaid({ hanzi, pinyin, isMatch, containsExpected, tonesOff = f
       state={waiting ? 'checking' : state}
       left={onPlay && <RoundButton icon={ICON.play} label={YOU_SAID_PLAY_LABEL} onClick={onPlay} testId="you-said-play" />}
       right={coach && <RoundButton icon={ICON.edit} label={YOU_SAID_COACH_LABEL} onClick={coach} testId="you-said-coach" />}
+      moment={celebrate && !waiting && state === 'match'
+        ? <RightMoment where="typed_answer" celebrated={celebrate.celebrated} feel key={hanzi} />
+        : undefined}
     >
       <div className="you-said-head">
         <span className="you-said-label">You said</span>

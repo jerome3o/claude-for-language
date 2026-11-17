@@ -466,9 +466,8 @@ const val SENTENCE_ROUND_LABEL_TAG = "sentence-set-round-label"
 /** A round row's small label colour: ✓ green · ≈ gold · ✗ red · untried muted (the label carries the icon + words; never an outline). */
 @Composable
 fun roundMarkColor(outcome: String): androidx.compose.ui.graphics.Color = when (outcome) {
-    "right" -> Palette.Good
-    "close" -> Palette.Gold
-    "wrong" -> Palette.Again
+    // The one result state's ink (ResultStateUi) — the same green / yellow / red as every other verdict.
+    "right", "close", "wrong" -> ResultColors.ink(outcome)
     else -> Lab.colors.cardBorder
 }
 const val SENTENCE_EXPLAIN_TAG = "sentence-explain"
@@ -550,25 +549,40 @@ fun SentenceRowView(
     LaunchedEffect(take) {
         if (take?.mode == SentencePractise.TRANSLATE && (state.steps[row.key] ?: first) < 1) state.steps[row.key] = 1
     }
-    // The row is not a box (Jerome, Nov 2026: "the sides are way too fat … it makes the whole thing feel crammed"):
-    // the sentence spans the width with only a small ▶ at the end of its first line; EN · 🎤 · the tools · the row's
-    // small marks ("From the card", how it went in the round) are ONE quiet line under it; a hairline between rows.
+    // ONE line while collapsed (Jerome, Nov 2026: "Tap to reveal, EN, From the card — I feel like that should be on one
+    // line"): [EN] Tap to reveal · From the card … [🎤] [▶], centred on that line, about one touch target tall. Revealing
+    // grows the row downward under that same first line; the tools come once it is fully open. Every row has the same
+    // text edge (after EN), the same controls edge and the same padding. Never a box; a hairline between rows.
+    val collapsed = step == 0 && !en
+    val hasMarks = roundMark != null || (row.fromCard && row.badge != null)
     Column(Modifier.fillMaxWidth().animateContentSize().then(if (roundMark != null) Modifier.testTag("sentence-round-row-${roundMark.outcome}") else Modifier)) {
         Row(
             Modifier
                 .fillMaxWidth()
+                .heightIn(min = SENTENCE_ROW_MIN)
                 .combinedClickable(onLongClick = onHideRequest) {
                     val cur = state.steps[row.key] ?: first
                     if (cur >= chain.size) practise?.clear(row.key)
                     state.steps[row.key] = if (cur >= chain.size) (if (roundMark != null) 0 else first) else cur + 1
                 }
                 .testTag(SENTENCE_ROW_TAG)
-                .padding(top = 6.dp),
-            verticalAlignment = Alignment.Top,
+                .padding(vertical = 4.dp),
+            verticalAlignment = if (collapsed) Alignment.CenterVertically else Alignment.Top,
         ) {
-            Column(Modifier.weight(1f).padding(top = 4.dp)) {
+            if (englishToggle) {
+                Box(
+                    Modifier.size(SENTENCE_CONTROL).clip(CircleShape)
+                        .background(if (en) Lab.colors.accentSoft else androidx.compose.ui.graphics.Color.Transparent)
+                        .clickable(enabled = translation != null, onClickLabel = if (en) "Back to listening first" else "Show the English only") {
+                            state.english[row.key] = !en; state.steps[row.key] = 0; practise?.clear(row.key); if (!en) state.showAll = false
+                        }
+                        .testTag(SENTENCE_EN_TAG),
+                    contentAlignment = Alignment.Center,
+                ) { Text("EN", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = if (en) Lab.colors.accent else if (translation != null) Lab.colors.muted else Lab.colors.muted.copy(alpha = 0.4f)) }
+            }
+            Column(Modifier.weight(1f).padding(start = 4.dp, top = if (collapsed) 0.dp else 10.dp, bottom = if (collapsed) 0.dp else 4.dp)) {
                 if (en) Text(translation!!, style = MaterialTheme.typography.bodyLarge, color = Lab.colors.ink)
-                if (step == 0 && !en) Text("Tap to reveal", style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted.copy(alpha = 0.6f), modifier = Modifier.padding(vertical = 6.dp))
+                if (collapsed) Text(SENTENCE_TAP_TO_REVEAL, style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted.copy(alpha = 0.7f), maxLines = 1)
                 if (step >= 1) Text(row.hanzi, style = MaterialTheme.typography.titleMedium, color = Lab.colors.ink, fontWeight = FontWeight.Medium)
                 if (step >= 2 && chain.getOrNull(1) == "pinyin") Text(row.pinyin!!, style = MaterialTheme.typography.bodyMedium, color = Lab.colors.accent)
                 val translationStep = chain.indexOf("translation") + 1
@@ -602,35 +616,33 @@ fun SentenceRowView(
                     Text(focusLine.joinToString(" · "), style = MaterialTheme.typography.labelSmall, color = Lab.colors.muted)
                 }
             }
-            // ▶: small and borderless, a 44dp target at the end of the first line.
+            // Collapsed, the row's small marks sit on the same line; once it opens they move under it.
+            if (step == 0 && hasMarks) SentenceRowMarks(row, roundMark, Modifier.padding(horizontal = 4.dp))
+            if (practise != null && practiseMode != null) SentenceMicButton(practise, row, practiseMode)
+            // ▶: the card's one round play button (a 36dp circle with a hairline in a 44dp target), never a bare triangle.
             Box(
-                Modifier.size(44.dp).clip(CircleShape).background(if (playing) Lab.colors.accentSoft else androidx.compose.ui.graphics.Color.Transparent)
+                Modifier.size(SENTENCE_CONTROL)
                     .clickable(enabled = !audioBusy, onClickLabel = "Play sentence") { onPlay(row.audioUrl, row.hanzi) }.testTag(SENTENCE_PLAY_TAG),
                 contentAlignment = Alignment.Center,
             ) {
-                if (audioBusy) androidx.compose.material3.CircularProgressIndicator(Modifier.size(18.dp).testTag(SENTENCE_AUDIO_BUSY_TAG), color = Lab.colors.accent, strokeWidth = 2.dp)
-                else Icon(Icons.Filled.PlayArrow, "Play sentence", tint = Lab.colors.accent, modifier = Modifier.size(24.dp))
+                Box(
+                    Modifier.size(36.dp).clip(CircleShape)
+                        .background(if (playing) Lab.colors.accentSoft else Lab.colors.card)
+                        .border(1.dp, Lab.colors.cardBorder, CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (audioBusy) androidx.compose.material3.CircularProgressIndicator(Modifier.size(16.dp).testTag(SENTENCE_AUDIO_BUSY_TAG), color = Lab.colors.accent, strokeWidth = 2.dp)
+                    else Icon(Icons.Filled.PlayArrow, "Play sentence", tint = Lab.colors.ink, modifier = Modifier.size(20.dp))
+                }
             }
         }
         if (practise != null && practise.hasOutcome(row.key)) {
             Box(Modifier.padding(top = 2.dp)) { SentencePractiseOutcome(practise, row) }
         }
-        // The one quiet line under the sentence.
-        androidx.compose.foundation.layout.FlowRow(
-            Modifier.fillMaxWidth().offset(x = (-6).dp),
+        // Under an opened row: its tools once fully open, then its small marks — at the text edge (after EN).
+        if (step >= 1 && (open || hasMarks)) androidx.compose.foundation.layout.FlowRow(
+            Modifier.fillMaxWidth().padding(start = if (englishToggle) SENTENCE_CONTROL - 4.dp else 0.dp),
         ) {
-            if (englishToggle) {
-                Box(
-                    Modifier.size(44.dp).clip(CircleShape)
-                        .background(if (en) Lab.colors.accentSoft else androidx.compose.ui.graphics.Color.Transparent)
-                        .clickable(enabled = translation != null, onClickLabel = if (en) "Back to listening first" else "Show the English only") {
-                            state.english[row.key] = !en; state.steps[row.key] = 0; practise?.clear(row.key); if (!en) state.showAll = false
-                        }
-                        .testTag(SENTENCE_EN_TAG),
-                    contentAlignment = Alignment.Center,
-                ) { Text("EN", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = if (en) Lab.colors.accent else if (translation != null) Lab.colors.muted else Lab.colors.muted.copy(alpha = 0.4f)) }
-            }
-            if (practise != null && practiseMode != null) SentenceMicButton(practise, row, practiseMode)
             if (open) {
                 val ex = state.explanations[row.key]
                 if (row.fetchTranslation && translation == null && translateFailed && online) {
@@ -657,22 +669,7 @@ fun SentenceRowView(
                     ToolLink("🙈 Hide", enabled = true, modifier = Modifier.testTag(SentenceHideTags.HIDE_TOOL).semantics { contentDescription = SentenceHistory.HIDE_TITLE }, onClick = onHideRequest)
                 }
             }
-            // The row's small marks: never an outline, never a header line in a box.
-            if (roundMark != null || (row.fromCard && row.badge != null)) {
-                Row(Modifier.padding(start = 6.dp).heightIn(min = 44.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (roundMark != null) {
-                        Text(
-                            roundMark.label,
-                            Modifier.testTag(SENTENCE_ROUND_LABEL_TAG),
-                            color = if (roundMark.outcome == "untried") Lab.colors.muted else roundMarkColor(roundMark.outcome),
-                            fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1,
-                        )
-                    }
-                    if (row.fromCard && row.badge != null) {
-                        Text(row.badge, style = MaterialTheme.typography.labelSmall, color = Lab.colors.muted, maxLines = 1, modifier = Modifier.testTag(SENTENCE_CARD_BADGE_TAG))
-                    }
-                }
-            }
+            if (hasMarks) SentenceRowMarks(row, roundMark, Modifier.padding(start = 6.dp).heightIn(min = 44.dp))
         }
         if (open) {
             state.explanations[row.key]?.let { ex ->
@@ -689,8 +686,33 @@ fun SentenceRowView(
     }
 }
 
-/** Test tag of a row's EN (the English-first toggle in the line under the sentence). */
+/** Test tag of a row's EN (the English-first toggle at the start of the row's line). */
 const val SENTENCE_EN_TAG = "sentence-en"
+
+/** A collapsed row's words (web `SENTENCE_TAP_TO_REVEAL`). */
+const val SENTENCE_TAP_TO_REVEAL = "Tap to reveal"
+
+/** A row's controls (EN · 🎤 · ▶): one touch target each; a collapsed row is about one of them tall. */
+private val SENTENCE_CONTROL = 44.dp
+private val SENTENCE_ROW_MIN = 48.dp
+
+/** The row's small marks: how it went in the round, "From the card" — small words, never a box. */
+@Composable
+private fun SentenceRowMarks(row: SentenceRow, roundMark: dev.jeromeswannack.chineselearning.lab.core.SentenceRound.RowMark?, modifier: Modifier = Modifier) {
+    Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (roundMark != null) {
+            Text(
+                roundMark.label,
+                Modifier.testTag(SENTENCE_ROUND_LABEL_TAG),
+                color = if (roundMark.outcome == "untried") Lab.colors.muted else roundMarkColor(roundMark.outcome),
+                fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1,
+            )
+        }
+        if (row.fromCard && row.badge != null) {
+            Text(row.badge, style = MaterialTheme.typography.labelSmall, color = Lab.colors.muted, maxLines = 1, modifier = Modifier.testTag(SENTENCE_CARD_BADGE_TAG))
+        }
+    }
+}
 
 /** Test tags on a breakdown word's two cells (the row merges them, so tests read the unmerged tree). */
 const val BREAKDOWN_HANZI_TAG = "breakdown-hanzi"

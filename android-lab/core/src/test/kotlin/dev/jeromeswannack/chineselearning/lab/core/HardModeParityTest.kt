@@ -98,6 +98,36 @@ class HardModeParityTest {
         }
     }
 
+    /** The "right" moment (shared/study/rightMoment.ts): which feel, how big, animated or not — every case. */
+    @Test
+    fun rightMoments() {
+        val cases = fixture()["moments"]!!.jsonArray
+        assertTrue(cases.size >= 32)
+        for (c in cases) {
+            val o = c.jsonObject
+            val m = o["moment"]!!.jsonObject
+            val got = RightMoment.of(o["where"]!!.str!!, o["roundDone"]!!.jsonPrimitive.boolean, o["reduceMotion"]!!.jsonPrimitive.boolean, o["celebrated"]!!.jsonPrimitive.boolean)
+            assertEquals(RightMoment.Moment(m["feel"]!!.str, m["confetti"]!!.jsonPrimitive.int, m["durationMs"]!!.jsonPrimitive.int, m["animate"]!!.jsonPrimitive.boolean), got, o.toString())
+        }
+    }
+
+    /** The one result state (shared/study/resultState.ts): every verdict word → its state, the icons, the surface. */
+    @Test
+    fun resultStates() {
+        val f = fixture()["resultStates"]!!.jsonObject
+        assertEquals(f["states"]!!.jsonArray.map { it.str }, ResultState.STATES)
+        for (s in ResultState.STATES) assertEquals(f["icons"]!!.jsonObject[s]!!.str, ResultState.ICON[s], s)
+        val surface = f["surface"]!!.jsonObject
+        assertEquals(surface["border"]!!.jsonPrimitive.content.toFloat(), ResultState.SURFACE_BORDER)
+        assertEquals(surface["tint"]!!.jsonPrimitive.content.toFloat(), ResultState.SURFACE_TINT)
+        assertEquals(surface["borderWidth"]!!.jsonPrimitive.int, ResultState.SURFACE_BORDER_WIDTH)
+        assertEquals(surface["radius"]!!.jsonPrimitive.int, ResultState.SURFACE_RADIUS)
+        for (c in f["verdicts"]!!.jsonArray) {
+            val o = c.jsonObject
+            assertEquals(o["state"]!!.str, ResultState.of(o["verdict"]!!.str), o.toString())
+        }
+    }
+
     @Test
     fun readAgain() {
         val f = fixture()["readAgain"]!!.jsonObject

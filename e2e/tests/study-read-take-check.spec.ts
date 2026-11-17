@@ -96,6 +96,10 @@ test('only the recogniser\'s quote marks differ: ✓ Match on the device, quotes
   await expect(page.getByTestId('you-said-hanzi')).toHaveText(CARD);
   await expect(page.getByTestId('you-said-pinyin')).not.toContainText('"');
   await shot(page, 'read-take-01-quotes-match');
+  // No ▶ pinned to the box's side (docs/STUDY_SESSION.md "The study card's layout"): the take is in ⋯.
+  await expect(box.getByTestId('you-said-play')).toHaveCount(0);
+  await page.getByRole('button', { name: 'More actions' }).click();
+  await expect(page.getByRole('menuitem', { name: /Play my recording/ })).toBeVisible();
   await page.waitForTimeout(800);
   expect(checks).toHaveLength(0);
 });

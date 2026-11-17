@@ -3,7 +3,7 @@ import { useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useFeedback } from './feedback/FeedbackProvider';
 import { isImmersiveRoute } from './nav/tabs';
-import { FAB_SIZE, clampFabPosition, hasEditorBottomBar, isStudyLikePath } from './fabPosition';
+import { FAB_SIZE, clampFabPosition, hasEditorBottomBar, hidesFeedbackFab, isStudyLikePath } from './fabPosition';
 import { useAppTakeLock } from '../services/takeLock';
 
 const TAB_BAR_HEIGHT = 56; // keep in step with --tab-bar-height in index.css
@@ -164,6 +164,9 @@ export function FeedbackFAB() {
   if (/^\/vr\/?$/.test(location.pathname)) return null;
   // 📱 Phone practice: the simulated phone fills the screen; its navigation bar is where the FAB would sit.
   if (/^\/phone\/[^/]+\/?$/.test(location.pathname)) return null;
+  // The study card: its rating buttons fill the bottom edge, where the button sat over Easy (Nov 2026). Feedback is
+  // in the card's ⋯ menu there ("Send feedback"), like the homework pass that uses the same card.
+  if (hidesFeedbackFab(location.pathname)) return null;
 
   // Study, the tutor's "Try it" previews and the catalogue samples: keep the FAB faint, out of the card's way.
   const isStudying = isStudyLikePath(location.pathname);

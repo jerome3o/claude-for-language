@@ -11,6 +11,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 /** The web app's rating / queue colours, so both apps read the same. */
@@ -118,6 +119,17 @@ val LocalLabColors = staticCompositionLocalOf { Light }
 
 object Lab {
     val colors: LabColors @Composable get() = LocalLabColors.current
+}
+
+/**
+ * Spacing tokens shared with the web (index.css `--space-gap-min`). Jerome, Nov 2026, after the study card's frame
+ * went to the screen's edge: "thinness like this is probably too thin … Maybe we have a standardized minimum gap
+ * that's quite small, but bigger than this." [gapMin] is that gap: the card frame's side gutter, the air between the
+ * frame and anything above / below it (the session bar, the footer row, the ratings, the multiple-choice grid) and
+ * the least space between stacked controls. Nothing ever touches or overlaps the frame.
+ */
+object Spacing {
+    val gapMin = 8.dp
 }
 
 @Composable

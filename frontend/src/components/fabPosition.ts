@@ -44,3 +44,11 @@ export function isStudyLikePath(pathname: string): boolean {
     // A story opened from the Readers list: the session's reading view, so the session's faint button.
     || (/^\/readers\/[^/]+\/?$/.test(pathname) && !/^\/readers\/generate\/?$/.test(pathname));
 }
+
+/**
+ * Screens whose bottom edge is the study card's rating buttons: the button would sit over them (it covered Easy), so
+ * it is not shown there — the card's ⋯ menu has "Send feedback" instead.
+ */
+export function hidesFeedbackFab(pathname: string): boolean {
+  return pathname === '/study' || pathname === '/tutor-notes/practice';
+}

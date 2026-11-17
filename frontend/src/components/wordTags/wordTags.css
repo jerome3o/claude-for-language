@@ -69,13 +69,14 @@
   --word-tag-bg: #ccfbf1;
   --word-tag-fg: #115e59;
 }
-/* Frequency: the explorer's decal outline on a white pill (freq-decal adds the outline). */
+/* Frequency: a plain pill like the others (Nov 2026: the explorer's decal outline on the card's pill was a one-off
+   border that read like a result state — pills are one style; the explorer's tiles keep their decals). */
 .word-tag--top100,
 .word-tag--top1000,
 .word-tag--top2000,
 .word-tag--rare {
-  --word-tag-bg: #ffffff;
-  --word-tag-fg: #374151;
+  --word-tag-bg: #f3f4f6;
+  --word-tag-fg: #4b5563;
 }
 
 :root[data-theme='dark'] .word-tag--plain { --word-tag-bg: #2a2a30; --word-tag-fg: #d4d4d8; }
@@ -87,7 +88,7 @@
 :root[data-theme='dark'] .word-tag--top100,
 :root[data-theme='dark'] .word-tag--top1000,
 :root[data-theme='dark'] .word-tag--top2000,
-:root[data-theme='dark'] .word-tag--rare { --word-tag-bg: #1c1c20; --word-tag-fg: #e4e4e7; }
+:root[data-theme='dark'] .word-tag--rare { --word-tag-bg: #2a2a30; --word-tag-fg: #d4d4d8; }
 
 /* The explanation sheet sits above everything, the explorer sheet included. */
 .word-tag-backdrop {

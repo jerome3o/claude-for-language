@@ -49,6 +49,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.jeromeswannack.chineselearning.lab.core.AnswerCheck
+import dev.jeromeswannack.chineselearning.lab.ui.study.resultSurface
 import dev.jeromeswannack.chineselearning.lab.core.AnswerCheckInput
 import dev.jeromeswannack.chineselearning.lab.core.AnswerTry
 import dev.jeromeswannack.chineselearning.lab.core.ChatLearning
@@ -257,10 +258,14 @@ private fun CheckingRow() {
     }
 }
 
-private fun toneColor(tone: String): Color = when (tone) {
-    "good" -> Palette.Good
-    "warn" -> Color(0xFFD97706)
-    else -> Palette.Again
+/** good / warn / bad → the one result state's ink (ui/study/ResultStateUi; warn = close — yellow, never orange). */
+@Composable
+private fun toneColor(tone: String): Color = dev.jeromeswannack.chineselearning.lab.ui.study.ResultColors.ink(toneState(tone))
+
+private fun toneState(tone: String): String = when (tone) {
+    "good" -> dev.jeromeswannack.chineselearning.lab.core.ResultState.RIGHT
+    "warn" -> dev.jeromeswannack.chineselearning.lab.core.ResultState.CLOSE
+    else -> dev.jeromeswannack.chineselearning.lab.core.ResultState.WRONG
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -292,12 +297,18 @@ fun AnswerCheckBody(
     val chip = LessonAnswerCheck.chip(check.verdict, !check.cleaned.isNullOrEmpty())
     val tone = toneColor(chip.tone)
     if (!detail) {
-        // Slim: no box — the chip + ONE line, the parts as small marks, the actions.
-        Column(Modifier.fillMaxWidth().padding(top = 6.dp).testTag("answer-check"), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        // Slim: the one result surface (the same as every verdict) — the chip + ONE line, the parts as small marks, the actions.
+        Column(
+            Modifier.fillMaxWidth().padding(top = 6.dp)
+                .resultSurface(toneState(chip.tone))
+                .padding(horizontal = 10.dp, vertical = 8.dp)
+                .testTag("answer-check"),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
                     chip.label, color = tone, fontWeight = FontWeight.Bold, fontSize = 13.sp,
-                    modifier = Modifier.clip(RoundedCornerShape(50)).background(tone.copy(alpha = 0.14f)).padding(horizontal = 8.dp, vertical = 2.dp),
+                    modifier = Modifier.clip(RoundedCornerShape(50)).background(dev.jeromeswannack.chineselearning.lab.ui.study.ResultColors.chip(toneState(chip.tone))).padding(horizontal = 8.dp, vertical = 2.dp),
                 )
                 Text(AnswerDiff.firstSentence(check.headline), Modifier.testTag("answer-check-headline"), color = Lab.colors.ink, fontWeight = FontWeight.Medium, fontSize = 15.sp)
             }
