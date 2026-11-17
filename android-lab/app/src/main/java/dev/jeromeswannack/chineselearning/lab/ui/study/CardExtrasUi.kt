@@ -96,8 +96,9 @@ private fun ActionButton(icon: String?, label: String, modifier: Modifier, enabl
         modifier
             .height(ACTION_ROW_HEIGHT)
             .clip(shape)
-            // A 1dp outline in the theme's button outline, no fill — the ratings under it stay the main action.
-            .buttonBorder(shape, enabled)
+            // A LIGHT 1dp outline in the theme's muted border token, no fill (web: 1px --color-border) — the ratings under it
+            // stay the main action. Disabled (offline Ask Claude): dashed, like every disabled button.
+            .then(if (enabled) Modifier.border(1.dp, Lab.colors.cardBorder, shape) else Modifier.buttonBorder(shape, enabled = false))
             .bouncyClickable(enabled = enabled, onClick = onClick),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
