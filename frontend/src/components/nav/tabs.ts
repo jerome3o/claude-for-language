@@ -1,6 +1,6 @@
 import type { NavRole } from './navRole';
 
-export type TabId = 'study' | 'chats' | 'claude' | 'decks' | 'students' | 'library' | 'progress' | 'more';
+export type TabId = 'study' | 'chats' | 'add' | 'decks' | 'students' | 'library' | 'progress' | 'more';
 
 export interface TabSpec {
   id: TabId;
@@ -18,12 +18,13 @@ const STUDENTS: TabSpec = { id: 'students', label: 'Students', to: '/connections
 const LIBRARY: TabSpec = { id: 'library', label: 'Library', to: '/library', match: ['/library'] };
 const PROGRESS: TabSpec = { id: 'progress', label: 'Progress', to: '/progress', match: ['/progress'] };
 /**
- * A learner's ✦ Claude tab (Jerome, Nov 2026: "it's not obvious enough that you can just ask any
- * question"): a new chat with Claude, 🎤 listening at once (pages/ClaudeTabPage.tsx). The thread it
- * starts is a normal Claude thread, listed in Chats.
+ * A learner's ＋ Add tab (docs/ADD_TAB.md; Jerome, Nov 2026: "a landing page where it's super easy to
+ * add a new card, super easy to ask for new content"): 📷 / ✏️ / 🎤 a word → the explorer → + Add as
+ * card / ⚡ Study it today, and one tile per thing Claude can make (pages/AddPage.tsx). It took the ✦
+ * Claude tab's slot — the Claude box lives on the Chats tab; `/claude` redirects there.
  */
-export const CLAUDE_TAB_PATH = '/claude';
-const CLAUDE: TabSpec = { id: 'claude', label: 'Claude', to: CLAUDE_TAB_PATH, match: [CLAUDE_TAB_PATH] };
+export const ADD_TAB_PATH = '/add';
+const ADD: TabSpec = { id: 'add', label: 'Add', to: ADD_TAB_PATH, match: [ADD_TAB_PATH] };
 const MORE: TabSpec = {
   id: 'more',
   label: 'More',
@@ -41,14 +42,14 @@ const MORE: TabSpec = {
 
 /**
  * A learner's tabs. The Tutor tab went (Jerome, Nov 2026: "it seems like a dud page" — the tutor
- * page is the chat header's name, connections are More → "Tutors & connections"); its slot is now
- * ✦ Claude — ask anything, by voice, one tap away.
+ * page is the chat header's name, connections are More → "Tutors & connections"); its slot became
+ * ✦ Claude, then (Nov 2026: "I don't really use this page") ＋ Add — the Claude box is on Chats.
  */
-export const LEARNER_TABS: readonly TabSpec[] = [STUDY, CHATS, CLAUDE, PROGRESS, MORE];
+export const LEARNER_TABS: readonly TabSpec[] = [STUDY, CHATS, ADD, PROGRESS, MORE];
 
 /**
  * Tutor account (role):   Students · Chats · Decks · Library · More — no Study tab, whatever its decks
- * Student account:        Study · Chats · ✦ Claude · Progress · More (LEARNER_TABS)
+ * Student account:        Study · Chats · ＋ Add · Progress · More (LEARNER_TABS)
  * Account with students:  Students · Chats · Study · More (+ Progress if they also study)
  * Decks are also the first row of More (and Home's "See all").
  */

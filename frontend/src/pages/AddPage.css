@@ -1,0 +1,468 @@
+/* The ＋ Add tab (pages/AddPage.tsx, docs/ADD_TAB.md): calm, mobile-first, ≥ 44px targets. */
+.add-page {
+  padding-top: 0.5rem;
+  padding-bottom: 1.5rem;
+  max-width: 640px;
+}
+
+.add-title {
+  font-size: 1.25rem;
+  margin: 0 0 0.75rem;
+}
+
+.add-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  padding: 1rem;
+}
+
+.add-card-title,
+.add-section-title {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0 0 0.75rem;
+}
+
+.add-section-title {
+  margin-top: 1.5rem;
+}
+
+.add-methods {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+/* Type · Say · English: three small squares under the photo button. */
+.add-method:not(.add-method--photo) {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 0.15rem;
+  min-height: 84px;
+  padding: 0.5rem 0.35rem;
+}
+
+.add-method:not(.add-method--photo) .add-method-hint {
+  font-size: 0.72rem;
+  line-height: 1.2;
+}
+
+.add-method {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto auto;
+  column-gap: 0.6rem;
+  align-items: center;
+  text-align: left;
+  min-height: 64px;
+  padding: 0.6rem 0.75rem;
+  border-radius: 12px;
+  border: 1px solid var(--color-border);
+  background: var(--color-background);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.add-method--photo {
+  /* The photo is the fastest way in: the first and the biggest. */
+  grid-column: 1 / -1;
+  min-height: 72px;
+  border-color: var(--color-primary);
+}
+
+.add-method.on {
+  border-color: var(--color-primary);
+  box-shadow: inset 0 0 0 1px var(--color-primary);
+}
+
+.add-method-icon {
+  grid-row: 1 / span 2;
+  font-size: 1.6rem;
+  line-height: 1;
+}
+
+.add-method-label {
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.add-method-hint {
+  font-size: 0.8rem;
+  color: var(--color-text-light);
+}
+
+.add-link {
+  background: none;
+  border: none;
+  color: var(--color-primary);
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.add-gallery {
+  display: block;
+  min-height: 44px;
+  font-size: 0.875rem;
+  text-decoration: none;
+  margin-top: 0.25rem;
+}
+
+.add-word-box {
+  margin-top: 0.75rem;
+}
+
+.add-muted {
+  color: var(--color-text-light);
+  font-size: 0.875rem;
+  margin: 0.5rem 0;
+}
+
+.add-error {
+  color: var(--color-error);
+  font-size: 0.875rem;
+  margin: 0.5rem 0;
+}
+
+/* ---- the photo ---- */
+
+.add-photo {
+  margin-top: 0.75rem;
+}
+
+.add-photo-frame {
+  position: relative;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #000;
+  max-height: 240px;
+  display: flex;
+  justify-content: center;
+}
+
+.add-photo-frame img {
+  display: block;
+  max-width: 100%;
+  max-height: 240px;
+  object-fit: contain;
+}
+
+.add-photo-box {
+  position: absolute;
+  border: 2px solid rgba(255, 214, 10, 0.55);
+  border-radius: 4px;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+}
+
+.add-photo-box.on {
+  border-color: #ffd60a;
+  background: rgba(255, 214, 10, 0.15);
+}
+
+/* The picture's own box: the line boxes (0–1000 grid) are placed in % of it. */
+.add-photo-pic {
+  position: relative;
+  display: inline-block;
+  line-height: 0;
+}
+
+.add-photo-scan {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, transparent 0%, rgba(44, 107, 237, 0.35) 50%, transparent 100%);
+  background-size: 100% 40%;
+  background-repeat: no-repeat;
+  animation: add-scan 1.1s linear infinite;
+}
+
+@keyframes add-scan {
+  from { background-position: 0 -40%; }
+  to { background-position: 0 140%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .add-photo-scan { animation: none; }
+}
+
+.add-photo-reading {
+  display: grid;
+  gap: 0.4rem;
+  margin-top: 0.75rem;
+}
+
+.add-skel {
+  display: block;
+  height: 2rem;
+  border-radius: 8px;
+  background: var(--color-border);
+  opacity: 0.6;
+}
+
+.add-skel--short {
+  width: 60%;
+  height: 1.4rem;
+}
+
+/* ---- word chips ---- */
+
+.add-line {
+  margin-top: 0.6rem;
+  padding: 0.5rem 0;
+  border-top: 1px solid var(--color-border);
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.add-line:first-of-type {
+  border-top: none;
+}
+
+.add-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.add-chip,
+.add-char {
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0.25rem 0.6rem;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  background: var(--color-background);
+  color: var(--color-text);
+  font-size: 1.25rem;
+  cursor: pointer;
+}
+
+.add-line--primary .add-chip,
+.add-line--primary .add-char {
+  font-size: 1.75rem;
+  border-color: var(--color-primary);
+}
+
+.add-char.on {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: #fff;
+}
+
+.add-chip-punct {
+  align-self: center;
+  font-size: 1.25rem;
+  color: var(--color-text-light);
+}
+
+.add-line-tools {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.35rem;
+}
+
+.add-pick {
+  min-height: 44px;
+  padding: 0 0.6rem;
+  border-radius: 10px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-light);
+  font-size: 0.85rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+/* ---- English → Chinese candidates ---- */
+
+.add-candidates {
+  list-style: none;
+  padding: 0;
+  margin: 0.75rem 0 0;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.add-candidate {
+  width: 100%;
+  min-height: 56px;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  grid-template-rows: auto auto;
+  column-gap: 0.75rem;
+  align-items: center;
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  border-radius: 12px;
+  border: 1px solid var(--color-border);
+  background: var(--color-background);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.add-candidate-hanzi {
+  grid-row: 1 / span 2;
+  font-size: 1.6rem;
+}
+
+.add-candidate-pinyin {
+  font-size: 0.95rem;
+}
+
+.add-candidate-english {
+  grid-column: 2;
+  font-size: 0.85rem;
+  color: var(--color-text-light);
+}
+
+.add-candidate-go {
+  grid-column: 3;
+  grid-row: 1 / span 2;
+  color: var(--color-text-light);
+  font-size: 1.25rem;
+}
+
+/* ---- results ---- */
+
+.add-results {
+  list-style: none;
+  padding: 0;
+  margin: 1rem 0 0;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.add-result {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0.25rem 0.25rem 0.75rem;
+  border-radius: 12px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  min-height: 52px;
+}
+
+.add-result--failed {
+  border-color: var(--color-error);
+}
+
+.add-result-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.add-result-topic {
+  color: var(--color-text-light);
+}
+
+.add-result-open {
+  min-height: 44px;
+  padding: 0 0.9rem;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--color-primary);
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+/* ---- content tiles ---- */
+
+.add-tiles {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.add-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  min-height: 88px;
+  padding: 0.75rem;
+  border-radius: 14px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.add-tile--ask {
+  grid-column: 1 / -1;
+  min-height: 64px;
+}
+
+.add-tile-icon {
+  font-size: 1.4rem;
+  line-height: 1.2;
+}
+
+.add-tile-title {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.add-tile-sub {
+  font-size: 0.78rem;
+  color: var(--color-text-light);
+}
+
+@media (min-width: 640px) {
+  .add-tiles {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .add-method--photo {
+    grid-column: auto;
+  }
+  .add-methods {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+/* ---- the content sheet ---- */
+
+.add-sheet-title {
+  font-size: 1.1rem;
+  margin: 0 0 0.75rem;
+}
+
+.add-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.75rem;
+}
+
+.add-option {
+  min-height: 44px;
+  padding: 0 0.9rem;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-background);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.add-option.on {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: #fff;
+}

@@ -32,6 +32,12 @@ export interface StudyResumePoint {
   gave_up?: boolean;
   /** The Sentence round's exercises as shown + each one's last result (the answer side marks them; the round comes back the same). */
   round_log?: { id: string; result?: 'right' | 'close' | 'wrong' | null }[];
+  /**
+   * A listening card's "Listen in context" rows as this showing offered them (shared/study/listenContext.ts
+   * `pickListenRows`): the question comes back with the same sentences in the same order, and the answer
+   * side's list follows it (shared/study/answerOrder.ts).
+   */
+  listen_shown?: string[];
 }
 
 /** The scope key for a deck id (undefined / null = all decks). */

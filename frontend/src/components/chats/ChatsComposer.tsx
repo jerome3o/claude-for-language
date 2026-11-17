@@ -7,9 +7,14 @@
  * never before. Sending starts a new general thread with that intent and opens it (offline: queued).
  *
  * `compact` (the tutor's view): Ask · Translate only (the Coach's Check / Explain are a learner's tools).
+ *
+ * A learner's box also carries the general chat's suggestion chips (实用的句子 A useful phrase · 考考我 Quiz
+ * me · 小故事 A short story — `chipsFor('general')`), one tap = a new thread with that question. They were
+ * the ✦ Claude tab's (Jerome, Nov 2026: "having those extra options there is actually kind of nice"); the
+ * tab became ＋ Add (docs/ADD_TAB.md) and its box moved here.
  */
 import { useEffect, useState } from 'react';
-import { composerFor, type ClaudeComposer } from '@shared/claude/contexts';
+import { chipsFor, composerFor, type ClaudeChip, type ClaudeComposer } from '@shared/claude/contexts';
 import type { ClaudeIntent } from '@shared/claude/context';
 import type { AskLanguage } from '@shared/study/askClaude';
 import { ClaudeChatComposer } from '../claudeChat/ClaudeChatComposer';
@@ -36,6 +41,13 @@ export interface ChatsComposerProps {
   compact?: boolean;
   /** Each new value > 0: open the box for typing (More → Ask Claude, ✏️ → Claude, a handed-over text). */
   openRequest?: number;
+  /** A suggestion chip was tapped (learners only): send its question as a new thread. */
+  onChip?: (chip: ClaudeChip) => void;
+}
+
+/** The chips over a learner's box (none in the compact tutor box). */
+export function chatsComposerChips(language: AskLanguage, compact: boolean): ClaudeChip[] {
+  return compact ? [] : chipsFor({ kind: 'general' }, { language });
 }
 
 export function ChatsComposer(props: ChatsComposerProps) {
@@ -46,8 +58,19 @@ export function ChatsComposer(props: ChatsComposerProps) {
     if (openRequest > 0) setTypeRequest((n) => n + 1);
   }, [openRequest]);
 
+  const chips = props.onChip ? chatsComposerChips(language, compact) : [];
+
   return (
     <div className="chats-composer" data-testid="chats-composer">
+      {chips.length > 0 && (
+        <div className="claude-thread-chips chats-composer-chips" role="group" aria-label="Suggestions" data-testid="chats-composer-chips">
+          {chips.map((c) => (
+            <button key={c.id} type="button" onClick={() => props.onChip?.(c)} disabled={busy} data-testid={`chats-chip-${c.id}`}>
+              {c.label}
+            </button>
+          ))}
+        </div>
+      )}
       <ClaudeChatComposer
         value={value}
         onChange={onChange}
