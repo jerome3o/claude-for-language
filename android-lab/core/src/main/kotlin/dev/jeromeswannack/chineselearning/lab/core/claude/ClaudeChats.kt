@@ -1,5 +1,6 @@
 package dev.jeromeswannack.chineselearning.lab.core.claude
 
+import dev.jeromeswannack.chineselearning.lab.core.AnswerKey
 import dev.jeromeswannack.chineselearning.lab.core.AskClaude
 import dev.jeromeswannack.chineselearning.lab.core.CoachActions
 import dev.jeromeswannack.chineselearning.lab.core.NoteSearch
@@ -8,7 +9,8 @@ import java.time.Instant
 /**
  * Claude threads — what each context's thread screen offers (docs/CHAT.md "Claude thread view"):
  * port of shared/claude/contexts.ts (`chipsFor`, `composerFor`, `headerChipFor`, `resumeThreadFor`,
- * `claudeReplyPollMs`, `turnStatusLine`) and of `contextBadge` in shared/claude/context.ts.
+ * `claudeReplyPollMs`, `turnStatusLine`) and of `contextBadge`, `titleFor`, `previewOf` in
+ * shared/claude/context.ts.
  * Parity-tested (parity/fixtures/claude-chats.ts → ClaudeChatsParityTest).
  *
  * Context kinds and intents are the TypeScript strings: general · card · practice · chat_message ·
@@ -83,6 +85,38 @@ object ClaudeChats {
             else -> if (firstIntent != null && firstIntent != "ask") INTENT_BADGES[firstIntent] else null
         }
     }
+
+    // ---------- titleFor / previewOf ----------
+
+    /** Port of CLAUDE_TITLE_MAX / CLAUDE_PREVIEW_MAX. */
+    const val TITLE_MAX = 120
+    const val PREVIEW_MAX = 120
+
+    private val JS_SPACES = Regex("[${AnswerKey.JS_WS}]+")
+
+    /** `s.replace(/\s+/g, ' ').trim()`, ≤ [max] (cut with "…"). */
+    private fun oneLine(s: String, max: Int): String {
+        val line = NoteSearch.jsTrim(s.replace(JS_SPACES, " "))
+        return if (line.length > max) line.take(max - 1) + "…" else line
+    }
+
+    /** Port of titleFor: a thread's title — the first message on one line (≤ 120), else a word for the context. */
+    fun titleFor(ctx: Context, firstText: String): String {
+        val line = oneLine(firstText, TITLE_MAX)
+        if (line.isNotEmpty()) return line
+        val label = ctx.label?.takeIf { it.isNotEmpty() }
+        return when (ctx.kind) {
+            CARD -> label?.let { "About $it" } ?: "About a card"
+            PRACTICE -> ctx.scenario?.takeIf { it.isNotEmpty() }?.let { "Practice: $it" } ?: "Practice with Claude"
+            CHAT_MESSAGE -> "About a message"
+            READER -> label?.let { "About $it" } ?: "About a story"
+            EXERCISE -> "About an exercise"
+            else -> "Chat with Claude"
+        }
+    }
+
+    /** Port of previewOf: an inbox preview line from a message — one line, ≤ 120 characters. */
+    fun previewOf(content: String): String = oneLine(content, PREVIEW_MAX)
 
     // ---------- chipsFor ----------
 

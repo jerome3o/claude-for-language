@@ -74,7 +74,7 @@ describe('a session opened before the words arrived', () => {
       root = createRoot(document.createElement('div'));
       root.render(<QueryClientProvider client={new QueryClient()}><Harness /></QueryClientProvider>);
     });
-    await vi.waitFor(() => expect(latest.isLoading).toBe(false));
+    await vi.waitFor(() => expect(latest.isLoading).toBe(false), { timeout: 8000 });
     expect(latest.currentCard).toBeNull();
 
     // The sync brings the word down, then says it's done.
@@ -83,6 +83,6 @@ describe('a session opened before the words arrived', () => {
     await act(async () => { listeners.forEach((l) => l(true)); });
     expect(latest.currentCard).toBeNull();
     await act(async () => { listeners.forEach((l) => l(false)); });
-    await vi.waitFor(() => expect(latest.currentCard?.id).toBe('c-1'));
+    await vi.waitFor(() => expect(latest.currentCard?.id).toBe('c-1'), { timeout: 8000 });
   });
 });

@@ -128,10 +128,16 @@ object BumpStore {
         return out
     }
 
-    /** Bump the local notes spelled [hanzi] (the add-card sheets, the Coach). */
-    suspend fun bumpHanzi(app: LabApp, hanzi: List<String>, source: String, preferDeck: String? = null): Result {
-        val matched = matchNotes(app.repo.dao, hanzi, preferDeck)
-        val r = bumpNotes(app, hanzi.mapNotNull { matched[it] }.distinct(), source, track = false)
+    /**
+     * Bump the local notes spelled [hanzi] (the add-card sheets, the Coach). [justCreated] = hanzi → the note
+     * "+ Add as card" just made (the explorer's / a breakdown's): when the sync hasn't brought it down yet it
+     * is bumped as an unstarted word ([bumpNotes]) instead of "Not in your decks yet".
+     */
+    suspend fun bumpHanzi(app: LabApp, hanzi: List<String>, source: String, preferDeck: String? = null, justCreated: Map<String, String> = emptyMap()): Result {
+        val local = matchNotes(app.repo.dao, hanzi, preferDeck)
+        val fresh = justCreated.filterKeys { it !in local && it in hanzi }
+        val matched = local + fresh
+        val r = bumpNotes(app, hanzi.mapNotNull { matched[it] }.distinct(), source, track = false, justCreated = fresh.entries.associate { (h, id) -> id to h })
         val out = r.copy(notFound = hanzi.distinct().count { it !in matched })
         track(app, source, out)
         return out
@@ -159,10 +165,25 @@ object BumpStore {
         val started = cards.any { it.queue != CardQueue.NEW }
         val inReview = deck?.let { LongTerm.deckInDailyReview(it.newCardsPerDay, it.secondaryCardsPerDay ?: StudyQueue.DEFAULT_SECONDARY_CAP) } ?: true
         val hasAudio = !note.audioUrl.isNullOrBlank()
-        val first = StudyToday.plan(noteCards, started, hasAudio, note.longTerm, inReview)
+        // "Start new words by ear": a word just added (its clip still being made) starts with its listening card too.
+        val byEar = app.prefs.newCardOrder.newWordsByEar
+        val first = StudyToday.plan(noteCards, started, hasAudio, note.longTerm, inReview, newWordsByEar = byEar)
         if (first.kind != StudyToday.LEAD) return first
         val lead = LeadCard.allCharactersKnown(note.hanzi, known?.invoke() ?: knownCharacters(app))
-        return StudyToday.plan(noteCards, started, hasAudio, note.longTerm, inReview) { lead }
+        return StudyToday.plan(noteCards, started, hasAudio, note.longTerm, inReview, byEar) { lead }
+    }
+
+    /**
+     * The plan of a note "+ Add as card" just made that isn't on this phone yet: three NEW cards, no clip yet
+     * (the server makes it a few seconds after the add), its source deck in daily review — with "Start new
+     * words by ear" its listening card, like the regular pool's lead card (web studyBumps.ts, the same rule).
+     */
+    private suspend fun justCreatedPlan(app: LabApp, hanzi: String, known: suspend () -> Set<String>): StudyToday.Plan {
+        val byEar = app.prefs.newCardOrder.newWordsByEar
+        val first = StudyToday.plan(emptyList(), started = false, hasAudio = false, longTermPref = null, deckInReview = true, newWordsByEar = byEar)
+        if (first.kind != StudyToday.LEAD) return first
+        val lead = LeadCard.allCharactersKnown(hanzi, known())
+        return StudyToday.plan(emptyList(), false, false, null, true, byEar) { lead }
     }
 
     /**
@@ -174,7 +195,16 @@ object BumpStore {
      * the whole note. Written here at once (marked `planned`, so the server stores it as sent), sent through
      * the Outbox.
      */
-    suspend fun bumpNotes(app: LabApp, noteIds: List<String>, source: String, nowMs: Long = System.currentTimeMillis(), track: Boolean = true, zone: ZoneId = ZoneId.systemDefault()): Result {
+    suspend fun bumpNotes(
+        app: LabApp,
+        noteIds: List<String>,
+        source: String,
+        nowMs: Long = System.currentTimeMillis(),
+        track: Boolean = true,
+        zone: ZoneId = ZoneId.systemDefault(),
+        /** Notes just made here ("+ Add as card", note id → hanzi) the sync hasn't brought down yet: planned as unstarted words. */
+        justCreated: Map<String, String> = emptyMap(),
+    ): Result {
         val src = Bumps.normalizeBumpSource(source)
         val dao = app.repo.dao
         val ids = noteIds.distinct()
@@ -193,28 +223,30 @@ object BumpStore {
         var knownOnce: Set<String>? = null
         val known: suspend () -> Set<String> = { knownOnce ?: knownCharacters(app).also { knownOnce = it } }
         for (id in ids) {
-            val note = notes[id] ?: continue
-            val cards = dao.cardsOfNotes(listOf(id))
-            val plan = studyTodayPlan(app, note, cards, decks[note.deckId], known)
+            val note = notes[id]
+            val freshHanzi = if (note == null) justCreated[id] ?: continue else null
+            val hanzi = note?.hanzi ?: freshHanzi.orEmpty()
+            val cards = if (note != null) dao.cardsOfNotes(listOf(id)) else emptyList()
+            val plan = if (note != null) studyTodayPlan(app, note, cards, decks[note.deckId], known) else justCreatedPlan(app, hanzi, known)
             val row = existing[id]
             val types: List<String>?
             val planned = plan.cardTypes
             if (planned != null) {
                 val merge = cardLevelMerge(dao, id, row, cards, planned, nowMs, zone)
-                if (merge.action == "already") { already += note.hanzi; continue }
+                if (merge.action == "already") { already += hanzi; continue }
                 types = merge.cardTypes
             } else {
                 // A card-level bump of the word becomes a whole-note bump (Bumps.mergeBumpCardTypes).
-                if (row != null && row.pending != PENDING_CLEAR && id in open && parseCardTypes(row.cardTypes) == null) { already += note.hanzi; continue }
+                if (row != null && row.pending != PENDING_CLEAR && id in open && parseCardTypes(row.cardTypes) == null) { already += hanzi; continue }
                 types = null
             }
             val clientId = UUID.randomUUID().toString()
             items += BumpItemBody(clientId, id, nowIso(nowMs), src, types, planned = true)
             rows += StudyBumpEntity(id, clientId, nowIso(nowMs), src, bumpedByName = null, pending = PENDING_ADD, cardTypes = encodeCardTypes(types))
-            added += note.hanzi
+            added += hanzi
             addedIds += id
             kinds += if (types == null) StudyToday.WHOLE else StudyToday.kindOfRow(types)
-            if (plan.setLongTerm) {
+            if (plan.setLongTerm && note != null) {
                 longTermBefore[id] = note.longTerm
                 longTerms[id] = plan.longTerm
             }
@@ -230,7 +262,7 @@ object BumpStore {
             app.repo.notifyLocalChange()
             send(app)
         }
-        val result = Result(added, already, ids.count { it !in notes }, kinds, addedIds, longTermBefore)
+        val result = Result(added, already, ids.count { it !in notes && it !in justCreated }, kinds, addedIds, longTermBefore)
         if (track) track(app, src, result)
         return result
     }

@@ -95,10 +95,12 @@ object SessionMix {
         leadCards: Map<String, String> = emptyMap(),
         /** "Start new words by ear" (BuiltQueue.newWordsByEar). */
         newWordsByEar: Boolean = false,
+        /** New words bumped during this session (core BumpNext): their lead card comes next. */
+        nextUpIds: List<String> = emptyList(),
     ): SessionItem? {
         val learningDueNow = queue.any { CardQueue.isLearning(it.queue) && it.state.dueTimestamp.let { d -> d != null && d != 0L && d <= nowMs } }
-        if (lessonBreakDue && lessons.isNotEmpty() && !learningDueNow) return SessionItem.Lesson(lessons[0])
-        StudyQueue.selectNext(queue, reviewedNoteIds, recentNoteIds, lastRatedCardId, nowMs, cutoff, random, bumpedCardIds, leadCards, newWordsByEar)?.let { return SessionItem.Card(it) }
+        if (lessonBreakDue && lessons.isNotEmpty() && !learningDueNow && BumpNext.pickNextUp(queue, nextUpIds) { it.id } == null) return SessionItem.Lesson(lessons[0])
+        StudyQueue.selectNext(queue, reviewedNoteIds, recentNoteIds, lastRatedCardId, nowMs, cutoff, random, bumpedCardIds, leadCards, newWordsByEar, nextUpIds)?.let { return SessionItem.Card(it) }
         if (lessons.isNotEmpty()) return SessionItem.Lesson(lessons[0])
         return nextReader(readers, lastRatedReaderId, nowMs, cutoff, random)?.let { SessionItem.Reader(it) }
     }

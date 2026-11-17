@@ -2,6 +2,7 @@ package dev.jeromeswannack.chineselearning.lab.data.claude
 
 import dev.jeromeswannack.chineselearning.lab.LabApp
 import dev.jeromeswannack.chineselearning.lab.core.claude.ClaudeChats
+import dev.jeromeswannack.chineselearning.lab.core.claude.ClaudeThreadCache
 import dev.jeromeswannack.chineselearning.lab.data.Api
 import dev.jeromeswannack.chineselearning.lab.data.HttpException
 import dev.jeromeswannack.chineselearning.lab.data.UnauthorizedException
@@ -77,7 +78,9 @@ data class PendingCreate(val message_client_id: String, val context: ClaudeConte
  * written after the first one ([ClaudeMessageDto.held]: their path needs the server's id).
  *
  * Live replies (`claude_turn`) patch the pending reply's text here ([applyTurn]); a poll's shorter
- * text never overwrites a longer streamed one ([mergeMessage]).
+ * text never overwrites a longer streamed one ([mergeMessage]). The merge rules are core
+ * [ClaudeThreadCache] (parity-tested against shared/claude/threadCache.ts), the offline title / preview
+ * core [ClaudeChats.titleFor] / [ClaudeChats.previewOf].
  */
 class ClaudeThreads(
     private val api: Api,
@@ -112,10 +115,7 @@ class ClaudeThreads(
         cache.observeAll(KIND, CachedClaudeThread.serializer()),
         cache.observeAll(LOCAL_KIND, CachedClaudeThread.serializer()),
     ) { listed, opened, local ->
-        val byId = LinkedHashMap<String, ClaudeThreadDto>()
-        for (t in listed.orEmpty()) byId[t.id] = t
-        for (c in opened + local) byId[c.thread.id] = c.thread
-        byId.values.filter { it.context_kind == ClaudeChats.CARD && it.context.note_id == noteId }
+        onDevice(listed, opened + local).filter { it.context_kind == ClaudeChats.CARD && it.context.note_id == noteId }
     }.distinctUntilChanged()
 
     /**
@@ -127,10 +127,7 @@ class ClaudeThreads(
         cache.observeAll(KIND, CachedClaudeThread.serializer()),
         cache.observeAll(LOCAL_KIND, CachedClaudeThread.serializer()),
     ) { listed, opened, local ->
-        val byId = LinkedHashMap<String, ClaudeThreadDto>()
-        for (t in listed.orEmpty()) byId[t.id] = t
-        for (c in opened + local) byId[c.thread.id] = c.thread
-        byId.values.filter { it.context_kind == kind && it.context.core().ref == ref }
+        onDevice(listed, opened + local).filter { it.context_kind == kind && it.context.core().ref == ref }
     }.distinctUntilChanged()
 
     /** `GET /api/claude/threads?context_kind=&context_ref=` into the cache. Throws on a network / server error. */
@@ -161,10 +158,7 @@ class ClaudeThreads(
         cache.observeAll(KIND, CachedClaudeThread.serializer()),
         cache.observeAll(LOCAL_KIND, CachedClaudeThread.serializer()),
     ) { listed, opened, local ->
-        val byId = LinkedHashMap<String, ClaudeThreadDto>()
-        for (t in listed.orEmpty()) byId[t.id] = t
-        for (c in opened + local) byId[c.thread.id] = c.thread
-        byId.values.filter { it.context_kind == ClaudeChats.CHAT_MESSAGE && it.context.message_id == messageId }
+        onDevice(listed, opened + local).filter { it.context_kind == ClaudeChats.CHAT_MESSAGE && it.context.message_id == messageId }
     }.distinctUntilChanged()
 
     /** `GET /api/claude/threads?context_kind=chat_message` into the cache. Throws on a network / server error. */
@@ -207,18 +201,7 @@ class ClaudeThreads(
                 prev = (prev ?: local).copy(messages = (prev?.messages.orEmpty().filter { p -> moved.none { it.id == p.id } }) + moved)
             }
         }
-        var rows = prev?.messages.orEmpty()
-        if (full) {
-            // The server's whole list: anything else but my still-queued messages is gone.
-            val keep = res.messages.mapTo(HashSet()) { it.id }
-            rows = rows.filter { it.id in keep || it.queued }
-        }
-        for (m in res.messages) {
-            m.client_id?.let { cid -> rows = rows.filter { !(it.client_id == cid && it.id != m.id) } }
-            val i = rows.indexOfFirst { it.id == m.id }
-            val merged = mergeMessage(rows.getOrNull(i), m)
-            rows = if (i >= 0) rows.toMutableList().also { it[i] = merged } else rows + merged
-        }
+        val rows = ClaudeThreadCache.mergeThreadMessages(prev?.messages.orEmpty(), res.messages, full, MessageLens).messages
         save(CachedClaudeThread(thread, rows, res.server_time ?: prev?.cursor, local = false, create = null))
         // The Chats tab's row follows (unread cleared on open, a new thread listed at once).
         runCatching { ClaudeThreadList.upsert(cache, thread) }
@@ -242,13 +225,8 @@ class ClaudeThreads(
         val c = get(e.thread_id) ?: return@withLock false
         val i = c.messages.indexOfFirst { it.id == e.message_id }
         if (i < 0) return@withLock false
-        val row = c.messages[i]
-        if (row.seq != null && e.seq <= row.seq) return@withLock false
-        if (row.status != "pending" && e.status != "failed") return@withLock false
-        var next = row.copy(seq = e.seq)
-        val text = e.text
-        if (text != null && text.length >= row.content.length) next = next.copy(content = text, streaming = text.isNotEmpty())
-        if (e.status == "failed") next = next.copy(status = "failed", streaming = false, error = e.error ?: row.error)
+        val frame = ClaudeThreadCache.TurnFrame(e.seq, e.status, e.text, e.error)
+        val next = ClaudeThreadCache.applyTurnFrame(c.messages[i], frame, MessageLens) ?: return@withLock false
         save(c.copy(messages = c.messages.toMutableList().also { it[i] = next }))
         true
     }
@@ -405,11 +383,11 @@ class ClaudeThreads(
         return ClaudeThreadDto(
             id = clientId,
             client_id = clientId,
-            title = titleFor(context, text),
+            title = ClaudeChats.titleFor(context.core(), text),
             context_kind = context.kind,
             context = context,
             first_intent = intent,
-            preview = oneLine(text, PREVIEW_MAX),
+            preview = ClaudeChats.previewOf(text),
             last_message_at = at,
             created_at = at,
             language = language,
@@ -431,8 +409,6 @@ class ClaudeThreads(
         const val ALIAS_KIND = "claude-thread-alias"
         const val OUTBOX_KIND = "claude-message"
         const val ALIASES = "claude/aliases"
-        const val PREVIEW_MAX = 120
-        const val TITLE_MAX = 120
 
         fun key(id: String) = "claude/t/$id"
         const val CARD_LIST_KIND = "claude-card-threads"
@@ -454,44 +430,47 @@ class ClaudeThreads(
         /** A network error or a server that may answer next time (5xx, 408, 429): keep it in the outbox. */
         fun shouldQueue(code: Int): Boolean = code == 408 || code == 429 || code >= 500
 
-        /** Port of sortMessages: created_at, then my message before its reply (stable). */
-        fun sortMessages(rows: List<ClaudeMessageDto>): List<ClaudeMessageDto> = rows.sortedWith { a, b ->
-            when {
-                a.created_at < b.created_at -> -1
-                a.created_at > b.created_at -> 1
-                a.role == b.role -> 0
-                a.role == "user" -> -1
-                else -> 1
-            }
+        /** A thread's messages in order (core [ClaudeThreadCache.sortMessages]). */
+        fun sortMessages(rows: List<ClaudeMessageDto>): List<ClaudeMessageDto> = ClaudeThreadCache.sortMessages(rows, MessageLens)
+
+        /** A server row over the phone's copy (core [ClaudeThreadCache.mergeMessage]: a streamed reply keeps its longer text). */
+        fun mergeMessage(local: ClaudeMessageDto?, server: ClaudeMessageDto): ClaudeMessageDto = ClaudeThreadCache.mergeMessage(local, server, MessageLens)
+
+        /** The fields of a cached message the core rules read / write. */
+        object MessageLens : ClaudeThreadCache.MessageLens<ClaudeMessageDto> {
+            override fun id(m: ClaudeMessageDto) = m.id
+            override fun clientId(m: ClaudeMessageDto) = m.client_id
+            override fun role(m: ClaudeMessageDto) = m.role
+            override fun createdAt(m: ClaudeMessageDto) = m.created_at
+            override fun status(m: ClaudeMessageDto) = m.status
+            override fun content(m: ClaudeMessageDto) = m.content
+            override fun streaming(m: ClaudeMessageDto) = m.streaming
+            override fun error(m: ClaudeMessageDto) = m.error
+            override fun queued(m: ClaudeMessageDto) = m.queued
+            override fun seq(m: ClaudeMessageDto) = m.seq
+            override fun with(m: ClaudeMessageDto, status: String?, content: String, streaming: Boolean, error: String?, seq: Int?) =
+                m.copy(status = status, content = content, streaming = streaming, error = error, seq = seq)
+        }
+
+        /** A list row replaces its cached copy (the DTO carries no phone-only fields). */
+        object ThreadLens : ClaudeThreadCache.ThreadLens<ClaudeThreadDto> {
+            override fun id(t: ClaudeThreadDto) = t.id
+            override fun clientId(t: ClaudeThreadDto) = t.client_id
+            override fun local(t: ClaudeThreadDto) = false
+            override fun over(old: ClaudeThreadDto, row: ClaudeThreadDto) = row
         }
 
         /**
-         * Port of mergeMessage: a reply still being written keeps the longer text this phone already
-         * streamed (the row is written ≤ every 400 ms, the socket ≤ every 120 ms); anything finished,
-         * failed or newer wins.
+         * The threads on this phone: the server's list as last fetched with every thread opened / started
+         * here laid over it (a cached thread's row is the fresher; a thread started offline that the list
+         * already has under its server id shows once — core [ClaudeThreadCache.mergeThreadList]).
          */
-        fun mergeMessage(local: ClaudeMessageDto?, server: ClaudeMessageDto): ClaudeMessageDto {
-            if (local != null && server.status == "pending" && local.status == "pending" && local.content.length > server.content.length && local.content.startsWith(server.content)) {
-                return server.copy(content = local.content, streaming = true, seq = local.seq)
+        fun onDevice(listed: List<ClaudeThreadDto>?, cached: List<CachedClaudeThread>): List<ClaudeThreadDto> {
+            val lens = object : ClaudeThreadCache.ThreadLens<ClaudeThreadDto> by ThreadLens {
+                val locals = cached.filter { it.local }.mapTo(HashSet()) { it.thread.id }
+                override fun local(t: ClaudeThreadDto) = t.id in locals
             }
-            return if (local?.seq != null) server.copy(seq = local.seq) else server
-        }
-
-        private fun oneLine(s: String, max: Int): String {
-            val line = s.replace(Regex("\\s+"), " ").trim()
-            return if (line.length > max) line.take(max - 1) + "…" else line
-        }
-
-        /** Port of titleFor (shared/claude/context.ts): the first message on one line, else a word for the context. */
-        fun titleFor(ctx: ClaudeContextDto, firstText: String): String {
-            val line = oneLine(firstText, TITLE_MAX)
-            if (line.isNotEmpty()) return line
-            return when (ctx.kind) {
-                ClaudeChats.CARD -> ctx.label?.let { "About $it" } ?: "About a card"
-                ClaudeChats.PRACTICE -> ctx.scenario?.let { "Practice: $it" } ?: "Practice with Claude"
-                ClaudeChats.CHAT_MESSAGE -> "About a message"
-                else -> "Chat with Claude"
-            }
+            return ClaudeThreadCache.mergeThreadList(listed.orEmpty(), cached.map { it.thread }, emptyList(), lens).threads
         }
 
         /** The readable reason of an outbox item the server refused (`HTTP 400: {"error":"…"}` → "…"). */
