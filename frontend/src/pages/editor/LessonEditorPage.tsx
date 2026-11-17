@@ -14,7 +14,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   CustomLessonSpec,
   validateLessonSpec,
-  conversationIntroWarnings,
+  lessonSoftWarnings,
   canonicalJson,
   lessonToMarkdown,
   lessonToJson,
@@ -111,7 +111,7 @@ export function LessonEditorPage({ target }: { target: EditorTargetType }) {
 
   const errors = useMemo(() => (spec ? validateLessonSpec(spec) : []), [spec]);
   // Soft: an intro note that quotes a conversation gives the listening away.
-  const introWarnings = useMemo(() => (spec && errors.length === 0 ? conversationIntroWarnings(spec) : []), [spec, errors.length]);
+  const introWarnings = useMemo(() => (spec && errors.length === 0 ? lessonSoftWarnings(spec) : []), [spec, errors.length]);
   const dirty = spec !== null && canonicalJson(spec) !== saved;
   const isOwner = query.data?.is_owner ?? true;
   const backTo = target === 'library' ? `/library/${id}` : '/lessons';

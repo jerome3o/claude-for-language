@@ -20,6 +20,7 @@ import type { StudyFeel } from '../study/hardMode';
 import type { LessonExercise } from './types';
 import { diffHanzi, isExactHanziMatch, normalizeHanziAnswer } from './answer-check';
 import { DIGIT_RUN, digitRunToHanzi, digitsToHanzi } from '../text/numberHanzi';
+import { choiceSayAgainSentence } from './choiceMistake';
 
 /** The slim row while Claude's check is on its way. */
 export const CLAUDE_CHECKING_LINE = 'Claude is checking…';
@@ -111,7 +112,12 @@ function target(hanzi: string | null | undefined, pinyin: string | null | undefi
 export function sayAgainTarget(ex: LessonExercise): SayAgainTarget | null {
   switch (ex.type) {
     case 'scramble': return target(ex.correct_order.join(''), null, 'answer');
-    case 'choice': return target(ex.options[ex.correct]?.hanzi, ex.options[ex.correct]?.pinyin, 'answer');
+    case 'choice': {
+      // A "which is wrong?" choice practises its correction — never the mistake (shared/lesson/choiceMistake.ts);
+      // an older one without it has no target until the device has fetched one (the views pass it in then).
+      const said = choiceSayAgainSentence(ex);
+      return target(said?.hanzi, said?.pinyin, 'answer');
+    }
     case 'translate': return target(ex.reference_hanzi, ex.reference_pinyin, 'answer');
     case 'listen_choice': return target(ex.audio.hanzi, ex.audio.pinyin, 'answer');
     case 'listen_translate': return target(ex.audio.hanzi, ex.audio.pinyin, 'answer');

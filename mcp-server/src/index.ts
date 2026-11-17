@@ -3,7 +3,7 @@ import { McpAgent } from "agents/mcp";
 import { z } from "zod";
 import { CARD_STANDARD, CARD_STANDARD_SHORT } from '../../shared/cards/standard';
 import { LESSON_EXERCISE_DOC, LESSON_AUTHORING_RULES } from '../../shared/lesson/doc';
-import { conversationIntroWarnings } from '../../shared/lesson/introWarnings';
+import { lessonSoftWarnings } from '../../shared/lesson/introWarnings';
 import { pinyinFixesText, type PinyinFix } from '../../shared/pinyin/fixes';
 import { kindCondition, shapeFeatureRequestForMcp } from './tools/feedback.js';
 import { signMediaUrls } from './tools/media.js';
@@ -19,7 +19,7 @@ function pinyinNote(fixes: PinyinFix[] | undefined): string {
 
 function introWarningText(spec: unknown): string {
   try {
-    const w = conversationIntroWarnings(spec as CustomLessonSpec);
+    const w = lessonSoftWarnings(spec as CustomLessonSpec);
     return w.length ? `\n\nWarning — fix with update_custom_lesson:\n- ${w.join('\n- ')}` : '';
   } catch {
     return '';
