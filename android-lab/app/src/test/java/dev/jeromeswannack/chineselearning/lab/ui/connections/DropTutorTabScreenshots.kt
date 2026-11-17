@@ -59,7 +59,7 @@ import kotlin.test.assertEquals
  */
 class DropTutorTabScreenshots : LabScreenshotTest() {
     private val chat = ChatScreenshots.base.copy(relationshipId = "rel1", otherName = "明慧")
-    private val claudeChat = ChatScreenshots.aiUi.copy(relationshipId = "rel2")
+    private val claudeChat = ChatScreenshots.base.copy(relationshipId = "rel2", otherName = "Claude", otherIsClaude = true)
     private val learner = NavRole(hasTutor = true, loaded = true)
     private val more = MoreUi(
         userName = "Jerome Swannack", email = "jerome@example.com", role = learner,
