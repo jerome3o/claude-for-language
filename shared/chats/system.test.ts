@@ -3,6 +3,7 @@ import {
   installHowToSteps,
   isSystemMessage,
   systemFallbackContent,
+  systemActionHref,
   systemMessageText,
   systemMessageView,
 } from './system';
@@ -25,9 +26,14 @@ describe('systemMessageView', () => {
     expect(systemMessageText(back, student())).toBe('📚 Minghui set your new cards back to the usual 3 a day (no extra cards)');
     expect(systemMessageText(back, sender(null))).toBe("📚 You set your student's new cards back to the usual 3 a day (no extra cards)");
     expect(systemMessageText(msg, student(null))).toBe('📚 Your tutor set your new cards to 2 a day (+5 extra)');
-    // The student can open where it lives; the tutor's own line has nothing to open.
+    // The student can open where it lives; the tutor opens his page at the Daily new cards row.
     expect(systemMessageView(msg, student())!.action).toEqual({ label: 'See in Settings', path: '/settings' });
-    expect(systemMessageView(msg, sender())!.action).toBeNull();
+    const tutorAction = systemMessageView(msg, sender())!.action!;
+    expect(tutorAction).toEqual({ label: 'See their daily cards', path: '/connections/rel-1', section: 'long-term' });
+    expect(systemActionHref(tutorAction)).toBe('/connections/rel-1#long-term');
+    expect(systemActionHref({ label: 'Join', path: '/calls/c1' })).toBe('/calls/c1');
+    // No relationship known: nothing to open.
+    expect(systemMessageView(msg, { viewerIsSender: true, otherName: 'Jerome' })!.action).toBeNull();
   });
 
   it('a call: live with Join, then ended / missed', () => {

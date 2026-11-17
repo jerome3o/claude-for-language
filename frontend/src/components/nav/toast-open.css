@@ -21,13 +21,3 @@
 .toast-open:active {
   opacity: 0.7;
 }
-
-.toast-with-open {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-.toast-with-open-text {
-  min-width: 0;
-  flex: 1;
-}

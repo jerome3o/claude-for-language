@@ -1,6 +1,7 @@
 package dev.jeromeswannack.chineselearning.lab.ui.kit
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import dev.jeromeswannack.chineselearning.lab.core.OpenLinks
 import dev.jeromeswannack.chineselearning.lab.core.claude.CardTools
@@ -18,19 +19,24 @@ import dev.jeromeswannack.chineselearning.lab.ui.nav.LocalLabNav
 /** Test tag of a toast's "Open ›". */
 const val TOAST_OPEN_TAG = "toast-open"
 
+/** Where "Open ›" navigates when there is no app navigator (screenshots / UI tests record the path). */
+val LocalToastNavigate = staticCompositionLocalOf<((String) -> Unit)?> { null }
+
 /**
- * What "Open ›" does here, or null (no link, no navigator — previews / tests —, or offline with the target
+ * What "Open ›" does here, or null (no link, nowhere to navigate — previews —, or offline with the target
  * not on this phone). [before] runs first (a sheet over the screen closes itself).
  */
 @Composable
 fun rememberToastOpen(link: OpenLinks.Link?, surface: String, before: () -> Unit = {}): (() -> Unit)? {
     val nav = LocalLabNav.current
+    val fallback = LocalToastNavigate.current
     val available = if (link != null) rememberResultAvailable(CardTools.Link(link.kind, link.target, link.id, link.path, link.label, link.aria)) else true
-    if (nav == null || link == null || !available) return null
+    if (link == null || !available) return null
+    if (nav == null && fallback == null) return null
     return {
-        runCatching { nav.app.analytics.track("nav.toast_open", mapOf("kind" to link.kind, "target" to link.target, "surface" to surface)) }
+        if (nav != null) runCatching { nav.app.analytics.track("nav.toast_open", mapOf("kind" to link.kind, "target" to link.target, "surface" to surface)) }
         before()
-        nav.open(link.path)
+        if (nav != null) nav.open(link.path) else fallback?.invoke(link.path)
     }
 }
 
