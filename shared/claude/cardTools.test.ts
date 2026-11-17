@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addedCards, addedCardsHead, cardToolEffects, cardToolLines, earlierCardThreads, earlierCardThreadsLabel, parseCardToolResults, undoEditFields } from './cardTools';
+import { addedCards, addedCardsHead, bumpedNotes, cardToolEffects, cardToolLines, earlierCardThreads, earlierCardThreadsLabel, parseCardToolResults, toolResultLink, undoEditFields } from './cardTools';
 
 const EDIT = {
   tool: 'edit_current_card',
@@ -55,10 +55,12 @@ describe('card tools in a card thread', () => {
       ),
     );
     expect(lines).toEqual([
-      { kind: 'edited', text: '✓ Claude edited this card · notes, example sentence', undo: true },
+      { kind: 'edited', text: '✓ Claude edited this card · notes, example sentence', undo: true, link: { kind: 'edited', target: 'card', id: 'n1', path: '/cards/n1', label: 'Open card', aria: 'Open the card 银行' } },
       { kind: 'added', text: '✓ Added 1 card: 存钱', undo: false, head: '✓ Added 1 card', cards: [] },
+      // An old row without the lesson's id: a plain line pointing at the page.
       { kind: 'lesson', text: '🎓 Mini lesson made: 存钱和取钱 — it’s on your Mini Lessons page', undo: false },
-      { kind: 'bumped', text: '⚡ Already in today’s study: 银行', undo: false },
+      // No note id for 银行 in the result: Up next's "⚡ Today" list.
+      { kind: 'bumped', text: '⚡ Already in today’s study: 银行', undo: false, link: { kind: 'bumped', target: 'up_next', id: null, path: '/up-next', label: 'See today', aria: 'See today’s study list' } },
       { kind: 'deleted', text: '🗑 Claude deleted this card', undo: false },
       { kind: 'failed', text: '✗ Couldn’t edit this card: Failed to update note', undo: false },
     ]);
@@ -79,6 +81,36 @@ describe('card tools in a card thread', () => {
     const [line] = cardToolLines([{ tool: 'create_flashcards', success: true, data: card }]);
     expect(line).toMatchObject({ kind: 'added', head: '✓ Added 2 cards' });
     expect(line.cards!.map((c) => c.hanzi)).toEqual(['机会', '难得']);
+  });
+
+  it('every line links to what it made: the lesson, the card(s), today, the edited card', () => {
+    const lesson = { tool: 'create_custom_lesson', success: true, data: { lesson_id: 'L 1', title: ' 治理 vs 这里：听力辨音 ' } };
+    const lines = cardToolLines([lesson]);
+    expect(lines).toEqual([
+      {
+        kind: 'lesson',
+        text: '🎓 Mini lesson made: 治理 vs 这里：听力辨音',
+        undo: false,
+        link: { kind: 'lesson', target: 'lesson', id: 'L 1', path: '/lessons/L%201/play?from=claude', label: 'Start', aria: 'Start the mini lesson 治理 vs 这里：听力辨音' },
+      },
+    ]);
+    // One card → its hub; several → the deck; several with no deck → plain.
+    const one = { tool: 'create_flashcards', success: true, data: { notes: [{ id: 'n4', hanzi: '治理' }], deck_id: 'd2', deck_name: 'From Claude' } };
+    expect(toolResultLink(one)).toMatchObject({ kind: 'card', target: 'card', path: '/cards/n4', label: 'Open card' });
+    const two = { tool: 'create_flashcards', success: true, data: { created: [{ id: 'a', hanzi: '治理' }, { id: 'b', hanzi: '这里' }], targetDeckId: 'd1', deck_name: 'From Claude' } };
+    expect(toolResultLink(two)).toMatchObject({ kind: 'cards', target: 'deck', id: 'd1', path: '/decks/d1', label: 'Open deck', aria: 'Open the deck From Claude with the new cards' });
+    expect(toolResultLink({ tool: 'create_flashcards', success: true, data: { count: 2 } })).toBeNull();
+    // ⚡: one word (its note found) → the card; several, or none found → Up next's "⚡ Today".
+    expect(toolResultLink({ tool: 'bump_cards', success: true, data: { bumped: ['银行'], bumped_notes: [{ note_id: 'n1', hanzi: '银行' }] } })).toMatchObject({ kind: 'bumped', target: 'card', path: '/cards/n1' });
+    expect(toolResultLink({ tool: 'bump_cards', success: true, data: { bumped: ['银行'], pocket: [{ note_id: 'n9', hanzi: '学生' }, { note_id: 'n1', hanzi: '银行' }] } })).toMatchObject({ target: 'card', id: 'n1' });
+    expect(toolResultLink({ tool: 'bump_cards', success: true, data: { bumped: ['银行', '学生'] } })).toMatchObject({ kind: 'bumped', target: 'up_next', id: null, path: '/up-next', label: 'See today' });
+    expect(toolResultLink({ tool: 'bump_cards', success: true, data: { bumped: [] } })).toBeNull();
+    // Failures, deletes and a card this reply deleted: no link.
+    expect(toolResultLink({ tool: 'create_custom_lesson', success: false })).toBeNull();
+    expect(toolResultLink({ tool: 'delete_current_card', success: true, data: { deletedNoteId: 'n1' } })).toBeNull();
+    const del = { tool: 'delete_current_card', success: true, data: { deletedNoteId: 'n1' } };
+    expect(cardToolLines([EDIT, del])[0].link).toBeUndefined();
+    expect(bumpedNotes({ bumped_notes: [{ note_id: ' n1 ', hanzi: '银行' }, { note_id: 'n1', hanzi: '银行' }, { hanzi: 'x' }, 3] })).toEqual([{ note_id: 'n1', hanzi: '银行' }]);
   });
 
   it('Undo puts back only the fields the edit changed', () => {

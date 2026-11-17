@@ -5,7 +5,7 @@
  */
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { cardToolEffects, cardToolLines, earlierCardThreads, earlierCardThreadsLabel, parseCardToolResults, undoEditFields } from '../../../shared/claude/cardTools';
+import { bumpedNotes, cardToolEffects, cardToolLines, earlierCardThreads, earlierCardThreadsLabel, parseCardToolResults, toolResultLink, undoEditFields } from '../../../shared/claude/cardTools';
 
 const OUT = process.argv[2];
 if (!OUT) throw new Error('usage: claude-card-tools <out-dir>');
@@ -39,11 +39,29 @@ const RAWS: Array<string | null> = [
     { tool: 'create_flashcards', success: true, data: { deck_id: 'd2', deck_name: 'HSK 2', deck_source_key: null, notes: [{ id: 'n4', hanzi: '这次机会很难得。', pinyin: 'zhè cì jīhuì hěn nándé.', english: '  ' }] } },
     { tool: 'create_flashcards', success: true, data: { notes: [{ id: 7, hanzi: 'y' }, { id: 'n5', hanzi: '取钱', english: 'withdraw money' }], deck_id: 5, created: 'nope' } },
   ]),
+  // Every line links to what it made (toolResultLink): the lesson, one card / the deck, ⚡ → the card / today, the edited card.
+  JSON.stringify([
+    { tool: 'create_custom_lesson', success: true, data: { lesson_id: ' L 1/é ', title: ' 治理 vs 这里：听力辨音 ' } },
+    { tool: 'create_custom_lesson', success: true, data: { lesson_id: 'L2' } },
+    { tool: 'create_custom_lesson', success: true, data: { lesson_id: '  ', title: 'x' } },
+    { tool: 'create_flashcards', success: true, data: { notes: [{ id: 'n4', hanzi: '治理' }], deck_id: 'd2' } },
+    { tool: 'create_flashcards', success: true, data: { created: [{ id: 'a', hanzi: '治理' }, { id: 'b', hanzi: '这里' }], targetDeckId: 'd 1', deck_name: ' From Claude ' } },
+    { tool: 'create_flashcards', success: true, data: { created: [{ id: 'a', hanzi: '治理' }, { id: 'b', hanzi: '这里' }] } },
+    { tool: 'bump_cards', success: true, data: { bumped: ['银行'], bumped_notes: [{ note_id: 'n1', hanzi: '银行' }, { note_id: 'n1', hanzi: '银行' }, { hanzi: 'x' }, 3] } },
+    { tool: 'bump_cards', success: true, data: { bumped: ['银行'], already_bumped: ['取钱'], bumped_notes: [{ note_id: 'n1', hanzi: '银行' }, { note_id: 'n2', hanzi: '取钱' }] } },
+    { tool: 'bump_cards', success: true, data: { bumped: [], already_bumped: ['学生'], pocket: [{ note_id: 'n9', hanzi: '老师' }, { note_id: 'n8', hanzi: ' 学生 ' }, 'x'] } },
+    { tool: 'bump_cards', success: true, data: { bumped: ['银行', '学生'], bumped_notes: [{ note_id: 'n1', hanzi: '银行' }] } },
+    { tool: 'bump_cards', success: true, data: { bumped: ['银行'] } },
+    { tool: 'edit_current_card', success: true, data: { note: { id: 'n7', hanzi: '银行' }, changes: { english: 'bank' } } },
+    { tool: 'edit_current_card', success: true, data: { note: { id: 'n6' }, changes: {} } },
+    { tool: 'create_flashcards', success: true, data: { created: [{ id: 'n6', hanzi: '好' }] } },
+    { tool: 'delete_current_card', success: true, data: { deletedNoteId: ' n6 ' } },
+  ]),
 ];
 
 const results = RAWS.map((raw) => {
   const parsed = parseCardToolResults(raw);
-  return { raw, parsed, effects: cardToolEffects(parsed), lines: cardToolLines(parsed) };
+  return { raw, parsed, effects: cardToolEffects(parsed), lines: cardToolLines(parsed), links: parsed.map((r) => toolResultLink(r, parsed)), bumped: parsed.map((r) => bumpedNotes(r.data)) };
 });
 
 const undo = [

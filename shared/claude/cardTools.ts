@@ -183,10 +183,114 @@ export function cardToolEffects(results: readonly CardToolResult[]): CardToolEff
   return out;
 }
 
+// ---------- Where a line goes (docs/CHAT.md "Tool lines you can tap") ----------
+
+/**
+ * A tool-result line is a link to what it made or changed (Jerome, Nov 2026: "I kind of expect to be
+ * able to click this bottom element to go to the lesson and then navigate back later"):
+ * - 🎓 a mini lesson → the player (`/lessons/:id/play?from=claude`, ▶ in one tap);
+ * - ✓ cards added → one card's hub, several → the deck;
+ * - ⚡ bumped → one word's hub, several → Up next (its "⚡ Today" list);
+ * - ✓ this card edited → its hub.
+ * `path` is the app path (the web route; the Lab app navigates by the same paths). A target this
+ * reply itself deleted (delete_current_card) gives no link; an old row without the id gives none
+ * either (the line stays plain). The apps say "not on this device" offline / "deleted" for a target
+ * that is gone instead of navigating to an error.
+ */
+export interface ResultLink {
+  /** What the line is (analytics `claude.tool_result_open.kind`). */
+  kind: 'lesson' | 'card' | 'cards' | 'bumped' | 'edited';
+  /** What it opens. */
+  target: 'lesson' | 'card' | 'deck' | 'up_next';
+  /** The lesson / note / deck id (null for Up next). */
+  id: string | null;
+  path: string;
+  /** The affordance's words ("Start" / "Open card" / "Open deck" / "See today"), drawn with "›". */
+  label: string;
+  /** The whole line's accessible name. */
+  aria: string;
+}
+
+const enc = (s: string) => encodeURIComponent(s);
+
+/** The notes ONE bump_cards result put first in today's study: `bumped_notes` (new rows), else its hanzi matched in `pocket`. */
+export function bumpedNotes(data: Record<string, unknown> | undefined): { note_id: string; hanzi: string }[] {
+  const out: { note_id: string; hanzi: string }[] = [];
+  const seen = new Set<string>();
+  const push = (id: string | null | undefined, hanzi: string | null | undefined) => {
+    const i = id?.trim();
+    const h = hanzi?.trim();
+    if (!i || !h || seen.has(i)) return;
+    seen.add(i);
+    out.push({ note_id: i, hanzi: h });
+  };
+  if (Array.isArray(data?.bumped_notes)) {
+    for (const b of data!.bumped_notes as unknown[]) {
+      if (b && typeof b === 'object') push(str((b as Record<string, unknown>).note_id), str((b as Record<string, unknown>).hanzi));
+    }
+    return out;
+  }
+  const words = strings(data?.bumped).length ? strings(data?.bumped) : strings(data?.already_bumped);
+  const pocket = Array.isArray(data?.pocket) ? (data!.pocket as unknown[]) : [];
+  for (const h of words) {
+    for (const p of pocket) {
+      if (!p || typeof p !== 'object') continue;
+      const o = p as Record<string, unknown>;
+      if (str(o.hanzi)?.trim() === h.trim()) {
+        push(str(o.note_id), h);
+        break;
+      }
+    }
+  }
+  return out;
+}
+
+/** The link of one result (null = a plain line). [all] = every result of the reply (a card it deleted gets no link). */
+export function toolResultLink(r: CardToolResult, all: readonly CardToolResult[] = [r]): ResultLink | null {
+  if (!r.success) return null;
+  const deleted = new Set(
+    all.filter((x) => x.success && x.tool === 'delete_current_card').map((x) => str(x.data?.deletedNoteId)?.trim()).filter((x): x is string => !!x),
+  );
+  const card = (kind: ResultLink['kind'], id: string, what: string): ResultLink | null =>
+    deleted.has(id) ? null : { kind, target: 'card', id, path: `/cards/${enc(id)}`, label: 'Open card', aria: `Open the card ${what}` };
+  switch (r.tool) {
+    case 'create_custom_lesson': {
+      const id = str(r.data?.lesson_id)?.trim();
+      if (!id) return null;
+      const title = str(r.data?.title)?.trim();
+      return { kind: 'lesson', target: 'lesson', id, path: `/lessons/${enc(id)}/play?from=claude`, label: 'Start', aria: `Start the mini lesson${title ? ` ${title}` : ''}` };
+    }
+    case 'create_flashcards': {
+      const cards = addedCards(r.data);
+      if (cards.length === 1) return card('card', cards[0].note_id, cards[0].hanzi);
+      const deckId = str(r.data?.deck_id)?.trim() || str(r.data?.targetDeckId)?.trim();
+      if (!deckId) return null;
+      const deckName = str(r.data?.deck_name)?.trim();
+      return { kind: 'cards', target: 'deck', id: deckId, path: `/decks/${enc(deckId)}`, label: 'Open deck', aria: `Open the deck${deckName ? ` ${deckName}` : ''} with the new cards` };
+    }
+    case 'bump_cards': {
+      const words = strings(r.data?.bumped).length ? strings(r.data?.bumped) : strings(r.data?.already_bumped);
+      if (!words.length) return null;
+      const notes = bumpedNotes(r.data).filter((n) => words.some((w) => w.trim() === n.hanzi));
+      if (words.length === 1 && notes.length === 1) return card('bumped', notes[0].note_id, notes[0].hanzi);
+      return { kind: 'bumped', target: 'up_next', id: null, path: '/up-next', label: 'See today', aria: 'See today’s study list' };
+    }
+    case 'edit_current_card': {
+      const note = r.data?.note;
+      const id = note && typeof note === 'object' ? str((note as Record<string, unknown>).id)?.trim() : null;
+      const hanzi = note && typeof note === 'object' ? str((note as Record<string, unknown>).hanzi)?.trim() : null;
+      return id ? card('edited', id, hanzi || '') : null;
+    }
+    default:
+      return null;
+  }
+}
+
 /**
  * One line under the reply. `undo` = the line offers Undo (an edit). An `added` line also carries
  * the cards with their note ids (`cards`, [] for an old row) and `head` ("✓ Added 2 cards"): the
- * apps show `head` + one tappable chip per card when there are cards, else `text`.
+ * apps show `head` + one tappable chip per card when there are cards, else `text`. `link` = where a
+ * tap on the line goes (toolResultLink; absent = plain).
  */
 export interface CardToolLine {
   kind: 'edited' | 'added' | 'deleted' | 'lesson' | 'bumped' | 'failed';
@@ -194,6 +298,7 @@ export interface CardToolLine {
   undo: boolean;
   head?: string;
   cards?: AddedCard[];
+  link?: ResultLink;
 }
 
 const FAILED_LABELS: Record<string, string> = {
@@ -208,6 +313,7 @@ const FAILED_LABELS: Record<string, string> = {
 export function cardToolLines(results: readonly CardToolResult[]): CardToolLine[] {
   const lines: CardToolLine[] = [];
   for (const r of results) {
+    const before = lines.length;
     if (!r.success) {
       const label = FAILED_LABELS[r.tool];
       if (label) lines.push({ kind: 'failed', text: `✗ ${label}${r.error ? `: ${r.error}` : ''}`, undo: false });
@@ -230,7 +336,8 @@ export function cardToolLines(results: readonly CardToolResult[]): CardToolLine[
       }
       case 'create_custom_lesson': {
         const title = str(r.data?.title)?.trim();
-        lines.push({ kind: 'lesson', text: `🎓 Mini lesson made${title ? `: ${title}` : ''} — it’s on your Mini Lessons page`, undo: false });
+        // With its id the line opens the lesson; an old row without one points at the page.
+        lines.push({ kind: 'lesson', text: `🎓 Mini lesson made${title ? `: ${title}` : ''}${str(r.data?.lesson_id)?.trim() ? '' : ' — it’s on your Mini Lessons page'}`, undo: false });
         break;
       }
       case 'bump_cards': {
@@ -243,6 +350,9 @@ export function cardToolLines(results: readonly CardToolResult[]): CardToolLine[
       default:
         break;
     }
+    // The line this result drew (if any) links to what it made.
+    const link = lines.length > before ? toolResultLink(r, results) : null;
+    if (link) lines[lines.length - 1].link = link;
   }
   return lines;
 }
