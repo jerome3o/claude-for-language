@@ -889,17 +889,17 @@
   -webkit-touch-callout: none;
 }
 .scramble-row button.tile:focus-visible {
-  outline: 2px solid var(--color-primary, #2563eb);
+  outline: 2px solid #3b82f6;
   outline-offset: 2px;
 }
 .scramble-row .tile.tile-gap {
   color: transparent;
   background: transparent;
   border-style: dashed;
-  border-color: var(--color-primary, #2563eb);
+  border-color: #3b82f6;
 }
 .scramble-row.answer.drop-target {
-  border-color: var(--color-primary, #2563eb);
+  border-color: #3b82f6;
 }
 .tile.tile-floating {
   position: fixed;

@@ -110,7 +110,10 @@ test('word order: drag to rearrange, drag in, drag out, arrow keys — and Check
   await expect(poolTile(page, '一到家')).toBeVisible();
   await tap(page, ['他', '就', '睡觉了']);
   const jiu = await center(placedTile(page, '就'));
-  await dragTo(page, poolTile(page, '一到家'), jiu.b.x + 4, jiu.y);
+  await dragTo(page, poolTile(page, '一到家'), jiu.b.x + 4, jiu.y, async () => {
+    await expect(page.getByTestId('scramble-gap')).toHaveCount(1);
+    if (SHOTS) await page.screenshot({ path: `${SHOTS}/04-drag-in-from-pool.png` });
+  });
   await expect(placed(page)).toHaveText(['他', '一到家', '就', '睡觉了']);
   // Drag OUT: 睡觉了 back down to the pool, then tapped back in at the end.
   const pool = await center(page.getByTestId('scramble-pool'));
