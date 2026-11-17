@@ -8,7 +8,9 @@ import { join } from 'node:path';
 import {
   answerDiff, answerDiffLabel, answerDiffLine, answerDiffSummary, answerDiffTone, firstSentence, ANSWER_DIFF_VERDICT,
   ANSWER_DIFF_EMPTY, ANSWER_DIFF_FAR, ANSWER_DIFF_ORDER, ANSWER_DIFF_RIGHT, ANSWER_DIFF_WORDED, ANSWER_DIFF_YOU_SAID, ANSWER_DIFF_YOUR_ANSWER,
+  readAloudResultLine,
 } from '../../../shared/cards/answer-diff';
+import { judgeReadAloud } from '../../../shared/reader/readAloud';
 
 const OUT = process.argv[2];
 if (!OUT) throw new Error('usage: answer-diff <out-dir>');
@@ -59,8 +61,21 @@ const cases = PAIRS.map(([said, expected]) => {
 const sentences = ['', '  Almost.  Then more. ', 'No end mark here', 'Short! And more', '你说得对。但是……', 'x'.repeat(120), `${'y'.repeat(88)}  z`]
   .map((text) => ({ text, first: firstSentence(text), first20: firstSentence(text, 20) }));
 
+const READINGS: [string, string][] = [
+  ['我去成都，都是好地方。', '我去成读，读是好地方。'],
+  ['我去成都，都是好地方。', '我去成都，都是好地方。'],
+  ['我去成都，都是好地方。', '我去成都'],
+  ['我去成都，都是好地方。', '我去成都，是好地方了'],
+  ['小明在巴黎。他很喜欢吃面包，每天早上都去面包店。', '小明在巴黎他很喜欢吃包子每天都去面包店'],
+  ['他有12本书。', '他有十二本书'],
+  ['他有12本书。', '他有十三本书'],
+  ['今天很冷。', ''],
+  ['今天很冷。', '明天很热啊'],
+];
+const readings = READINGS.map(([page, said]) => ({ page, said, line: readAloudResultLine(judgeReadAloud(page, said)) }));
+
 writeFileSync(join(OUT, 'answer-diff.json'), JSON.stringify({
-  cases, sentences, verdicts: ANSWER_DIFF_VERDICT,
+  cases, sentences, readings, verdicts: ANSWER_DIFF_VERDICT,
   copy: {
     right: ANSWER_DIFF_RIGHT, worded: ANSWER_DIFF_WORDED, order: ANSWER_DIFF_ORDER, far: ANSWER_DIFF_FAR, empty: ANSWER_DIFF_EMPTY,
     youSaid: ANSWER_DIFF_YOU_SAID, yourAnswer: ANSWER_DIFF_YOUR_ANSWER,

@@ -8,7 +8,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { AnswerCheck } from '@shared/lesson/answerCheck';
-import { AnswerCheckCard } from './AnswerCheckCard';
+import { AnswerCheckBody, AnswerCheckCard } from './AnswerCheckCard';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -66,8 +66,19 @@ describe('AnswerCheckCard', () => {
     expect(host.querySelector('[data-testid="answer-check-checking"]')?.textContent).toContain('Claude is checking');
   });
 
-  it('almost: chip, the red-pen diff of their sentence, the quote marked', () => {
+  it('slim (where he answers): the chip and ONE line — no tips, no fix, no alternative; the actions stay', () => {
     act(() => root.render(<AnswerCheckCard state={{ status: 'done', check: ALMOST, cached: false }} answer="医生让我吃药和好好休息。" speak={() => {}} onRetry={() => {}} onAsk={() => {}} />));
+    expect(host.querySelector('.answer-check-chip')?.textContent).toBe('~ Almost');
+    expect(host.querySelector('[data-testid="answer-check-headline"]')?.textContent).toBe(ALMOST.headline.match(/^.+?[.!?。！？](?=\s|$)/u)?.[0] ?? ALMOST.headline);
+    expect(host.querySelector('.answer-check-fix')).toBeNull();
+    expect(host.querySelector('.answer-check-tips')).toBeNull();
+    expect(host.querySelector('.answer-check-alt')).toBeNull();
+    expect(host.querySelector('[data-testid="answer-check-retry"]')).toBeTruthy();
+    expect(host.querySelector('[data-testid="answer-check-ask"]')).toBeTruthy();
+  });
+
+  it('detail (the attempt review): chip, the red-pen diff of their sentence, the quote marked', () => {
+    act(() => root.render(<AnswerCheckBody check={ALMOST} answer="医生让我吃药和好好休息。" speak={() => {}} onRetry={() => {}} onAsk={() => {}} detail />));
     expect(host.querySelector('.answer-check-chip')?.textContent).toBe('~ Almost');
     expect(host.querySelector('.chat-diff-del')?.textContent).toBe('和');
     expect(host.querySelector('.answer-check-pinyin')?.textContent).toContain('xiūxi');
@@ -75,8 +86,8 @@ describe('AnswerCheckCard', () => {
     expect(host.querySelector('[data-testid="answer-check-retry"]')).toBeTruthy();
   });
 
-  it('correct: no correction, the alternative shown', () => {
-    act(() => root.render(<AnswerCheckCard state={{ status: 'done', check: CORRECT, cached: true }} answer="即使便宜，我也不买。" speak={() => {}} />));
+  it('detail: correct — no correction, the alternative shown', () => {
+    act(() => root.render(<AnswerCheckBody check={CORRECT} answer="即使便宜，我也不买。" speak={() => {}} detail />));
     expect(host.querySelector('.answer-check-chip')?.textContent).toBe('✓ Correct');
     expect(host.querySelector('.answer-check-fix')).toBeNull();
     expect(host.querySelector('.answer-check-alt')?.textContent).toContain('即使再便宜');

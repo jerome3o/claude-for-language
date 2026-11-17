@@ -116,7 +116,7 @@ describe('ClaudeChatThread', () => {
     await flush();
     const marked = [...host.querySelectorAll<HTMLElement>('.ra-char')].map((e) => [e.textContent, e.dataset.mark]);
     expect(marked).toContainEqual(['辣', 'close']);
-    expect(q('reader-read-aloud-line')?.textContent).toMatch(/to check/);
+    expect(q('reader-read-aloud-line')?.textContent).toMatch(/tones? off|wrong|missing|extra/);
     expect(getRecapWords('t1').map((w) => [w.hanzi, w.reasons])).toEqual([['火锅', ['said_wrong']], ['辣', ['said_wrong']]]);
     expect(track).toHaveBeenCalledWith('coach.ask_read_back', expect.objectContaining({ wrong_words: 2, via: 'live' }));
   });

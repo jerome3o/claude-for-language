@@ -104,8 +104,9 @@ describe('HardModeFeedback', () => {
   it('right by sound only: You said vs the card, the differing characters marked, Next to go on', async () => {
     const h = await render('right', { difference: { reason: 'homophone', said: '由', model: '油', modelPinyin: 'yóu' } });
     expect(q('hard-feedback')!.dataset.held).toBe('true');
-    expect(host.textContent).toContain('✓ Sounded right — written differently');
-    expect(q('difference-said')!.querySelector('[data-mark="differs"]')!.textContent).toBe('由');
+    // The slim diff: one line, the card once, his answer marked (a homophone: a quiet dotted mark).
+    expect(q('answer-diff-line')!.textContent).toBe('✓Sounded right — written 由');
+    expect(q('difference-said')!.querySelector('[data-kind="sound"]')!.textContent).toBe('由');
     expect(q('difference-model')!.textContent).toContain('The card');
     expect(q('difference-model')!.textContent).toContain('yóu');
     expect(q('hard-said')).toBeNull();
@@ -152,6 +153,8 @@ describe('HardModeFeedback', () => {
     expect(q('hard-revealed-answer')!.textContent).toContain('银行');
     expect(q('hard-revealed-answer')!.textContent).toContain('yínháng');
     expect(q('hard-revealed-answer')!.textContent).toContain('bank');
+    // He answered first (银航): his answer lined up with it under one line.
+    expect(q('answer-diff-line')!.textContent).toContain('Sounded right — written 航');
     expect(q('hard-continue')!.textContent).toContain('Continue to the sentences');
     expect(q('hard-try-again')).toBeNull();
     act(() => q('hard-revealed-play')!.click());

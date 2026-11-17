@@ -104,6 +104,7 @@ export function HardModeFeedback({ result, said, spoken, roundFollows, differenc
               expectedPinyin={answer.pinyin}
               expectedEnglish={answer.english}
               onPlayExpected={onPlayAnswer}
+              playTestId="hard-revealed-play"
               saidLabel={spoken ? ANSWER_DIFF_YOU_SAID : ANSWER_DIFF_YOUR_ANSWER}
             />
           </div>
@@ -300,6 +301,7 @@ function SentenceAnswerFirst({ result, view, answer, said, difference, check, ch
           verdict={view.checking ? null : checkVerdict(check) ?? (result === 'right' || result === 'close' || result === 'wrong' ? ANSWER_DIFF_VERDICT[result] : null)}
           expectedTestId="difference-model"
           saidTestId="difference-said"
+          playTestId="difference-play-model"
         >
           {/* Right under "You said", so the verdict landing below never moves it. */}
           {readAgain && view.readAgain && <HardModeReadAgain {...readAgain} />}
@@ -309,7 +311,7 @@ function SentenceAnswerFirst({ result, view, answer, said, difference, check, ch
             <span className="answer-check-dot" aria-hidden="true" /> {checkingLabel}
           </div>
         ) : check ? (
-          <span hidden data-testid="hard-sentence-check" data-verdict={check.verdict} />
+          <div hidden data-testid="hard-sentence-check"><span data-testid="answer-check" data-verdict={check.verdict} /></div>
         ) : result === 'unknown' ? (
           <p className="hard-feedback-note">{HARD_MODE_UNKNOWN}</p>
         ) : null}

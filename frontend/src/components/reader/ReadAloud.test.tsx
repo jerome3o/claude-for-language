@@ -1,7 +1,7 @@
 /**
  * 🎤 Read it aloud on a reader page (components/reader/ReadAloud.tsx): the button records (the live
  * transcript shows while he reads), the take is judged against the page and the page's OWN Chinese is
- * marked in place — no second copy — with one line ("≈ 66% — 2 to check") and the transcript behind
+ * marked in place — no second copy — with one line that says what differs ("≈ 85% — Tone off on 徐") and the transcript behind
  * "You said ▸"; 🎤 again replaces the result; a failed take offers "tap to retry"; offline says why
  * and records nothing; `reader.read_aloud` carries the bucket, the page's characters and the path.
  */
@@ -133,7 +133,7 @@ describe('🎤 Read it aloud', () => {
     expect(markOf('徐')).toBe('close');
     // The page's own text, once — no copy of it.
     expect(host.querySelector('[data-testid="reader-words"]')?.textContent).toBe(TEXT);
-    expect(q('reader-read-aloud-line')?.textContent).toBe('✕ 42% — 4 to check');
+    expect(q('reader-read-aloud-line')?.textContent).toBe('✕ 42% — 3 characters missing, 1 tone off');
     // A tiny legend of the marks the page shows (徐 tone off, 早上好 missed), chips stepped back.
     expect([...host.querySelectorAll<HTMLElement>('[data-legend]')].map((e) => e.dataset.legend)).toEqual(['close', 'missed']);
     expect(q('reader-read-aloud-legend')?.textContent).toBe(`${NBSP6}tone off${NBSP6}missed`);
@@ -191,7 +191,7 @@ describe('what it heard vs the page', () => {
     W('这', 'zhè'), W('是', 'shì'), W('很多', 'hěn duō'), W('成都', 'Chéngdū'), W('人', 'rén'), W('最', 'zuì'), W('爱', 'ài'), W('的', 'de'), W('小吃', 'xiǎochī'), W('。'),
   ];
 
-  it("Jerome's take: 成都 heard as 程度 — one row, both in pinyin, the reasons in words; a tap on 成都 (page or row) opens the explorer; ▶ plays the page's word", async () => {
+  it("Jerome's take: 成都 heard as 程度 — one line, one row behind You said ▸ (both in pinyin, no reasons); a tap on 成都 (page or row) opens the explorer; ▶ plays the page's word", async () => {
     harness.text = CHENGDU;
     harness.words = CHENGDU_WORDS;
     await act(async () => root.render(<MemoryRouter><ExplorerProvider><Harness /></ExplorerProvider></MemoryRouter>));
@@ -199,7 +199,10 @@ describe('what it heard vs the page', () => {
     await click(q('reader-read-aloud'));
     await act(async () => fake.current!.land('胆子大的话，可以试试麻辣兔头，这是很多程度人最爱的小吃。'));
     await flush();
-    expect(q('reader-read-aloud-line')?.textContent).toBe('✓ 96% — 1 to check');
+    expect(q('reader-read-aloud-line')?.textContent).toBe('✓ 96% — Tone off on 都');
+    // The rows wait behind "You said ▸" (the marked page IS the diff).
+    expect(q('reader-read-aloud-diffs')).toBeNull();
+    await click(q('reader-read-aloud-said-toggle'));
     const rows = [...host.querySelectorAll<HTMLElement>('[data-testid="reader-read-aloud-diff"]')];
     expect(rows).toHaveLength(1);
     const row = rows[0];
@@ -207,10 +210,8 @@ describe('what it heard vs the page', () => {
     expect([...row.querySelectorAll('.ra-diff-zh')].map((e) => e.textContent)).toEqual(['成都', '程度']);
     expect([...row.querySelectorAll('.ra-diff-py')].map((e) => e.textContent)).toEqual(['chéngdū', 'chéngdù']);
     expect(row.querySelector('.ra-diff-kind')?.textContent).toBe('Tone');
-    expect([...row.querySelectorAll('.ra-diff-reasons li')].map((e) => e.textContent)).toEqual([
-      '成 chéng — sounded right (written 程)',
-      '都 dū → you said dù (4th tone instead of 1st)',
-    ]);
+    // No reason lines — too much information (Jerome, Nov 2026).
+    expect(row.querySelector('.ra-diff-reasons')).toBeNull();
 
     // A tap on the marked word on the page opens the language explorer, like any word chip.
     const chip = [...host.querySelectorAll('.reader-word-chip')].find((c) => c.textContent === '成都')!;
@@ -232,7 +233,6 @@ describe('what it heard vs the page', () => {
     expect(speak).toHaveBeenCalledWith('成都');
 
     // "You said" marks the transcript too: 度 tone off, 程 a homophone (unmarked).
-    await click(q('reader-read-aloud-said-toggle'));
     const said = q('reader-read-aloud-said')!;
     expect(said.textContent).toBe('胆子大的话，可以试试麻辣兔头，这是很多程度人最爱的小吃。');
     expect([...said.querySelectorAll<HTMLElement>('.ra-char')].map((e) => `${e.textContent}:${e.dataset.mark}`)).toEqual(['度:close']);
@@ -257,9 +257,10 @@ describe('what it heard vs the page', () => {
     // Skipped 早上, said 许 for 徐, added 呀 at the end.
     await act(async () => fake.current!.land('好。我叫小许呀'));
     await flush();
+    expect(q('reader-read-aloud-line')?.textContent).toBe('✕ 57% — 2 characters missing, 1 extra, 1 tone off');
+    await click(q('reader-read-aloud-said-toggle'));
     const rows = [...host.querySelectorAll<HTMLElement>('[data-testid="reader-read-aloud-diff"]')];
     expect(rows.map((r) => r.dataset.kind)).toEqual(['missed', 'tone', 'extra']);
-    expect(rows[0].querySelector('.ra-diff-reasons')?.textContent).toContain('missed 早 zǎo');
-    expect(rows[2].querySelector('.ra-diff-reasons')?.textContent).toBe('extra 呀 ya');
+    expect(rows[2].querySelector('.ra-diff-kind')?.textContent).toBe('Extra words');
   });
 });

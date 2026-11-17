@@ -26,7 +26,7 @@
  *
  * Pure; the Lab port is core `AnswerDiff.kt`, parity-tested (android-lab/parity/fixtures/answer-diff.ts).
  */
-import { judgeReadAloud, readAloudKeys } from '../reader/readAloud';
+import { judgeReadAloud, readAloudKeys, type ReadAloudResult } from '../reader/readAloud';
 
 export type AnswerDiffKind = 'ok' | 'sound' | 'tone' | 'wrong' | 'extra' | 'missing' | 'plain';
 export const ANSWER_DIFF_KINDS: readonly AnswerDiffKind[] = ['ok', 'sound', 'tone', 'wrong', 'extra', 'missing', 'plain'];
@@ -59,7 +59,11 @@ const cps = (s: string) => [...s];
 
 /** His answer against the expected one, character by character (see the file comment). */
 export function answerDiff(said: string, expected: string): AnswerDiff {
-  const r = judgeReadAloud(expected, said);
+  return diffOfJudged(judgeReadAloud(expected, said), said, expected, false);
+}
+
+/** The diff of a judged reading; `reading` = a page read aloud: the part after where he stopped is skipped, not missing. */
+function diffOfJudged(r: ReadAloudResult, said: string, expected: string, reading: boolean): AnswerDiff {
   const parts: AnswerDiffPart[] = [];
   const push = (p: AnswerDiffPart) => {
     // A run of the same kind stays one part only for extras (a word he added); every other part is one unit.
@@ -85,12 +89,19 @@ export function answerDiff(said: string, expected: string): AnswerDiff {
       case 'sound': push({ text: c.heard, kind: 'sound', expected: unit }); count.sound++; break;
       case 'close': push({ text: c.heard, kind: 'tone', expected: unit }); count.tone++; break;
       case 'wrong': push({ text: c.heard, kind: 'wrong', expected: unit }); count.wrong++; break;
-      default: push({ text: unit, kind: 'missing', expected: unit }); count.missing++; break; // missed / unread
+      default: // missed / unread — a page read aloud: unread = he stopped before here, not missing
+        if (reading && c.mark === 'unread') break;
+        push({ text: unit, kind: 'missing', expected: unit }); count.missing++; break;
     }
   }
   if (r.extraAtEnd) {
     push({ text: r.extraAtEnd, kind: 'extra', expected: '' });
     count.extra += cps(r.extraAtEnd).length;
+  }
+  if (reading) {
+    const fixes = count.wrong + count.tone + count.missing + count.extra;
+    const empty = (r.heard ?? []).every((h) => h.mark === 'plain');
+    return { parts, ...count, right: !empty && fixes === 0, reordered: false, empty };
   }
   const saidKeys = readAloudKeys(said);
   const expectedKeys = readAloudKeys(expected);
@@ -143,7 +154,7 @@ const joinAnd = (xs: string[]) => (xs.length <= 1 ? xs.join('') : `${xs.slice(0,
  * ONE short sentence that says what differs — deterministic, from the diff alone (the file comment lists them).
  * Never an explanation: no reasons, no tips, no tones named.
  */
-export function answerDiffSummary(d: AnswerDiff): string {
+export function answerDiffSummary(d: AnswerDiff, opts: { far?: boolean } = {}): string {
   if (d.empty) return ANSWER_DIFF_EMPTY;
   if (d.right) {
     if (d.sound === 0) return ANSWER_DIFF_RIGHT;
@@ -154,7 +165,7 @@ export function answerDiffSummary(d: AnswerDiff): string {
   const kinds = (['wrong', 'missing', 'extra', 'tone'] as const).filter((k) => d[k] > 0);
   const units = d.parts.filter((p) => p.kind !== 'plain' && p.kind !== 'extra').length;
   const off = d.wrong + d.missing + Math.min(d.extra, 4);
-  if (off > SHORT && off * 2 > Math.max(units, 1)) return ANSWER_DIFF_FAR;
+  if (opts.far !== false && off > SHORT && off * 2 > Math.max(units, 1)) return ANSWER_DIFF_FAR;
   if (kinds.length === 1) {
     const kind = kinds[0];
     const runs = runsOf(d.parts, kind);
@@ -180,6 +191,19 @@ export function answerDiffSummary(d: AnswerDiff): string {
       default: return `${n} ${n === 1 ? 'tone' : 'tones'} off`;
     }
   }).join(', ');
+}
+
+/**
+ * A page read aloud (shared/reader/readAloud.ts `judgeReadAloud`) as its ONE line: "✓ 100% — all read right",
+ * "≈ 85% — Tone off on 都", "✕ 52% — 4 wrong characters, 2 missing, 1 extra · stopped early" — the score, then what
+ * differs in the part he read (never "quite different": a page is long; the counts say it).
+ */
+export function readAloudResultLine(r: ReadAloudResult): string {
+  const early = r.stoppedEarly ? ' · stopped early' : '';
+  if (r.toCheck === 0) return `✓ ${r.pct}% — ${r.stoppedEarly ? 'right so far' : 'all read right'}${early}`;
+  const icon = r.pct >= 90 ? '✓' : r.pct >= 60 ? '≈' : '✕';
+  const summary = answerDiffSummary(diffOfJudged(r, '', '', true), { far: false });
+  return `${icon} ${r.pct}% — ${summary}${early}`;
 }
 
 /** The first sentence of a line, at most ~90 characters (Claude's headline, never its explanation). */

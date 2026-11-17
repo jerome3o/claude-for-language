@@ -310,7 +310,8 @@ describe('SentenceRound', () => {
     act(() => dictation().land('我去学校取钱'));
     const said = inEx(0, 'sentence-practise-said')!;
     expect(said.dataset.compact).toBe('transcript');
-    expect(said.querySelector('[data-testid="spoken-result-hanzi"]')!.textContent).toBe('我去学校取钱');
+    // The slim diff: his take lined up with the sentence (its own 。 kept), 学校 marked wrong.
+    expect(said.querySelector('[data-testid="spoken-result-hanzi"]')!.textContent).toBe('我去学校取钱。');
     const wrong = [...said.querySelectorAll('[data-mark="wrong"]')].map((e) => e.textContent).join('');
     expect(wrong).toBe('学校');
     // It sounded different: its pinyin is there, small.
@@ -477,13 +478,14 @@ describe('SentenceRound', () => {
       expect(ex(1).dataset.held).toBe('true');
       expect(inEx(1, 'round-difference-title')!.textContent).toBe('✓ Right — said differently from the model');
       expect(inEx(1, 'difference-said')!.textContent).toContain('我要去银行');
-      expect(inEx(1, 'difference-said')!.querySelector('[data-mark="differs"]')!.textContent).toBe('要');
+      expect(inEx(1, 'difference-said')!.querySelector('[data-kind="extra"]')!.textContent).toBe('要');
       expect(inEx(1, 'difference-model')!.textContent).toContain('我去银行。');
       expect(inEx(1, 'difference-model')!.textContent).toContain('Wǒ qù yínháng.');
       expect(inEx(1, 'difference-play-model')).not.toBeNull();
       // The model sentence is in the comparison, not twice.
       expect(inEx(1, 'sentence-round-chinese')).toBeNull();
-      expect(ex(1).textContent).toContain('要 adds');
+      // Slim: no Claude tips under it (the round's title is the one line).
+      expect(ex(1).textContent).not.toContain('要 adds');
       expect(ex(1).textContent).toContain('我要去银行。');
       expect(all('sentence-round-cheer')[0].textContent).toContain('Good and Easy unlocked');
       expect(track).toHaveBeenCalledWith('study.round_difference_shown', { kind: 'translate', reason: 'acceptable', verdict: 'acceptable', where: 'session', held: true });
@@ -551,7 +553,7 @@ describe('SentenceRound', () => {
       await act(async () => { dictation().land('我去学校'); await Promise.resolve(); });
       expect(ex(1).dataset.status).toBe('wrong');
       expect(ex(1).dataset.difference).toBeUndefined();
-      expect([...inEx(1, 'difference-said')!.querySelectorAll('[data-mark="wrong"]')].map((e) => e.textContent).join('')).toBe('学校');
+      expect([...inEx(1, 'difference-said')!.querySelectorAll('[data-kind="wrong"]')].map((e) => e.textContent).join('')).toBe('学校');
       expect(inEx(1, 'sentence-round-retry')).not.toBeNull();
       expect(track).not.toHaveBeenCalledWith('study.round_difference_shown', expect.anything());
     });

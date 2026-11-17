@@ -44,8 +44,10 @@ object AnswerDiff {
     private fun cpLen(s: String): Int = s.codePointCount(0, s.length)
 
     /** `answerDiff`: his answer against the expected one. */
-    fun of(said: String, expected: String): Diff {
-        val r = ReadAloud.judge(expected, said)
+    fun of(said: String, expected: String): Diff = ofJudged(ReadAloud.judge(expected, said), said, expected, false)
+
+    /** `diffOfJudged`: a judged reading; [reading] = a page read aloud (after where he stopped is skipped, not missing). */
+    private fun ofJudged(r: ReadAloud.Result, said: String, expected: String, reading: Boolean): Diff {
         val parts = ArrayList<Part>()
         fun push(p: Part) {
             val last = parts.lastOrNull()
@@ -74,12 +76,17 @@ object AnswerDiff {
                 ReadAloud.Mark.SOUND -> { push(Part(c.heard, "sound", unit)); sound++ }
                 ReadAloud.Mark.CLOSE -> { push(Part(c.heard, "tone", unit)); tone++ }
                 ReadAloud.Mark.WRONG -> { push(Part(c.heard, "wrong", unit)); wrong++ }
-                else -> { push(Part(unit, "missing", unit)); missing++ }
+                else -> if (!(reading && c.mark == ReadAloud.Mark.UNREAD)) { push(Part(unit, "missing", unit)); missing++ }
             }
         }
         if (r.extraAtEnd.isNotEmpty()) {
             push(Part(r.extraAtEnd, "extra", ""))
             extra += cpLen(r.extraAtEnd)
+        }
+        if (reading) {
+            val fixes = wrong + tone + missing + extra
+            val empty = r.heard.all { it.mark == "plain" }
+            return Diff(parts, wrong, tone, missing, extra, sound, !empty && fixes == 0, false, empty)
         }
         val saidKeys = ReadAloud.keys(said)
         val expectedKeys = ReadAloud.keys(expected)
@@ -131,7 +138,7 @@ object AnswerDiff {
         if (xs.size <= 1) xs.joinToString("") else "${xs.dropLast(1).joinToString(", ")} and ${xs.last()}"
 
     /** `answerDiffSummary`: ONE short sentence that says what differs. */
-    fun summary(d: Diff): String {
+    fun summary(d: Diff, far: Boolean = true): String {
         if (d.empty) return EMPTY
         if (d.right) {
             if (d.sound == 0) return RIGHT
@@ -141,7 +148,7 @@ object AnswerDiff {
         val kinds = listOf("wrong", "missing", "extra", "tone").filter { d.count(it) > 0 }
         val units = d.parts.count { it.kind != "plain" && it.kind != "extra" }
         val off = d.wrong + d.missing + minOf(d.extra, 4)
-        if (off > SHORT && off * 2 > maxOf(units, 1)) return FAR
+        if (far && off > SHORT && off * 2 > maxOf(units, 1)) return FAR
         if (kinds.size == 1) {
             val kind = kinds[0]
             val runs = runsOf(d.parts, kind)
@@ -166,6 +173,14 @@ object AnswerDiff {
                 else -> "$n ${if (n == 1) "tone" else "tones"} off"
             }
         }.joinToString(", ")
+    }
+
+    /** `readAloudResultLine`: a page read aloud as its ONE line — the score, then what differs in the part he read. */
+    fun readingLine(r: ReadAloud.Result): String {
+        val early = if (r.stoppedEarly) " · stopped early" else ""
+        if (r.toCheck == 0) return "✓ ${r.pct}% — ${if (r.stoppedEarly) "right so far" else "all read right"}$early"
+        val icon = if (r.pct >= 90) "✓" else if (r.pct >= 60) "≈" else "✕"
+        return "$icon ${r.pct}% — ${summary(ofJudged(r, "", "", true), far = false)}$early"
     }
 
     private val WS = Regex("[${AnswerKey.JS_WS}]+")

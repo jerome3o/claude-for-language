@@ -211,7 +211,7 @@ describe('a take with the Chinese hidden', () => {
     await flush();
     expect(hidden()).toBe(true);
     // The score line and "You said ▸" under the controls…
-    expect(q('reader-read-aloud-line')?.textContent).toContain('to check');
+    expect(q('reader-read-aloud-line')?.textContent).toContain('Tone off on 徐');
     expect(q('reader-read-aloud-said-toggle')).not.toBeNull();
     expect(q('reader-read-aloud-result')?.dataset.pageHidden).toBe('true');
     // …but nothing that prints the page's Chinese: the differences wait behind "You said ▸".
@@ -226,11 +226,11 @@ describe('a take with the Chinese hidden', () => {
     await click(q('reader-read-aloud-said-toggle'));
     expect(q('reader-read-aloud-diffs')).toBeNull();
 
-    // Tap to reveal: the page's own Chinese, marked in place; the differences back under the line.
+    // Tap to reveal: the page's own Chinese, marked in place (the rows still wait behind "You said ▸").
     await click(host.querySelector('.reader-chinese-reveal-box'));
     expect(hidden()).toBe(false);
     expect(pageMarks()).toBe('徐');
-    expect(q('reader-read-aloud-diffs')).not.toBeNull();
+    expect(q('reader-read-aloud-diffs')).toBeNull();
     expect(q('reader-read-aloud-result')?.dataset.pageHidden).toBeUndefined();
   });
 
@@ -244,6 +244,8 @@ describe('a take with the Chinese hidden', () => {
     await flush();
     expect(hidden()).toBe(false);
     expect(pageMarks()).toBe('徐');
+    expect(q('reader-read-aloud-diffs')).toBeNull();
+    await click(q('reader-read-aloud-said-toggle'));
     expect(q('reader-read-aloud-diffs')).not.toBeNull();
   });
 

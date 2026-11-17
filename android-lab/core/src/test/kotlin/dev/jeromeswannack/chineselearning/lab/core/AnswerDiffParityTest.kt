@@ -67,6 +67,14 @@ class AnswerDiffParityTest {
     }
 
     @Test
+    fun readingLines() {
+        for (r in fixture()["readings"]!!.jsonArray) {
+            val o = r.jsonObject
+            assertEquals(o["line"]!!.str, AnswerDiff.readingLine(ReadAloud.judge(o["page"]!!.str!!, o["said"]!!.str!!)), o.toString())
+        }
+    }
+
+    @Test
     fun verdicts() {
         for ((key, v) in fixture()["verdicts"]!!.jsonObject) {
             val o = v.jsonObject

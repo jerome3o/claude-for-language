@@ -42,6 +42,7 @@ export function DifferenceCompare({ said, model, modelPinyin, accepted, modelLab
       testId="difference-compare"
       expectedTestId="difference-model"
       saidTestId="difference-said"
+      playTestId="difference-play-model"
     >
       {children}
     </AnswerDiff>

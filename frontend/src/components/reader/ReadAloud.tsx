@@ -4,8 +4,9 @@
  * chip (`ReadAloudMic`); a tap records through the voice boxes' pipeline (`useVoiceDictation`: the
  * live transcript while he reads, upload fallback, "Couldn't transcribe — tap to retry", the
  * signed-out state); tap again to stop, and the take is judged against the page's own Chinese. The
- * result marks the page's Chinese IN PLACE (ReaderWordsText `marks`) — no second copy — with one small,
- * muted line under the audio ("✓ 92% — 2 to check"), a tiny legend of the marks it shows (wavy = tone
+ * result marks the page's Chinese IN PLACE (ReaderWordsText `marks`) — no second copy — with ONE small,
+ * muted line under the audio that says what differs ("≈ 85% — 1 wrong character, 1 tone off"; shared/cards/answer-diff.ts
+ * `readAloudResultLine`, docs/STUDY_SESSION.md "Answer feedback: one line and a diff"), a tiny legend of the marks it shows (wavy = tone
  * off, solid = wrong, dashed = missed, ‸ = extra words; ReadAloud.css) and the transcript behind
  * "You said ▸" (`ReadAloudPanel`). A take never reveals a hidden page: the marks wait for the reveal and the
  * difference rows for "You said ▸" (`pageHidden`). 🎤 again replaces the result. Practice only: nothing is stored or queued
@@ -21,7 +22,6 @@ import {
   READ_ALOUD_DIFF_KIND,
   readAloudHeardAnything,
   readAloudLegend,
-  readAloudLine,
   readAloudTone,
   READ_ALOUD_LEGEND,
   READ_ALOUD_AGAIN,
@@ -39,6 +39,7 @@ import {
   type ReadAloudResult,
 } from '@shared/reader/readAloud';
 import { practiseBlockNote } from '@shared/coach';
+import { readAloudResultLine } from '@shared/cards/answer-diff';
 import { itemForText } from '@shared/explorer';
 import { sentenceAround } from '@shared/reader/words';
 import { useExplorer } from '../explorer/ExplorerContext';
@@ -268,7 +269,7 @@ export function ReadAloudPanel({ ra, onSpeak, listeningText = READ_ALOUD_LISTENI
     <div className="reader-read-aloud-result" data-testid="reader-read-aloud-result" data-page-hidden={pageHidden ? 'true' : undefined}>
       <div className="reader-read-aloud-line-row">
         <span className={`reader-read-aloud-line tone-${readAloudTone(result)}`} role="status" data-testid="reader-read-aloud-line">
-          {readAloudLine(result)}
+          {readAloudResultLine(result)}
         </span>
         <button
           type="button"
@@ -284,13 +285,13 @@ export function ReadAloudPanel({ ra, onSpeak, listeningText = READ_ALOUD_LISTENI
         </button>
       </div>
       <ReadAloudLegend keys={readAloudLegend(result)} />
-      {!pageHidden && differences}
+      {/* What it heard and the per-word rows wait behind "You said ▸" (collapsed): the marked page IS the diff. */}
       {showSaid && (
         <div className="reader-read-aloud-said" lang="zh-CN" data-testid="reader-read-aloud-said">
           {result.heard && result.heard.length > 0 ? <HeardChars chars={result.heard} /> : said}
         </div>
       )}
-      {pageHidden && showSaid && differences}
+      {showSaid && differences}
     </div>
   );
 }
@@ -339,8 +340,8 @@ function DiffWord({ text, pinyin, sentence, side, kind }: { text: string; pinyin
 
 /**
  * What it heard vs what the page says, one row per word (Jerome: "I'd love to see what the app thought I
- * was saying versus what it should have been"): the page's word + pinyin, what was heard + pinyin, ▶ the
- * page's word, and a reason line per character ("都 dū → you said dù (4th tone instead of 1st)"). A
+ * was saying versus what it should have been"), behind "You said ▸": the page's word + pinyin, what was heard +
+ * pinyin, the kind in one word, ▶ the page's word — no reason lines (Jerome, Nov 2026: "way too much information"). A
  * homophone-only word is a muted "Sounded right" row (not to check). Either side's Chinese opens the
  * language explorer (source `read_aloud`) — the page's word with its sentence. Lab: ReadAloudViews.kt
  * `ReadAloudDifferences`.
@@ -401,9 +402,6 @@ export function ReadAloudDifferences({ diffs, pageText = '', onSpeak }: {
                 </button>
               )}
             </div>
-            <ul className="ra-diff-reasons">
-              {d.reasons.map((r, k) => <li key={k} lang="zh-CN">{r}</li>)}
-            </ul>
           </li>
         ))}
       </ol>

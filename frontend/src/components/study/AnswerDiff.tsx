@@ -59,6 +59,7 @@ export interface AnswerDiffProps {
   saidLabel?: string;
   expectedTestId?: string;
   saidTestId?: string;
+  playTestId?: string;
   /** Under the diff (🎤 Read it again …). */
   children?: ReactNode;
   testId?: string;
@@ -67,7 +68,7 @@ export interface AnswerDiffProps {
 export function AnswerDiff({
   said, expected, expectedPinyin, expectedEnglish, expectedLabel = 'Answer', showExpected = true, onPlayExpected,
   accepted = false, headline, verdict, line, hideLine = false, saidLabel = ANSWER_DIFF_YOU_SAID, children, testId = 'answer-diff',
-  expectedTestId = 'answer-diff-expected', saidTestId = 'answer-diff-said',
+  expectedTestId = 'answer-diff-expected', saidTestId = 'answer-diff-said', playTestId = 'answer-diff-play',
 }: AnswerDiffProps) {
   const diff = useMemo(() => answerDiff(said, expected), [said, expected]);
   const full = answerDiffLine({ diff, accepted, headline });
@@ -99,7 +100,7 @@ export function AnswerDiff({
                   className="adiff-play"
                   onClick={(e) => { e.stopPropagation(); onPlayExpected(); }}
                   aria-label={`Play: ${expected}`}
-                  data-testid={expectedTestId === "difference-model" ? "difference-play-model" : "answer-diff-play"}
+                  data-testid={playTestId}
                 >
                   ▶
                 </button>
