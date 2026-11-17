@@ -18,6 +18,7 @@ const FILES = [
   './RightMoment.css',
   './DifferenceCompare.css',
   './listenContext.css',
+  './SiblingCards.css',
   '../lessons/AnswerCheckCard.css',
   '../lessons/SentenceCheck.css',
 ];
