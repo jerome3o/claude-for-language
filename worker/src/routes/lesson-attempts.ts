@@ -6,6 +6,7 @@
  *   POST /lessons/answer-check                           Claude checks a self-assessed answer (translate / listen_translate; cached; the model answer itself → no call)
  *                                                        and a free-speaking transcript (oral_expression / speak; never short-circuited)
  *   POST /lessons/answer-check/ask                       💬 Ask about this: a short follow-up about that answer
+ *   POST /lessons/choice-correction                      the right version of a "which sentence is wrong?" choice's wrong option (cached for everyone)
  *   PUT  /lesson-attempts/:id/media/:key                 upload a recording made in an attempt (raw body; owner only)
  *   GET  /lesson-attempts[?lesson_id]                    my attempts, newest first
  *   GET  /lesson-attempts/:id                            one of my attempts: spec snapshot, answers, recordings
@@ -30,6 +31,8 @@ import { storeAudio } from '../services/audio';
 import { checkMadeSentence } from '../services/sentence-making';
 import { checkLessonAnswer, askAboutAnswer, type AskTurn } from '../services/answer-check';
 import { fakeAnswerCheckClient } from '../services/answer-check-fake';
+import { correctChoiceSentence } from '../services/choice-correction';
+import { pickChoiceCorrectionInput } from '@shared/lesson/choiceMistake';
 import { exactAnswerCheck, pickAnswerCheckInput, parseAnswerCheck, answerCheckApplies, isSpeakingCheckType, type AnswerCheckInput } from '@shared/lesson/answerCheck';
 import { aiSpendToday, dailyCostCap } from '../middleware/cost-guard';
 import { StructuredCallError } from '../services/structured-call';
@@ -119,6 +122,26 @@ lessonAttempts.post('/lessons/answer-check/ask', async (c) => {
     return c.json({ reply });
   } catch (error) {
     return structuredFailure(c, error, 'answer ask');
+  }
+});
+
+// ============ "Which sentence is wrong?" choices: the correction ============
+
+/**
+ * An older lesson's "which is wrong?" choice has no `correction`: the apps never read the wrong sentence aloud, so they
+ * ask for its right version here once (shared/lesson/choiceMistake.ts) → `{ correction: { hanzi, pinyin, english },
+ * unchanged, cached }` (`unchanged` = nothing wrong with it after all).
+ */
+lessonAttempts.post('/lessons/choice-correction', async (c) => {
+  const picked = pickChoiceCorrectionInput(await c.req.json().catch(() => ({})));
+  if ('problems' in picked) return c.json({ error: picked.problems.join('; '), problems: picked.problems }, 400);
+  const deps = answerCheckDeps(c.env);
+  if (!deps) return c.json({ error: 'Claude isn’t set up on this server.', retryable: false }, 503);
+  try {
+    const result = await correctChoiceSentence(c.env.DB, picked.input, deps);
+    return c.json(result);
+  } catch (error) {
+    return structuredFailure(c, error, 'choice correction');
   }
 });
 

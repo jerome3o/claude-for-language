@@ -46,6 +46,7 @@ const AI_PATHS: RegExp[] = [
   /^\/api\/transcribe(\/|$)/,
   /^\/api\/notes\/[^/]+\/ask$/,
   /^\/api\/lessons\/answer-check(\/|$)/,
+  /^\/api\/lessons\/choice-correction$/,
   /^\/api\/lessons\/sentence-feedback$/,
   /^\/api\/idioms$/,
   /^\/api\/phone\/persona-reply$/,
