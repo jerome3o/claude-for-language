@@ -68,7 +68,7 @@ fun rememberResultOpener(): (CardTools.Link) -> Unit {
     val context = LocalResultContext.current
     val app = labApp()
     return { link ->
-        app?.analytics?.track("claude.tool_result_open", mapOf("kind" to link.kind, "context" to context))
+        runCatching { app?.analytics?.track("claude.tool_result_open", mapOf("kind" to link.kind, "context" to context)) }
         if (host != null) host(link) else nav?.open(link.path)
     }
 }
@@ -77,7 +77,8 @@ fun rememberResultOpener(): (CardTools.Link) -> Unit {
 @Composable
 fun rememberResultAvailable(link: CardTools.Link): Boolean {
     val app = labApp() ?: return true
-    val online by app.online.collectAsState()
+    val onlineFlow = androidx.compose.runtime.remember(app) { runCatching { app.online }.getOrNull() } ?: return true
+    val online by onlineFlow.collectAsState()
     val here by produceState(initialValue = true, link.target, link.id, online) {
         val id = link.id
         value = online || id == null || runCatching {

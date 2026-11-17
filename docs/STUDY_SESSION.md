@@ -2890,7 +2890,10 @@ the device, "Earlier about 银行"), `shared/study/askClaude.ts` + `askClaudeMen
   Lab `StudyViewModel.claudeToolResults` + `ClaudeThreads.markCardEffectsApplied`): the edited note into IndexedDB /
   Room and on screen, a deleted card leaves the session after 2 s, made cards / lessons / bumps come down by a sync.
   Under the reply one line per result (`cardToolLines`): **"✓ Claude edited this card · notes  [Undo]"**, "✓ Added 2
-  cards: 存钱、取钱", "🗑 Claude deleted this card", "🎓 Mini lesson made: …", "⚡ Study it today: 银行". **Undo** puts the
+  cards: 存钱、取钱", "🗑 Claude deleted this card", "🎓 Mini lesson made: … · Start ›", "⚡ Study it today: 银行". Each
+  line opens what it made (the lesson in the player, the card's hub, the deck, Up next) and **back comes to this card
+  with the sheet open on the same thread** — the study card reopens its sheet from the history entry's `claudeReturn`
+  (Lab: `askReturn` in saved state); docs/CHAT.md "Tool lines you can tap". **Undo** puts the
   changed fields back (`undoEditFields`, a normal `PUT /api/notes/:id`; needs a connection; `claude.undo_card_edit`).
   The old **Approve / Reject** is gone — it only ever decided whether the device heard about a change the server had
   already made. The sheet stays mounted (hidden) while closed (web) / its ViewModel keeps listening

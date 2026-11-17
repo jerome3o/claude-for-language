@@ -1189,6 +1189,42 @@ routes), `data/claude/ClaudeThreads.kt` (JsonCache `claude/t/<id>` + Outbox kind
   without ids keep the plain line. Analytics `claude.added_card_open { surface: thread | card_sheet | coach, count }`.
   E2E: the stand-in (`claude-agent/fake.ts`) calls `create_flashcards` (机会, + 难得 for "two cards") when asked for a
   card (`e2e/tests/claude-thread.spec.ts`).
+- **Tool lines you can tap** (Jerome, Nov 2026, on "🎓 Mini lesson made: 治理 vs 这里 — it's on your Mini Lessons
+  page": "I kind of expect to be able to click this bottom element to go to the lesson and then navigate back
+  later"). Every line under a reply is a link to what it made or changed — ONE rule, `toolResultLink(result, all)` in
+  `shared/claude/cardTools.ts` (Lab `CardTools.resultLink`, parity-tested in `parity/fixtures/claude-card-tools.ts`;
+  `cardToolLines` puts it on each line as `link`):
+
+  | Line | Opens | Affordance |
+  |---|---|---|
+  | 🎓 Mini lesson made: <title> | the player `/lessons/:id/play?from=claude` (▶ in one tap) | `Start ›` |
+  | ✓ Added 1 card | that card's hub `/cards/:noteId` | `Open card ›` |
+  | ✓ Added N cards | the deck `/decks/:deckId` (each word's chip still opens the explorer) | `Open deck ›` |
+  | ⚡ Study it today / Already in today's study: one word | its card hub | `Open card ›` |
+  | ⚡ … several words (or no note id) | Up next `/up-next` (its "⚡ Today" list) | `See today ›` |
+  | ✓ Claude edited this card | the card hub (Undo stays on the line) | `Open card ›` |
+
+  A line with nothing else on it is ONE button (≥ 44px web / 48dp Lab, `aria-label` / content description = `link.aria`
+  — "Start the mini lesson 治理 vs 这里：听力辨音"); a line with Undo or word chips gets an `Open card ›` pill instead
+  (web `components/claude/ResultLink.tsx` `ResultLinkLine` / `ResultLinkGo`, Lab `ui/claude/ResultLinks.kt`). Every
+  surface uses it: the card's Ask Claude sheet, the thread page (any context), the Coach (`ToolResultChips` /
+  `CoachToolResults` — their lesson line also lost the stale "it'll appear in your next study session"), Discuss, reader
+  / exercise sheets. A line whose target is gone says so: a card this reply deleted gets no link; offline and not on the
+  device → "Not on this device yet — needs a connection" (not tappable); a lesson not on the device is fetched by the
+  player when online ("Getting the lesson…", then "This lesson isn't there any more — it may have been deleted"); a
+  deleted card's hub says "This card isn't there any more". An old row without the id stays a plain line (the lesson's
+  says "— it's on your Mini Lessons page"). New data: bump_cards now stores `bumped_notes: [{ note_id, hanzi }]`
+  (`claude-agent/tools/read.ts`); older rows are matched by hanzi in `pocket`. **Back returns to where he was**: the
+  thread view remembers `{ thread_id, source, ref, page, scroll, at }` on the CURRENT history entry
+  (`history.state.usr.claudeReturn`, web `ClaudeThreadView` `openResult`) before opening the path; back lands on that
+  entry — the thread page restores its scroll (no pull to the end, `useFollowEnd(…, startFollowing = false)`), the
+  study card (`StudyPage`) reopens its Ask Claude sheet on the same thread (today is the session: the same card comes
+  back, `shared/study/resume.ts`), the chat reopens Discuss on that message, a reader its page's sheet; the host
+  clears it once the sheet is closed by hand. The player's ✕ / Done is `navigate(-1)`. Lab: the nav back stack — the
+  study card keeps `askReturn` (the thread) in saved state (`CardStage`), so back shows its sheet open again, and
+  `FollowThreadEnd` keeps "scrolled up" in saved state. Analytics `claude.tool_result_open { kind: lesson | card | cards
+  | bumped | edited, context }`. E2E: the stand-in makes `FAKE_LESSON` when asked for a "mini lesson"
+  (`e2e/tests/claude-result-links.spec.ts`); Lab `ui/claude/ResultLinksTest.kt`.
 - **Suggestion chips** (`chipsFor`): card = Ask Claude's quick questions (`cardChips`, was `askQuickActions` —
   still exported under that name), general = A useful phrase · Quiz me · A short story, chat message = What does
   it mean · Is it natural · How to reply · Make flashcards, practice = 💡 hint · 🆘 How do I say… (`fill`: into the
