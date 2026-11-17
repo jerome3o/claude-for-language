@@ -31,6 +31,8 @@ import dev.jeromeswannack.chineselearning.lab.testing.LabScreenshotTest
 import dev.jeromeswannack.chineselearning.lab.testing.Samples
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 import org.junit.Test
+import androidx.compose.ui.test.onRoot
+import com.github.takahirom.roborazzi.captureRoboImage
 import org.robolectric.annotation.Config
 
 /**
@@ -156,15 +158,25 @@ class StudyPolishScreenshots : LabScreenshotTest() {
         }
     }
 
-    /** Hard mode's question, right: a frame mid-burst (the wash at its brightest, the confetti flying). */
-    @Test fun hardRightMomentDark() = shoot("polish2-11-hard-right-moment-dark", dark = true, settleMs = 260) {
+    /** A frame mid-animation: the test clock stopped ([shoot] would let it run to the end before capturing). */
+    private fun shootMidMoment(name: String, atMs: Long, content: @Composable () -> Unit) {
+        val ctx = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
+        android.provider.Settings.Global.putFloat(ctx.contentResolver, android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
+        compose.mainClock.autoAdvance = false
+        compose.setContent { dev.jeromeswannack.chineselearning.lab.ui.theme.LabTheme(dark = true) { content() } }
+        compose.mainClock.advanceTimeBy(atMs)
+        compose.onRoot().captureRoboImage("screenshots/$name.png")
+    }
+
+    /** Hard mode's question, right: a frame mid-burst (the wash bright, the confetti flying). */
+    @Test fun hardRightMomentDark() = shootMidMoment("polish2-11-hard-right-moment-dark", 240) {
         Box(Modifier.fillMaxSize().background(Lab.colors.background).padding(8.dp), contentAlignment = Alignment.BottomCenter) {
             HardModeFeedbackPanel(result = "right", said = "虾饺", spoken = true, roundFollows = true, onTryAgain = {}, onShowAnswer = {}, onNext = {})
         }
     }
 
     /** A typed answer right on the back, mid-burst. */
-    @Test fun typedRightMomentDark() = shoot("polish2-12-typed-right-moment-dark", dark = true, settleMs = 260) {
+    @Test fun typedRightMomentDark() = shootMidMoment("polish2-12-typed-right-moment-dark", 240) {
         study(ui(view(CardTypes.MEANING_TO_HANZI)), CardStartState(flipped = true, answer = "虾饺"))
     }
 }

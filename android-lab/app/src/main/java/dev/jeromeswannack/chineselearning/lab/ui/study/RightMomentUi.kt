@@ -16,9 +16,6 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import dev.jeromeswannack.chineselearning.lab.core.ResultState
 import dev.jeromeswannack.chineselearning.lab.core.RightMoment
@@ -28,9 +25,6 @@ import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.random.Random
-
-/** Test tag of the "right" moment (`right-moment-<where>`), on the thing that was right. */
-const val RIGHT_MOMENT_TAG = "right-moment"
 
 /** The system's "Remove animations" (animator duration scale 0) = reduce motion. */
 @Composable
@@ -67,7 +61,7 @@ fun Modifier.rightMoment(
         val rnd = Random(key.hashCode())
         List(moment.confetti) { i ->
             val angle = (i.toFloat() / moment.confetti.coerceAtLeast(1)) * 2 * PI.toFloat() + (rnd.nextFloat() - 0.5f) * 0.5f
-            floatArrayOf(angle, 0.6f + rnd.nextFloat() * 0.6f, (rnd.nextFloat() - 0.5f) * 540f, i.toFloat(), 10f + rnd.nextFloat() * 6f)
+            floatArrayOf(angle, 0.6f + rnd.nextFloat() * 0.6f, (rnd.nextFloat() - 0.5f) * 540f, i.toFloat(), 4f + rnd.nextFloat() * 2f)
         }
     }
     LaunchedEffect(key) {
@@ -81,9 +75,8 @@ fun Modifier.rightMoment(
         }
     }
     LaunchedEffect(key) { if (moment.confetti > 0) burst.animateTo(1f, tween(moment.durationMs, easing = FastOutSlowInEasing)) }
+    // No test tag of its own: it sits on the host's node, whose own tag (the exercise, "You said" …) must win.
     this
-        .testTag("$RIGHT_MOMENT_TAG-$where")
-        .semantics { stateDescription = "Right" }
         .drawWithContent {
             val w = wash.value
             if (w > 0f) drawRoundRect(tone.copy(alpha = 0.24f * w), cornerRadius = androidx.compose.ui.geometry.CornerRadius(ResultState.SURFACE_RADIUS.dp.toPx()))
@@ -92,13 +85,15 @@ fun Modifier.rightMoment(
             if (p >= 1f) return@drawWithContent
             val cx = size.width / 2
             val cy = size.height / 2
-            val reach = 110f
+            val reach = 64.dp.toPx()
+            val rise = 12.dp.toPx()
+            val fall = 44.dp.toPx()
             for (sd in seeds) {
                 val x = cx + cos(sd[0]) * reach * sd[1] * p * 1.5f
-                val y = cy + sin(sd[0]) * reach * sd[1] * p - 30f * p + 110f * p * p
+                val y = cy + sin(sd[0]) * reach * sd[1] * p - rise * p + fall * p * p
                 val a = if (p < 0.7f) 1f else ((1f - p) / 0.3f).coerceIn(0f, 1f)
                 val c = Palette.Confetti[sd[3].toInt() % Palette.Confetti.size]
-                val pw = sd[4]
+                val pw = sd[4].dp.toPx()
                 rotate(sd[2] * p, Offset(x, y)) {
                     drawRect(c.copy(alpha = a), topLeft = Offset(x - pw / 2, y - pw * 0.8f), size = Size(pw, pw * 1.6f))
                 }
