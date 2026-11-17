@@ -1,17 +1,16 @@
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../db/database';
 import { CardQueue } from '../../types';
+import { masteryLevel } from '@shared/progress/mastery';
 
 export interface DeckOverview {
   notes: number;
   cards: number;
   /** Cards that have been studied at least once. */
   seen: number;
-  /** Cards with a review interval over three weeks (matches the server's "mastered"). */
+  /** Review cards with stability over three weeks (shared/progress/mastery.ts — the server's "mastered" too). */
   mastered: number;
 }
-
-const MASTERED_INTERVAL_DAYS = 21;
 
 /**
  * Per-deck word counts and a mastery split, straight from IndexedDB, so the
@@ -34,7 +33,7 @@ export function useDeckOverview(): Map<string, DeckOverview> | undefined {
       const row = get(card.deck_id);
       row.cards++;
       if (card.queue !== CardQueue.NEW) row.seen++;
-      if (card.queue === CardQueue.REVIEW && card.interval > MASTERED_INTERVAL_DAYS) row.mastered++;
+      if (masteryLevel(card.queue, card.stability ?? 0) === 'mastered') row.mastered++;
     }
     return map;
   }, []);

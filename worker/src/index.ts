@@ -179,6 +179,7 @@ import cardHoldsRoutes from './routes/card-holds';
 import skipHandwritingRoutes from './routes/skip-handwriting';
 import dayRolloverRoutes from './routes/day-rollover';
 import cardForgetsRoutes from './routes/card-forgets';
+import studyQueueRoutes from './routes/study-queue';
 import sentencePracticeRoutes from './routes/sentence-practice';
 import { forgetsByCard, listForgets, mergeForgets, recomputeCards } from './services/card-forgets';
 import revisitRoutes from './routes/revisit';
@@ -729,6 +730,7 @@ app.route('/api', adminRoutes);
 app.route('/api', foldersRoutes);
 app.route('/api', revisitRoutes); // "Revisit later" for lessons — GET /api/me/revisit, PUT /api/profile/revisit-settings, POST /api/me/revisit-events
 app.route('/api', sentencePracticeRoutes); // Practice per example sentence — GET/POST /api/me/sentence-practice
+app.route('/api', studyQueueRoutes); // GET /api/me/study-queue — today's queue (due_today / reviews_due), services/study-queue.ts
 app.route('/api', cardForgetsRoutes); // Forget this card — GET/POST /api/me/card-forgets, POST /api/me/card-forgets/undo
 app.route('/api', cardHoldsRoutes); // Suspend & snooze — GET/POST /api/me/card-holds, POST /api/me/card-holds/clear, PUT /api/profile/bury-siblings
 app.route('/api', skipHandwritingRoutes); // "Skip handwriting exercises" — PUT /api/profile/skip-handwriting
@@ -4895,7 +4897,7 @@ app.get('/api/stats/overview', async (c) => {
 app.get('/api/stats/deck/:id', async (c) => {
   const userId = c.get('user').id;
   const id = c.req.param('id');
-  const stats = await db.getDeckStats(c.env.DB, id, userId);
+  const stats = await db.getDeckStats(c.env.DB, id, userId, { due: c.req.query('due') !== '0' });
   if (!stats) {
     return c.json({ error: 'Deck not found' }, 404);
   }
