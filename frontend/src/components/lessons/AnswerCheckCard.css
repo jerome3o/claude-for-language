@@ -3,16 +3,24 @@
   margin-top: 0.5rem;
   border-radius: 10px;
   border: 1px solid var(--color-border, #e5e7eb);
-  border-left-width: 4px;
   background: var(--color-surface, #fff);
   padding: 0.625rem 0.75rem;
   text-align: left;
   font-size: 0.9375rem;
   line-height: 1.45;
 }
-.answer-check.good { border-left-color: #16a34a; }
-.answer-check.warn { border-left-color: #d97706; }
-.answer-check.bad { border-left-color: #dc2626; }
+/* The one result surface (index.css .result-surface; shared/study/resultState.ts): a light outline + faint tint in the
+   state's colour, the same for ✓ / ≈ / ✗ (was: a 4px left stripe, and an ORANGE "warn" next to the yellow ≈ everywhere
+   else). good = right, warn = close (almost / needs work), bad = wrong. */
+.answer-check.good { --rs-tone: var(--result-right); --rs-ink: var(--result-right-ink); }
+.answer-check.warn { --rs-tone: var(--result-close); --rs-ink: var(--result-close-ink); }
+.answer-check.bad { --rs-tone: var(--result-wrong); --rs-ink: var(--result-wrong-ink); }
+.answer-check.good,
+.answer-check.warn,
+.answer-check.bad {
+  border-color: color-mix(in srgb, var(--rs-tone) 35%, transparent);
+  background: color-mix(in srgb, var(--rs-tone) 8%, var(--color-surface, #fff));
+}
 
 .answer-check.checking {
   display: flex;
@@ -20,7 +28,6 @@
   gap: 0.5rem;
   color: var(--color-text-light, #6b7280);
   font-size: 0.875rem;
-  border-left-color: var(--color-border, #e5e7eb);
   padding: 0.5rem 0.75rem;
 }
 .answer-check-dot {
@@ -48,9 +55,9 @@
   border-radius: 999px;
   padding: 0.125rem 0.5rem;
 }
-.answer-check-chip.good { background: #dcfce7; color: #15803d; }
-.answer-check-chip.warn { background: #fef3c7; color: #b45309; }
-.answer-check-chip.bad { background: #fee2e2; color: #b91c1c; }
+.answer-check-chip.good { background: color-mix(in srgb, var(--result-right) 16%, transparent); color: var(--result-right-ink); }
+.answer-check-chip.warn { background: color-mix(in srgb, var(--result-close) 16%, transparent); color: var(--result-close-ink); }
+.answer-check-chip.bad { background: color-mix(in srgb, var(--result-wrong) 16%, transparent); color: var(--result-wrong-ink); }
 .answer-check-headline { font-weight: 600; color: var(--color-text, #1f2937); }
 
 .answer-check-fix { margin-top: 0.5rem; }
@@ -67,7 +74,7 @@
 }
 .answer-check .chat-diff-ins {
   text-decoration: none;
-  color: #15803d;
+  color: var(--result-right-ink);
   background: #dcfce7;
   border-radius: 4px;
   padding: 0 2px;
@@ -213,7 +220,7 @@ mark.answer-check-quote,
   font-size: 0.875rem;
   cursor: pointer;
 }
-.answer-ask-error { color: #b91c1c; font-size: 0.875rem; margin: 0.25rem 0; }
+.answer-ask-error { color: var(--result-wrong-ink); font-size: 0.875rem; margin: 0.25rem 0; }
 
 /* Speaking (docs/STUDY_SESSION.md "Claude checks your speaking"): parts, the cleaner version, a tip's fix. */
 .answer-check-parts {
@@ -240,11 +247,11 @@ mark.answer-check-quote,
   font-size: 0.8125rem;
   font-weight: 700;
 }
-.answer-check-part-mark.good { background: #dcfce7; color: #15803d; }
-.answer-check-part-mark.warn { background: #fef3c7; color: #b45309; }
-.answer-check-part-mark.bad { background: #fee2e2; color: #b91c1c; }
+.answer-check-part-mark.good { background: color-mix(in srgb, var(--result-right) 16%, transparent); color: var(--result-right-ink); }
+.answer-check-part-mark.warn { background: color-mix(in srgb, var(--result-close) 16%, transparent); color: var(--result-close-ink); }
+.answer-check-part-mark.bad { background: color-mix(in srgb, var(--result-wrong) 16%, transparent); color: var(--result-wrong-ink); }
 .answer-check-part-label { font-weight: 600; color: var(--color-text, #1f2937); }
-.answer-check-part-missing { color: #b91c1c; font-weight: 600; font-size: 0.875rem; }
+.answer-check-part-missing { color: var(--result-wrong-ink); font-weight: 600; font-size: 0.875rem; }
 .answer-check-part-note { color: var(--color-text-light, #4b5563); font-size: 0.875rem; }
 .answer-check-cleaner-label {
   font-size: 0.75rem;
@@ -255,8 +262,8 @@ mark.answer-check-quote,
 }
 .answer-check-fix-line.speaking { font-size: 1.0625rem; line-height: 1.6; }
 .answer-check-tip-fix { margin-top: 0.125rem; }
-.answer-check-tip-arrow { color: #15803d; font-weight: 700; }
-.answer-check-tip-fix-hanzi { font-size: 1.0625rem; color: #15803d; font-weight: 600; }
+.answer-check-tip-arrow { color: var(--result-right-ink); font-weight: 700; }
+.answer-check-tip-fix-hanzi { font-size: 1.0625rem; color: var(--result-right-ink); font-weight: 600; }
 
 /* The speaking take: live words while recording, then "🎤 You said". */
 .speaking-live {
@@ -272,7 +279,7 @@ mark.answer-check-quote,
   min-height: 44px;
   border: 1px solid #fca5a5;
   background: #fef2f2;
-  color: #b91c1c;
+  color: var(--result-wrong-ink);
   border-radius: 10px;
   padding: 0.5rem 0.75rem;
   font-size: 0.9375rem;

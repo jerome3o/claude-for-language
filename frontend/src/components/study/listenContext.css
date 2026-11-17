@@ -37,7 +37,7 @@
 }
 
 .listen-row--played {
-  border-color: color-mix(in srgb, var(--color-success, #16a34a) 45%, var(--color-border));
+  border-color: color-mix(in srgb, var(--result-right) 45%, var(--color-border));
 }
 
 .listen-row-line {
@@ -100,7 +100,7 @@
 }
 
 .listen-row-check {
-  color: var(--color-success, #16a34a);
+  color: var(--result-right-ink);
   font-size: 1rem;
   font-weight: 700;
 }

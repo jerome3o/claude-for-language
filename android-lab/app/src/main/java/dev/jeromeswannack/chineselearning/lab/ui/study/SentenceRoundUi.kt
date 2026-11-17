@@ -461,7 +461,7 @@ fun SentenceRoundPage(
                     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                         Text(
                             c,
-                            Modifier.scale(pop.value).clip(RoundedCornerShape(50)).background(Palette.Good.copy(alpha = 0.16f))
+                            Modifier.scale(pop.value).clip(RoundedCornerShape(50)).background(ResultColors.chip(dev.jeromeswannack.chineselearning.lab.core.ResultState.RIGHT))
                                 .padding(horizontal = 14.dp, vertical = 6.dp).semantics { liveRegion = LiveRegionMode.Polite }.testTag(SentenceRoundTags.CHEER),
                             color = Lab.colors.ink, fontWeight = FontWeight.Bold, fontSize = 15.sp,
                         )
@@ -475,6 +475,7 @@ fun SentenceRoundPage(
                             active = activeListen == ex.id,
                             heard = ex.id in heardListen,
                             isRight = ex.id in right,
+                            roundDone = progress.done && lastRight == ex.id,
                             take = listenTakes[ex.id],
                             playingKey = playingKey,
                             micBusy = practise.listening || practise.finishing,
@@ -496,6 +497,7 @@ fun SentenceRoundPage(
                     RoundExerciseCard(
                         index, ex, row.copy(key = ex.id), ex.id in right, practise, playingKey, onPlay,
                         difference = differenceOf(ex), held = heldId == ex.id, onSpeak = onSpeak,
+                        roundDone = progress.done && lastRight == ex.id,
                         englishToggled = english[ex.id],
                         onToggleEnglish = { shown -> english[ex.id] = !shown },
                         englishText = row.translation?.takeIf { it.isNotBlank() } ?: fetched[ex.key],
@@ -590,10 +592,11 @@ private fun RoundCounter(progress: SentenceRound.Progress) {
     ) {
         repeat(progress.needed) { i ->
             val on = i < progress.got
+            val right = ResultColors.tone(dev.jeromeswannack.chineselearning.lab.core.ResultState.RIGHT)
             Box(
                 Modifier.size(24.dp).clip(CircleShape)
-                    .background(if (on) Palette.Good else Color.Transparent)
-                    .border(2.dp, if (on) Palette.Good else Lab.colors.cardBorder, CircleShape),
+                    .background(if (on) right else Color.Transparent)
+                    .border(2.dp, if (on) right else Lab.colors.cardBorder, CircleShape),
                 contentAlignment = Alignment.Center,
             ) { if (on) Text("✓", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold) }
         }
@@ -636,6 +639,8 @@ private fun RoundExerciseCard(
     onSelfCheck: (said: Boolean) -> Unit = {},
     /** 🔁 Try again after "Not quite" (offline listening round): the Chinese hides again. */
     onSelfRetry: () -> Unit = {},
+    /** This right made the round done ("2 / 2"): the slightly bigger "right" moment (core RightMoment). */
+    roundDone: Boolean = false,
 ) {
     val take = practise.takes[ex.id]
     // Claude's check whole: "You said" vs the model answer carries the Chinese, its pinyin and ▶ — unless it
@@ -657,16 +662,25 @@ private fun RoundExerciseCard(
     LaunchedEffect(readEnglishMissing) { if (readEnglishMissing) onNeedEnglish() }
     // Not a box (Jerome, Nov 2026): no outline — the state colours the small number mark; a hairline separates exercises.
     val divider = Lab.colors.cardBorder
+    // A judged exercise wears the one result surface (core ResultState; ResultStateUi) — the same light outline + faint
+    // tint for ✓ / ≈ / ✗, only the colour differs (before: ✓ Good, ≈ Gold, ✗ an ORANGE Hard — three systems).
     val border = when (status) {
-        "right" -> Palette.Good
-        "close" -> Palette.Gold
-        "wrong" -> Palette.Hard
+        "right", "close", "wrong" -> ResultColors.tone(status)
         else -> if (busy) Palette.Again else Lab.colors.cardBorder
     }
     Column(
         Modifier.fillMaxWidth()
             .pointerInput(ex.id) { detectTapGestures(onLongPress = { onMore() }) }
-            .drawBehind { drawLine(divider, androidx.compose.ui.geometry.Offset(0f, size.height), androidx.compose.ui.geometry.Offset(size.width, size.height), 0.5.dp.toPx()) }
+            .then(
+                if (status == "right" || status == "close" || status == "wrong") {
+                    Modifier.padding(vertical = 4.dp)
+                        .then(if (status == "right") Modifier.rightMoment(dev.jeromeswannack.chineselearning.lab.core.RightMoment.ROUND_EXERCISE, key = "round-${ex.id}", roundDone = roundDone) else Modifier)
+                        .resultSurface(status)
+                        .padding(horizontal = 8.dp)
+                } else {
+                    Modifier.drawBehind { drawLine(divider, androidx.compose.ui.geometry.Offset(0f, size.height), androidx.compose.ui.geometry.Offset(size.width, size.height), 0.5.dp.toPx()) }
+                },
+            )
             .padding(vertical = 8.dp)
             .animateContentSize()
             .testTag("${SentenceRoundTags.EXERCISE}-$index-${ex.mode}-${status ?: "open"}${if (held) "-held" else ""}"),
@@ -675,9 +689,9 @@ private fun RoundExerciseCard(
             Box(
                 Modifier.size(24.dp).clip(CircleShape).background(if (border == Lab.colors.cardBorder) Lab.colors.faint else border),
                 contentAlignment = Alignment.Center,
-            ) { Text(if (status == "right") "✓" else "${index + 1}", color = if (border == Lab.colors.cardBorder) Lab.colors.ink else Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+            ) { Text(if (status == "right") "✓" else "${index + 1}", color = if (border == Lab.colors.cardBorder) Lab.colors.ink else if (status == "close") Color(0xFF1F2937) else Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
             Text(SentenceRound.PROMPT[ex.mode].orEmpty(), Modifier.weight(1f), color = Lab.colors.muted, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-            status?.let { Text(SentenceRound.RESULT[it].orEmpty(), color = Lab.colors.ink, fontSize = 13.sp, fontWeight = FontWeight.Bold) }
+            status?.let { Text(SentenceRound.RESULT[it].orEmpty(), color = ResultColors.ink(it), fontSize = 13.sp, fontWeight = FontWeight.Bold) }
             Box(
                 Modifier.size(width = 44.dp, height = 32.dp).bouncyClickable(true, 0.9f, role = Role.Button, onClick = onMore)
                     .semantics { contentDescription = "More: ${SentenceHistory.HIDE_TITLE}" }.testTag(SentenceRoundTags.MORE),

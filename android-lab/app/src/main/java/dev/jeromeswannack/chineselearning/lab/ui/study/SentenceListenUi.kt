@@ -44,7 +44,6 @@ import dev.jeromeswannack.chineselearning.lab.ui.kit.SecondaryPill
 import dev.jeromeswannack.chineselearning.lab.ui.kit.VoiceTextField
 import dev.jeromeswannack.chineselearning.lab.ui.kit.bouncyClickable
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
-import dev.jeromeswannack.chineselearning.lab.ui.theme.Palette
 
 /** Test tags of a listen exercise (the web's `sentence-listen-*` test ids). */
 object SentenceListenTags {
@@ -104,6 +103,8 @@ fun ListenExerciseCard(
     /** He has tapped to hear it (until then: one big ▶ Tap to listen — the clip never plays by itself). */
     heard: Boolean = true,
     isRight: Boolean,
+    /** This right made the round done ("2 / 2"): the slightly bigger "right" moment. */
+    roundDone: Boolean = false,
     take: ListenTake?,
     playingKey: String?,
     /** The round's 🎤 (a read / translate take) is on: the box waits. */
@@ -121,17 +122,27 @@ fun ListenExerciseCard(
     val answered = take != null
     // Not a box (Jerome, Nov 2026): no outline — the state colours the small number mark; a hairline separates exercises.
     val divider = Lab.colors.cardBorder
+    // A judged exercise wears the one result surface (core ResultState; ResultStateUi) — the same light outline + faint
+    // tint for ✓ / ≈ / ✗, only the colour differs (before: ✓ Good, ≈ Gold, ✗ an ORANGE Hard — three systems).
     val border = when (status) {
-        "right" -> Palette.Good
-        "close" -> Palette.Gold
-        "wrong" -> Palette.Hard
-        else -> if (active && !answered) Palette.Gold else Lab.colors.cardBorder
+        "right", "close", "wrong" -> ResultColors.tone(status)
+        // Its turn (not a result): the app's accent, never a result colour.
+        else -> if (active && !answered) Lab.colors.accent else Lab.colors.cardBorder
     }
     val playing = playingKey != null && playingKey == row.audioUrl
     Column(
         Modifier.fillMaxWidth()
             .pointerInput(ex.id) { detectTapGestures(onLongPress = { onMore() }) }
-            .drawBehind { drawLine(divider, androidx.compose.ui.geometry.Offset(0f, size.height), androidx.compose.ui.geometry.Offset(size.width, size.height), 0.5.dp.toPx()) }
+            .then(
+                if (status == "right" || status == "close" || status == "wrong") {
+                    Modifier.padding(vertical = 4.dp)
+                        .then(if (status == "right") Modifier.rightMoment(dev.jeromeswannack.chineselearning.lab.core.RightMoment.ROUND_EXERCISE, key = "round-${ex.id}", roundDone = roundDone) else Modifier)
+                        .resultSurface(status)
+                        .padding(horizontal = 8.dp)
+                } else {
+                    Modifier.drawBehind { drawLine(divider, androidx.compose.ui.geometry.Offset(0f, size.height), androidx.compose.ui.geometry.Offset(size.width, size.height), 0.5.dp.toPx()) }
+                },
+            )
             .padding(vertical = 8.dp)
             .animateContentSize()
             .testTag("${SentenceRoundTags.EXERCISE}-$index-${ex.mode}-${status ?: "open"}"),
@@ -140,9 +151,9 @@ fun ListenExerciseCard(
             Box(
                 Modifier.size(24.dp).clip(CircleShape).background(if (border == Lab.colors.cardBorder) Lab.colors.faint else border),
                 contentAlignment = Alignment.Center,
-            ) { Text(if (status == "right") "✓" else "${index + 1}", color = if (border == Lab.colors.cardBorder) Lab.colors.ink else Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+            ) { Text(if (status == "right") "✓" else "${index + 1}", color = if (border == Lab.colors.cardBorder) Lab.colors.ink else if (status == "close") Color(0xFF1F2937) else Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
             Text(SentenceRound.PROMPT[SentenceRound.LISTEN].orEmpty(), Modifier.weight(1f), color = Lab.colors.muted, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-            status?.let { Text(SentenceRound.RESULT[it].orEmpty(), color = Lab.colors.ink, fontSize = 13.sp, fontWeight = FontWeight.Bold) }
+            status?.let { Text(SentenceRound.RESULT[it].orEmpty(), color = ResultColors.ink(it), fontSize = 13.sp, fontWeight = FontWeight.Bold) }
             Box(
                 Modifier.size(width = 44.dp, height = 32.dp).bouncyClickable(true, 0.9f, role = Role.Button, onClick = onMore)
                     .semantics { contentDescription = "More: ${SentenceHistory.HIDE_TITLE}" }.testTag(SentenceRoundTags.MORE),

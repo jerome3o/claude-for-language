@@ -52,8 +52,8 @@
   transition: background-color 0.25s, border-color 0.25s, transform 0.25s;
 }
 .sentence-round-dot.is-on {
-  background-color: var(--color-success);
-  border-color: var(--color-success);
+  background-color: var(--result-right);
+  border-color: var(--result-right);
   animation: sentence-round-pop 0.45s ease-out;
 }
 .sentence-round-count {
@@ -72,7 +72,7 @@
   align-self: center;
   padding: 0.4rem 0.9rem;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--color-success) 16%, transparent);
+  background: color-mix(in srgb, var(--result-right) 16%, transparent);
   color: var(--color-text);
   font-weight: 700;
   animation: sentence-round-pop 0.5s ease-out;

@@ -344,7 +344,14 @@ fun SentencePractiseOutcome(
     val view = if (!full) null else dev.jeromeswannack.chineselearning.lab.core.AnswerDifference.roundTakeView(
         t.mode, t.take.practised.said, row.hanzi, t.take.practised.result.state, (claude as? SentenceClaude.Done)?.check?.verdict,
     )
-    Column(Modifier.fillMaxWidth().padding(top = 6.dp).testTag("${SentencePractiseTags.RESULT}-$result"), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    // A sentence row's take said right (not the round's — its exercise carries the moment): the "right" moment.
+    val moment = !full && result == "right"
+    Column(
+        Modifier.fillMaxWidth().padding(top = 6.dp)
+            .then(if (moment) Modifier.rightMoment(dev.jeromeswannack.chineselearning.lab.core.RightMoment.SENTENCE_ROW, key = "row-${row.key}-${t.take.practised.said}") else Modifier)
+            .testTag("${SentencePractiseTags.RESULT}-$result"),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
         if (claude is SentenceClaude.Done && full) {
             Column(Modifier.testTag(SentencePractiseTags.VERDICT)) {
                 val verdict = claude.check.verdict

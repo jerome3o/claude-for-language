@@ -2294,6 +2294,75 @@ Web: `index.css` (`.study-page-fullscreen`, `.study-fullscreen`, `.sentence-set-
 `ui/study/CardStage.kt`, `Sentences.kt` (`SentenceRowView`), `SentenceRoundUi.kt`, `SentenceListenUi.kt`, `HardModeUi.kt`,
 `YouSaidBox.kt`, `CardExtrasUi.kt` (`StudyActionRow`).
 
+
+**Second round (Nov 2026, "mostly an improvement")** — "it's how you use the space that's important … borders close to
+the edge of the screen and then using the white space to emphasise the important things":
+
+- **The standard minimum gap** (web `--space-gap-min` = 8px, Lab `Spacing.gapMin` = 8dp): the frame's side gutter (was
+  2px / 4dp — "probably too thin"), the air between the frame and anything outside it (the session bar, the footer, the
+  ratings, the multiple-choice grid / Submit) and the least space between stacked controls. **Nothing touches or
+  overlaps the frame** — the controls under the card always start a gap below it, and when there isn't room the card's
+  content scrolls (Lab `CardFrameGapTest`: the grid's top ≥ the frame's bottom + the gap; web `study-multiple-choice`
+  checks the bounding boxes).
+- **Room above the big hanzi** on the answer side and a scrolling question (web `clamp(1.75rem, 7dvh, 4rem)`, Lab 36dp):
+  the word is the focal point. A centred question stays centred.
+- **No big ▶ pinned to the side of "You said"**: it was his own take. "▶ Play my recording" is in the card's ⋯ (both
+  apps, the same `study.you_said_play` event); "You said ✓ Match" stays, centred. No round control sits against a screen
+  edge on any card side.
+- **Ask Claude · Edit card · ⋯ are light outlined buttons**: 1px muted border, small radius, no fill; the two halves equal,
+  ⋯ a 44px square of the same height; the gap between them the standard one. The ratings are unchanged.
+- **The example sentences get ONE light outline again** ("it's kind of confusing" without): one 1px muted, 10px-radius
+  box around the header and the rows — the only box inside the frame. The rows stay unboxed with hairlines; the fun fact
+  is plain text (the web's grey box went).
+- **One line per collapsed sentence row**: `[EN] Tap to reveal · From the card … [🎤] [▶]`, everything centred on that
+  line, about one touch target tall (it was two lines — "Tap to reveal" with a bare ▶ above, then EN / From the card
+  under it). The ▶ is the card's round play button (a 36px circle with a hairline, 44px target). Revealing grows the
+  row downward under the same first line (hanzi, pinyin, English); the tools and the row's marks come under an opened
+  row, at the text edge.
+- **The web's floating 💬 feedback button** sat over the Easy rating: it is hidden on the study card and "💬 Send
+  feedback" is in the card's ⋯ (`hidesFeedbackFab`). The dark circle with a rotate icon over **Again** in the Lab
+  screenshot is Android's own *rotate suggestion* (shown when the phone turns with auto-rotate off) — a system button
+  over every app, which the app can't move; it fades by itself or rotates the screen on a tap.
+
+Web: `index.css` (`--space-gap-min`, `.study-page-fullscreen`, `.sentence-set-head`), `pages/StudyPage.css`
+(`.study-action-row`, `.study-sentences .sentence-set`, `.study-card-main--back`), `components/SentenceSet.tsx`;
+Lab `ui/theme/Theme.kt` (`Spacing`), `ui/study/CardStage.kt`, `CardExtrasUi.kt`, `Sentences.kt` (`SentenceRowView`).
+
+### One look for every result (Nov 2026)
+
+Jerome, on the card 测试: "you've kept the orange border in. This is not a problem … I do mind that you've made it
+inconsistent between green and yellow … Can you go through and unify all the UX". Every judged result now has ONE state
+system (`shared/study/resultState.ts`, Lab core `ResultState` in `RightMoment.kt`, parity-tested `resultStates`):
+
+| State | Icon | Words that map to it |
+|---|---|---|
+| right | ✓ | match · exact · correct · acceptable · equivalent · alternative · sounds right … |
+| close | ≈ | contains the answer · close / tones off · almost · nearly · **needs_work** (sentence_making) |
+| wrong | ✗ | didn't match · wrong · incorrect · miss |
+| pending | … | checking · transcribing · anything unknown |
+
+Each state is ONE colour token (web `--result-right|close|wrong|pending` + `-ink`, both themes; Lab `ResultColors`) and
+ONE icon, and every state wears the SAME surface, differing only by colour: a light 1px outline in the state's colour
+(35 %) and a faint tint of it (8 %), 10px corners (`RESULT_SURFACE`; web `.result-surface`, Lab `Modifier.resultSurface`).
+Close is yellow, never orange (red / green colour-blind). The big hanzi of the card stays in normal ink — the result row
+carries the state. Result rows' ▶ / ✎ are one button: a 36px circle with a hairline in a 44px target. Pills are one style
+(the card's "Top 2,000" frequency pill lost its decal outline). Guard tests: `components/study/resultColors.test.ts` (no
+hard-coded success / amber / orange in the result stylesheets), Lab `ResultColorsGuardTest`.
+
+### A right answer you can see (Nov 2026)
+
+"When I get things right, it's not super obvious … some indication that things are green — but not as fluorescent as
+before. Mini confetti." ONE "right" moment (`shared/study/rightMoment.ts`, Lab core `RightMoment`, parity-tested
+`moments`) wherever a study-card answer is judged right — Hard mode's question (a read take, a typed / spoken answer,
+Claude's sentence check), each Sentence round exercise (listen exercises too), a 🎤 take on a sentence row, a typed or
+spoken answer judged right on the answer side, a read take that matched; the homework pass through the same card. The
+thing that was right wears the green result surface; a soft green wash flashes in over it and settles to that tint;
+its ✓ (the chip, the exercise's number, "✓ Right") is the mark; a SMALL confetti burst (a dozen pieces, ~0.7 s — the
+round's last right exercise, "2 / 2", 20 pieces / 0.85 s) flies from it; the StudyFeel haptic + sound play (web
+`navigator.vibrate`, Lab the Vibrator + the view's CONFIRM haptic). Small each time so a run of right answers isn't
+noisy; once per showing (Claude agreeing after Hard mode celebrated adds only the tint). Reduce motion: no confetti, no
+wash animation. Web `components/study/RightMoment.tsx`, Lab `ui/study/RightMomentUi.kt` (`Modifier.rightMoment`).
+
 ### The gate — Good / Easy wait (greyed) for two sentences (part of Hard mode)
 
 Hard mode above (Settings → Study → 🎯 Hard mode / the header chip; was the switch "Sentence round before the answer
