@@ -2,7 +2,7 @@
  * ＋ Add tab → "🎯 Mini lesson" (docs/ADD_TAB.md): the learner says what a lesson should practise and
  * Claude writes it — the library's lesson writer (`generateLessonSpec`, services/lesson-editor.ts) —
  * into his OWN Mini Lessons (`createCustomLessonFromSpec`: validated, pinyin-checked, illustrations
- * queued). One `lesson_requests` row per request (migration 0152), run on coach-reply-queue
+ * queued). One `lesson_requests` row per request (migration 0153), run on coach-reply-queue
  * (`{ kind: 'lesson_request', jobId }`; inline in E2E), so the page can say "✓ Making your mini
  * lesson…" and then "Open ›". Nothing is sent to anyone.
  */

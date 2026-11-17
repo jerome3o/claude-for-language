@@ -73,9 +73,9 @@ describe('deriveNavRole', () => {
 });
 
 describe('tabsFor', () => {
-  it('student: Study · Chats · Claude · Progress · More (no Tutor tab — the tutor is in Chats)', () => {
+  it('student: Study · Chats · Add · Progress · More (no Tutor tab — the tutor is in Chats)', () => {
     expect(tabsFor({ hasStudents: false, isTutorOnly: false }).map((t) => t.label))
-      .toEqual(['Study', 'Chats', 'Claude', 'Progress', 'More']);
+      .toEqual(['Study', 'Chats', 'Add', 'Progress', 'More']);
   });
 
   it('the learner tab list is a copy (not shared state)', () => {

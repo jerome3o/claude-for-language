@@ -279,7 +279,21 @@ describe('ChatsPage — the learner', () => {
     await waitFor(() => location.startsWith('/chats/claude/'), 'the thread');
     expect(api.createClaudeThread).toHaveBeenCalledWith(expect.objectContaining({ context: { kind: 'general' }, intent: 'check', text: '我昨天去了商店买东西了' }));
     expect(location).toBe('/chats/claude/srv-1?source=chats');
-    expect(track).toHaveBeenCalledWith('chats.compose_send', { intent: 'check', offline: false, spoken: false });
+    expect(track).toHaveBeenCalledWith('chats.compose_send', { intent: 'check', offline: false, spoken: false, chip: false });
+  });
+
+  it('the box carries the suggestion chips (the old ✦ Claude tab\'s); a chip starts a thread with its question', async () => {
+    api.createClaudeThread.mockImplementation(async (body: { client_id: string; intent: string; text: string }) => ({
+      thread: thread('srv-2', { client_id: body.client_id, first_intent: body.intent, title: body.text }),
+      messages: [],
+      server_time: new Date().toISOString(),
+    }));
+    await render();
+    expect(q('chats-composer-chips')).not.toBeNull();
+    await act(async () => q('chats-chip-quiz')!.click());
+    await waitFor(() => location.startsWith('/chats/claude/'), 'the thread');
+    expect(api.createClaudeThread).toHaveBeenCalledWith(expect.objectContaining({ context: { kind: 'general' }, intent: 'ask', text: '用我学过的词考考我，一次问一个问题。' }));
+    expect(track).toHaveBeenCalledWith('chats.compose_send', { intent: 'ask', offline: false, spoken: false, chip: true });
   });
 
   it('the box: English offers Translate; Enter / Ask sends an Ask', async () => {
@@ -311,7 +325,7 @@ describe('ChatsPage — the learner', () => {
     await waitFor(() => location.startsWith('/chats/claude/'), 'the queued thread');
     expect(api.createClaudeThread).not.toHaveBeenCalled();
     expect(await db.claudeOutbox.count()).toBe(1);
-    expect(track).toHaveBeenCalledWith('chats.compose_send', { intent: 'ask', offline: true, spoken: false });
+    expect(track).toHaveBeenCalledWith('chats.compose_send', { intent: 'ask', offline: true, spoken: false, chip: false });
   });
 });
 
@@ -331,6 +345,8 @@ describe('ChatsPage — the tutor', () => {
     expect(q('chats-divider')).not.toBeNull();
     expect(qa('chats-row-kind').map((el) => el.textContent)).toEqual([', Student', ', Student']);
     expect(q('chats-filter-all')).toBeNull();
+    // The learner's suggestion chips are not in her compact box.
+    expect(q('chats-composer-chips')).toBeNull();
 
     const box = host.querySelector('[data-testid="claude-chat-voice-text"]') as HTMLTextAreaElement;
     typeInto(box, '这个句子对吗');

@@ -101,10 +101,10 @@ object AddTags {
 }
 
 private val METHODS = listOf(
-    Triple(AddMethod.PHOTO, "📷", "Photo" to "Snap Chinese text"),
-    Triple(AddMethod.TYPE, "✏️", "Type it" to "Hanzi, pinyin or English"),
+    Triple(AddMethod.PHOTO, "📷", "Take a photo" to "Chinese on a screen, a sign, a page"),
+    Triple(AddMethod.TYPE, "✏️", "Type it" to "Hanzi, pinyin, English"),
     Triple(AddMethod.SAY_ZH, "🎤", "Say it" to "In Chinese"),
-    Triple(AddMethod.SAY_EN, "🗣", "In English" to "Say it in English"),
+    Triple(AddMethod.SAY_EN, "🗣", "In English" to "Say the English"),
 )
 
 /**
@@ -166,17 +166,24 @@ private fun WordCard(ui: AddUi, actions: AddActions, voicePreview: VoiceDictatio
 @Composable
 private fun MethodButton(m: Triple<String, String, Pair<String, String>>, on: Boolean, modifier: Modifier, big: Boolean = false, onClick: () -> Unit) {
     val shape = RoundedCornerShape(12.dp)
-    Row(
-        modifier.heightIn(min = if (big) 64.dp else 72.dp).clip(shape).background(Lab.colors.background)
-            .border(if (on || big) 1.5.dp else 1.dp, if (on || big) Lab.colors.accent else Lab.colors.cardBorder, shape)
-            .bouncyClickable(onClick = onClick).padding(horizontal = 12.dp, vertical = 8.dp).testTag(AddTags.method(m.first)),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Text(m.second, fontSize = if (big) 26.sp else 20.sp)
-        Column {
-            Text(m.third.first, fontWeight = FontWeight.SemiBold, fontSize = if (big) 17.sp else 14.sp, color = Lab.colors.ink, maxLines = 1)
-            Text(m.third.second, fontSize = 12.sp, color = Lab.colors.muted, maxLines = 2)
+    val box = modifier.heightIn(min = if (big) 64.dp else 84.dp).clip(shape).background(Lab.colors.background)
+        .border(if (on || big) 1.5.dp else 1.dp, if (on || big) Lab.colors.accent else Lab.colors.cardBorder, shape)
+        .bouncyClickable(onClick = onClick).testTag(AddTags.method(m.first))
+    if (big) {
+        // 📷: icon beside the words, the whole width.
+        Row(box.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(m.second, fontSize = 26.sp)
+            Column {
+                Text(m.third.first, fontWeight = FontWeight.SemiBold, fontSize = 17.sp, color = Lab.colors.ink, maxLines = 1)
+                Text(m.third.second, fontSize = 13.sp, color = Lab.colors.muted, maxLines = 2)
+            }
+        }
+    } else {
+        // ✏️ · 🎤 · 🗣: three small squares.
+        Column(box.padding(horizontal = 6.dp, vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+            Text(m.second, fontSize = 20.sp)
+            Text(m.third.first, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = Lab.colors.ink, maxLines = 1)
+            Text(m.third.second, fontSize = 11.sp, color = Lab.colors.muted, maxLines = 2, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
         }
     }
 }

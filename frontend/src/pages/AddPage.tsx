@@ -581,10 +581,10 @@ export function AddPage() {
   }, [pendingKey, isOnline, pollTick]);
 
   const methods: { id: WordMethod; icon: string; label: string; hint: string }[] = [
-    { id: 'photo', icon: '📷', label: 'Photo', hint: 'Snap Chinese text' },
-    { id: 'type', icon: '✏️', label: 'Type it', hint: 'Hanzi, pinyin or English' },
+    { id: 'photo', icon: '📷', label: 'Take a photo', hint: 'Chinese on a screen, a sign, a page' },
+    { id: 'type', icon: '✏️', label: 'Type it', hint: 'Hanzi, pinyin, English' },
     { id: 'say_zh', icon: '🎤', label: 'Say it', hint: 'In Chinese' },
-    { id: 'say_en', icon: '🗣', label: 'In English', hint: 'Say it in English' },
+    { id: 'say_en', icon: '🗣', label: 'In English', hint: 'Say the English' },
   ];
 
   return (

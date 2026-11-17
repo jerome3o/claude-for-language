@@ -30,8 +30,25 @@
 
 .add-methods {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.5rem;
+}
+
+/* Type · Say · English: three small squares under the photo button. */
+.add-method:not(.add-method--photo) {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 0.15rem;
+  min-height: 84px;
+  padding: 0.5rem 0.35rem;
+}
+
+.add-method:not(.add-method--photo) .add-method-hint {
+  font-size: 0.72rem;
+  line-height: 1.2;
 }
 
 .add-method {

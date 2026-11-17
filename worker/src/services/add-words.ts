@@ -111,14 +111,14 @@ export async function readChineseFromPhoto(
 
 /**
  * The E2E stand-in: a busy laptop-screen photo — a tab title, a button, the subtitle in the middle.
- * (The synthetic fixture e2e/fixtures/subtitle-photo.png renders the same scene.)
+ * (The synthetic fixture e2e/tests/fixtures/images/subtitle-photo.png is the same scene.)
  */
 export function fakeOcrLines(): OcrLine[] {
   return orderOcrLines([
-    { text: '新标签页 - Google Chrome', box: [10, 20, 40, 320], main: false },
-    { text: 'Share screen', box: [940, 420, 975, 580], main: false },
-    { text: '太体面了', box: [690, 330, 790, 670], main: true },
-    { text: '视频通话 · Video call', box: [50, 20, 80, 260], main: false },
+    { text: '视频通话 - Google Chrome', box: [10, 0, 70, 240], main: false },
+    { text: 'Share screen', box: [900, 420, 945, 560], main: false },
+    { text: '太体面了', box: [680, 335, 815, 690], main: true },
+    { text: 'Minghui', box: [600, 45, 640, 120], main: false },
   ]);
 }
 
