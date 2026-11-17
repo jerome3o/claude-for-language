@@ -232,9 +232,15 @@ fun CardStage(
         mutableStateOf(if ((start.flipped || start.peeking) && typing && start.answer.isNotBlank()) checkAnswer(start.answer) else null)
     }
     var rated by remember(view.presentation) { mutableStateOf(false) }
-    var sheet by remember(view.presentation) { mutableStateOf<CardSheet?>(null) }
+    // Back from something a line under Claude's reply opened (a mini lesson, a card…; docs/CHAT.md "Tool
+    // lines you can tap"): saved with the screen, so the card comes back with its sheet open on that
+    // thread ("" = the card's usual thread). Cleared when the sheet is closed by hand.
+    var askReturn by androidx.compose.runtime.saveable.rememberSaveable(view.presentation) { mutableStateOf<String?>(null) }
+    var sheet by remember(view.presentation) { mutableStateOf<CardSheet?>(if (askReturn != null) CardSheet.Ask else null) }
     // Ask Claude = the card's Claude thread (CardClaudeSheet.kt): which thread, kept while the sheet is closed.
-    val claude = remember(view.presentation) { CardClaudeState(view.note.id) }
+    val claude = remember(view.presentation) {
+        CardClaudeState(view.note.id).also { s -> askReturn?.takeIf { it.isNotEmpty() }?.let { s.chosen = it } }
+    }
     var burst by remember { mutableIntStateOf(0) }
     val startedAt = remember(view.presentation) { System.currentTimeMillis() - start.elapsedMs }
     // Tell the session how the card stands, so leaving Study (the coach, Home, the app going
@@ -1138,7 +1144,14 @@ fun CardStage(
         CardSheet.OtherCards -> OtherCardsSheet(note.hanzi, ui.extras.otherCards ?: OtherCardsUi(), actions.otherCards, onDismiss = { sheet = null; actions.otherCards.close() })
         CardSheet.Edit -> EditCardSheet(note, ui.aiAvailable, actions.edit, onDismiss = { sheet = null })
         CardSheet.Write -> dev.jeromeswannack.chineselearning.lab.ui.strokes.WritingSheet(note.hanzi, onClose = { sheet = null }, pinyin = note.pinyin, english = note.english)
-        CardSheet.Ask -> CardClaudeSheet(view, typed, claude, ui.extras.ask.cardDeleted, actions.claude, onDismiss = { sheet = null })
+        CardSheet.Ask -> CardClaudeSheet(
+            view, typed, claude, ui.extras.ask.cardDeleted, actions.claude,
+            onDismiss = { sheet = null; askReturn = null },
+            onOpenResult = { thread, link ->
+                askReturn = thread ?: ""
+                actions.claude.openPath(link.path)
+            },
+        )
         is CardSheet.WriteText -> dev.jeromeswannack.chineselearning.lab.ui.strokes.WritingSheet(s.text, onClose = { sheet = null })
         is CardSheet.Character -> dev.jeromeswannack.chineselearning.lab.ui.chars.CharacterSheet(
             char = s.char,
