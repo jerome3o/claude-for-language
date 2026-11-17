@@ -103,6 +103,7 @@ class SentenceCheckParityTest {
             assertEquals(want["icon"].str, v.icon, ctx)
             assertEquals(want["tone"].str, v.tone, ctx)
             assertEquals(want["label"].str, v.label, ctx)
+            assertEquals(want["state"].str, v.state, ctx)
             assertEquals(want["headline"].str, v.headline, ctx)
             assertEquals(want["reason"].str, v.reason, ctx)
             assertEquals(want["more"].str, v.more, ctx)

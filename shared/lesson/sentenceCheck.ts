@@ -35,6 +35,15 @@ export const SENTENCE_FIX_CACHE_TYPE = 'sentence_making_fix';
 export type SentenceGrade = 'right' | 'needs_work' | 'wrong';
 export const SENTENCE_GRADES: readonly SentenceGrade[] = ['right', 'needs_work', 'wrong'];
 export type SentenceTone = 'good' | 'warn' | 'bad';
+/**
+ * The judged-result state every "how did I do" surface shares (right ✓ · close ≈ · wrong ✕ — the slim answer diff's
+ * `AnswerDiffTone`, and the shared result-state component to come): needs_work IS close, the same ≈ and colour as an
+ * answer check's "almost". The apps colour a grade by this, never by a style of its own.
+ */
+export type SentenceResultState = 'right' | 'close' | 'wrong';
+export function sentenceResultState(grade: SentenceGrade): SentenceResultState {
+  return grade === 'right' ? 'right' : grade === 'needs_work' ? 'close' : 'wrong';
+}
 
 /** Claude's feedback on a sentence the learner made (stored in the attempt as `answer.feedback`). */
 export interface SentenceFeedback {
@@ -91,7 +100,7 @@ export function sentenceGradeChip(grade: SentenceGrade): { icon: string; tone: S
   switch (grade) {
     case 'right': return { icon: '✓', tone: 'good', label: 'Right' };
     case 'needs_work': return { icon: '≈', tone: 'warn', label: 'Nearly' };
-    default: return { icon: '✗', tone: 'bad', label: 'Not quite' };
+    default: return { icon: '✕', tone: 'bad', label: 'Not quite' };
   }
 }
 
@@ -198,6 +207,8 @@ export interface SentenceCheckView {
   grade: SentenceGrade;
   icon: string;
   tone: SentenceTone;
+  /** right · close · wrong — what the apps colour it by (needs_work = close). */
+  state: SentenceResultState;
   label: string;
   /** The ONE headline line. */
   headline: string;
@@ -254,6 +265,7 @@ export function sentenceCheckView(f: SentenceFeedback, words: readonly string[])
     grade,
     icon: chip.icon,
     tone: chip.tone,
+    state: sentenceResultState(grade),
     label: chip.label,
     headline: headLine,
     reason: same(reasonLine, headLine) ? '' : reasonLine,

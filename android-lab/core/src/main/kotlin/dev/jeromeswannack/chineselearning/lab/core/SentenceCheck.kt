@@ -39,7 +39,14 @@ object SentenceCheck {
     fun chip(grade: String): Chip = when (grade) {
         "right" -> Chip("✓", "good", "Right")
         "needs_work" -> Chip("≈", "warn", "Nearly")
-        else -> Chip("✗", "bad", "Not quite")
+        else -> Chip("✕", "bad", "Not quite")
+    }
+
+    /** Port of sentenceResultState(): right · close · wrong (needs_work = close, the same ≈ as "almost"). */
+    fun resultState(grade: String): String = when (grade) {
+        "right" -> "right"
+        "needs_work" -> "close"
+        else -> "wrong"
     }
 
     fun targetWordsPhrase(words: List<String>): String {
@@ -129,6 +136,8 @@ object SentenceCheck {
         val icon: String,
         val tone: String,
         val label: String,
+        /** right · close · wrong — what the app colours it by. */
+        val state: String,
         val headline: String,
         val reason: String,
         val more: String,
@@ -171,7 +180,7 @@ object SentenceCheck {
         pushMore(more0)
         val c = chip(grade)
         return View(
-            grade = grade, icon = c.icon, tone = c.tone, label = c.label,
+            grade = grade, icon = c.icon, tone = c.tone, label = c.label, state = resultState(grade),
             headline = headLine,
             reason = if (same(reasonLine, headLine)) "" else reasonLine,
             more = fuller.joinToString(" "),

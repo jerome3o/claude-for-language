@@ -25,6 +25,7 @@ import { AnswerDiff } from '../study/AnswerDiff';
 import { ConfettiBurst } from '../ConfettiBurst';
 import { LessonFeel, SayItAgain } from './LessonFeedback';
 import { spokenCheckAnswer } from '@shared/cards/answer';
+import '../study/AnswerDiff.css';
 import './SentenceCheck.css';
 
 type Speak = (text: string) => void;
@@ -40,7 +41,7 @@ export function SentenceVerdictLine({ feedback, words, testId = 'sentence-feedba
   const v = sentenceCheckView(feedback, words);
   const [more, setMore] = useState(false);
   return (
-    <div className={`sentence-verdict ${v.tone}${compact ? ' compact' : ''}`} data-testid={testId} data-grade={v.grade} role="status">
+    <div className={`sentence-verdict ${v.state}${compact ? ' compact' : ''}`} data-testid={testId} data-grade={v.grade} data-state={v.state} role="status">
       <p className="sentence-verdict-head">
         <span className="sentence-verdict-icon" aria-label={v.label}>{v.icon}</span>{' '}
         <span className="sentence-verdict-headline" data-testid={`${testId}-headline`}>{v.headline}</span>

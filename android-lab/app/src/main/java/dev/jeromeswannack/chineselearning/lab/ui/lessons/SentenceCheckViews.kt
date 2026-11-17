@@ -19,7 +19,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -58,21 +57,13 @@ object SentenceCheckTags {
     const val EXAMPLE_TOGGLE = "sentence-example-toggle"
 }
 
-private val Warn = Color(0xFFD97706)
-
-private fun toneColor(tone: String): Color = when (tone) {
-    "good" -> Palette.Good
-    "warn" -> Warn
-    else -> Palette.Again
-}
-
 /** The grade line: icon + headline in the grade's colour, the reason under it, More ▸ when there is more. */
 @Composable
 fun SentenceVerdictLine(f: SentenceFeedback, words: List<String>, tag: String = SentenceCheckTags.VERDICT, compact: Boolean = false) {
     val v = remember(f, words) { SentenceCheck.view(f, words) }
     var more by remember(f) { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth().testTag(tag).semantics { contentDescription = "${v.label}: ${v.headline}" }, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Text("${v.icon} ${v.headline}", Modifier.testTag("$tag-headline"), color = toneColor(v.tone), fontWeight = FontWeight.Bold, fontSize = if (compact) 15.sp else 17.sp)
+        Text("${v.icon} ${v.headline}", Modifier.testTag("$tag-headline"), color = dev.jeromeswannack.chineselearning.lab.ui.study.answerDiffToneInk(v.state), fontWeight = FontWeight.Bold, fontSize = if (compact) 15.sp else 17.sp)
         if (v.reason.isNotEmpty()) Text(v.reason, Modifier.testTag("$tag-reason"), color = Lab.colors.muted, fontSize = 14.sp)
         if (v.more.isNotEmpty()) {
             if (more) Text(v.more, Modifier.testTag("$tag-full"), color = Lab.colors.muted, fontSize = 14.sp)
