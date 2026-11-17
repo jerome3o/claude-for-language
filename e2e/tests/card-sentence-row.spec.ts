@@ -93,7 +93,7 @@ test('the card sentence is the note\'s first sentence row, end to end', async ({
   await expect(list).toBeVisible({ timeout: 15000 });
   const first = list.locator('.sentence-set-row').first();
   await expect(first.locator('.sentence-set-from-card')).toHaveText('From the card');
-  await first.locator('.sentence-set-reveal').click();
+  await first.locator('.sentence-set-hidden, .sentence-set-reveal').first().click();
   await expect(first.locator('.sentence-set-hanzi')).toHaveText(SECOND.hanzi);
   await first.scrollIntoViewIfNeeded();
   await shot(page, 'web-study-sentences');
@@ -111,7 +111,7 @@ test('the card sentence is the note\'s first sentence row, end to end', async ({
   await expect(field).toBeHidden({ timeout: 15000 });
   const row1 = list.locator('.sentence-set-row').first();
   await expect(row1.locator('.sentence-set-from-card')).toHaveText('From the card');
-  if (!(await row1.locator('.sentence-set-hanzi').isVisible().catch(() => false))) await row1.locator('.sentence-set-reveal').click();
+  if (!(await row1.locator('.sentence-set-hanzi').isVisible().catch(() => false))) await row1.locator('.sentence-set-hidden, .sentence-set-reveal').first().click();
   await expect(row1.locator('.sentence-set-hanzi')).toHaveText(THIRD);
   await expect(list.locator('.sentence-set-hanzi', { hasText: SECOND.hanzi })).toHaveCount(0);
   await row1.scrollIntoViewIfNeeded();
