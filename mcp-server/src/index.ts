@@ -8,7 +8,6 @@ import { pinyinFixesText, type PinyinFix } from '../../shared/pinyin/fixes';
 import { kindCondition, shapeFeatureRequestForMcp } from './tools/feedback.js';
 import { signMediaUrls } from './tools/media.js';
 import type { CustomLessonSpec } from '../../shared/lesson/types';
-import { accountStudyDay, inStudyDaySql, inStudyDaySqlParams, studyDaySql, type StudyDaySql } from '../../shared/study/studyDay';
 
 /** Soft spoiler-intro warnings appended to a lesson tool's reply (the lesson is saved anyway). */
 /** The API's automatic pinyin corrections, as a paragraph after the reply ('' when none). */
@@ -27,13 +26,6 @@ function introWarningText(spec: unknown): string {
 }
 import { createOAuthApp } from "./oauth/handler.js";
 import { providerCache } from "./oauth/provider.js";
-import {
-  registerAppTool,
-  registerAppResource,
-  RESOURCE_MIME_TYPE,
-} from "@modelcontextprotocol/ext-apps/server";
-import { STUDY_APP_HTML } from "./app-html.js";
-import { appServer } from "./tools/apps.js";
 
 import type { Env, Props } from './types.js';
 import { ApiClient, ApiError } from './api.js';
@@ -64,6 +56,9 @@ import { registerPinyinScanTools } from './tools/pinyin-scan.js';
 import { registerMaterialTools } from './tools/materials.js';
 import { registerPreparedActivityTools } from './tools/prepared-activities.js';
 import { registerTutorApps } from './tools/apps.js';
+import { registerStudyTools, type ApiStudyQueue } from './tools/study.js';
+import { MASTERED_CARD_SQL } from '../../shared/progress/cardSql';
+import { masteryLevel } from '../../shared/progress/mastery';
 
 interface Deck {
   id: string;
@@ -143,15 +138,6 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
 
   async init() {
     const userId = this.props!.userId;
-    // The user's "today" of study for SQL: their zone and "New day starts at" — never
-    // date('now'), the UTC date (shared/study/studyDay.ts studyDaySql).
-    const studyToday = async (): Promise<StudyDaySql> => {
-      const account = await this.env.DB.prepare('SELECT time_zone, day_rollover_hour FROM users WHERE id = ?')
-        .bind(userId).first<{ time_zone: string | null; day_rollover_hour: number | null }>().catch(() => null);
-      const now = Date.now();
-      return studyDaySql(accountStudyDay(account, now), now);
-    };
-
     // Every write to decks / notes / cards goes through the main API as this
     // user (the worker's content service owns card generation, tombstones,
     // TTS and the sentence-set queue). The legacy tools below and the tutor
@@ -170,7 +156,7 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
 
     this.server.tool(
       "list_decks",
-      "List all vocabulary decks with their stats and folder (folder_id + folder name; null = Unfiled). Pass folder_id to list one folder's decks ('unfiled' for decks in no folder).",
+      "List all vocabulary decks with their stats and folder (folder_id + folder name; null = Unfiled). Per deck: cards_due = that deck's study session today (reviews due + the new cards today's budget gives it — what pressing Study on it shows), reviews_due = its learning + review cards due today (no new cards), cards_mastered = Review cards with stability > 21 days. Pass folder_id to list one folder's decks ('unfiled' for decks in no folder).",
       {
         folder_id: z.string().optional().describe("Only this folder's decks (from list_folders), or 'unfiled'"),
       },
@@ -197,27 +183,27 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
             .map((d) => ({ ...d, folder_id: folderById.has(d.folder_id ?? '') ? d.folder_id : null, folder: folderName(d.folder_id) })),
         };
 
-        const today = await studyToday();
+        // Due = each deck's own session today from the API's study queue (reviews due + the new
+        // cards the daily budget gives that deck) — never "every NEW card".
+        const queue = await api.get<ApiStudyQueue>('/api/me/study-queue', { per_deck: 1 }).catch(() => null);
+        const dueByDeck = new Map((queue?.decks ?? []).map((d) => [d.deck_id, d]));
         const decksWithStats = await Promise.all(
           decks.results.map(async (deck) => {
-            const [noteCount, cardsDue, cardsMastered] = await Promise.all([
+            const [noteCount, cardsMastered] = await Promise.all([
               this.env.DB.prepare('SELECT COUNT(*) as count FROM notes WHERE deck_id = ?')
                 .bind(deck.id).first<{ count: number }>(),
               this.env.DB.prepare(
                 `SELECT COUNT(*) as count FROM cards c
                  JOIN notes n ON c.note_id = n.id
-                 WHERE n.deck_id = ? AND (c.next_review_at IS NULL OR c.next_review_at <= datetime('now')) AND NOT EXISTS (SELECT 1 FROM card_holds h WHERE h.card_id = c.id AND h.cleared_at IS NULL AND (h.kind = 'suspend' OR h.until > ?))`
-              ).bind(deck.id, today.key).first<{ count: number }>(),
-              this.env.DB.prepare(
-                `SELECT COUNT(*) as count FROM cards c
-                 JOIN notes n ON c.note_id = n.id
-                 WHERE n.deck_id = ? AND c.interval > 21`
+                 WHERE n.deck_id = ? AND ${MASTERED_CARD_SQL}`
               ).bind(deck.id).first<{ count: number }>(),
             ]);
+            const due = dueByDeck.get(deck.id);
             return {
               ...deck,
               note_count: noteCount?.count || 0,
-              cards_due: cardsDue?.count || 0,
+              cards_due: due?.due_today ?? null,
+              reviews_due: due?.reviews_due ?? null,
               cards_mastered: cardsMastered?.count || 0,
             };
           })
@@ -311,15 +297,20 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
           .bind(deck_id)
           .all();
 
+        // Levels = the deck page's (shared/progress/mastery.ts); due = this deck's session today.
+        const levels = { new: 0, learning: 0, familiar: 0, mastered: 0 };
+        for (const c of cards.results as Array<{ queue: number | null; stability: number | null }>) {
+          levels[masteryLevel(c.queue ?? 0, c.stability ?? 0)]++;
+        }
+        const queue = await api.get<ApiStudyQueue>('/api/me/study-queue', { deck_id }).catch(() => null);
         const stats = {
           total_cards: cards.results.length,
-          new_cards: cards.results.filter((c: any) => c.next_review_at === null).length,
-          learning: cards.results.filter((c: any) => c.next_review_at !== null && c.interval <= 1).length,
-          reviewing: cards.results.filter((c: any) => c.interval > 1 && c.interval <= 21).length,
-          mastered: cards.results.filter((c: any) => c.interval > 21).length,
-          due_now: cards.results.filter((c: any) =>
-            c.next_review_at === null || new Date(c.next_review_at) <= new Date()
-          ).length,
+          new_cards: levels.new,
+          learning: levels.learning,
+          familiar: levels.familiar,
+          mastered: levels.mastered,
+          due_today: queue?.due_today ?? null,
+          reviews_due: queue?.reviews_due ?? null,
         };
 
         const noteProgress: Record<string, any> = {};
@@ -334,7 +325,8 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
           }
           noteProgress[card.note_id].cards.push({
             card_type: card.card_type,
-            ease_factor: card.ease_factor,
+            level: masteryLevel(card.queue ?? 0, card.stability ?? 0),
+            stability: card.stability,
             interval: card.interval,
             repetitions: card.repetitions,
             next_review_at: card.next_review_at,
@@ -965,250 +957,8 @@ Optional \`unlock\` makes the lesson wait LOCKED (never offered, not even in tod
       }
     );
 
-    this.server.tool(
-      "set_card_familiarity",
-      "Set how familiar the user is with a note's cards. Use this to skip learning steps for cards the user already knows.",
-      {
-        note_id: z.string().describe("The note ID"),
-        familiarity: z.enum(['new', 'seen', 'familiar', 'well_known', 'mastered']).describe(
-          "Familiarity level: 'new' (start from scratch), 'seen' (1 day interval), 'familiar' (7 day interval), 'well_known' (30 day interval), 'mastered' (90 day interval)"
-        ),
-        card_types: z.array(z.enum(['hanzi_to_meaning', 'meaning_to_hanzi', 'audio_to_hanzi'])).optional().describe(
-          "Which card types to update. If not specified, updates all 3 card types."
-        ),
-      },
-      async ({ note_id, familiarity, card_types }) => {
-        const note = await this.env.DB
-          .prepare(`
-            SELECT n.* FROM notes n
-            JOIN decks d ON n.deck_id = d.id
-            WHERE n.id = ? AND d.user_id = ?
-          `)
-          .bind(note_id, userId)
-          .first<Note>();
-
-        if (!note) {
-          return {
-            content: [{ type: "text" as const, text: `Note not found: ${note_id}` }],
-            isError: true,
-          };
-        }
-
-        // Define familiarity presets
-        const presets: Record<string, { queue: number; interval: number; ease_factor: number; repetitions: number }> = {
-          new: { queue: 0, interval: 0, ease_factor: 2.5, repetitions: 0 },
-          seen: { queue: 2, interval: 1, ease_factor: 2.5, repetitions: 1 },
-          familiar: { queue: 2, interval: 7, ease_factor: 2.5, repetitions: 2 },
-          well_known: { queue: 2, interval: 30, ease_factor: 2.6, repetitions: 4 },
-          mastered: { queue: 2, interval: 90, ease_factor: 2.7, repetitions: 6 },
-        };
-
-        const preset = presets[familiarity];
-        const typesToUpdate = card_types || ['hanzi_to_meaning', 'meaning_to_hanzi', 'audio_to_hanzi'];
-
-        // Calculate next review date
-        const nextReview = preset.interval > 0 ? new Date() : null;
-        if (nextReview) {
-          nextReview.setDate(nextReview.getDate() + preset.interval);
-        }
-
-        for (const cardType of typesToUpdate) {
-          await this.env.DB
-            .prepare(`
-              UPDATE cards SET
-                queue = ?,
-                interval = ?,
-                ease_factor = ?,
-                repetitions = ?,
-                learning_step = 0,
-                next_review_at = ?,
-                due_timestamp = NULL
-              WHERE note_id = ? AND card_type = ?
-            `)
-            .bind(
-              preset.queue,
-              preset.interval,
-              preset.ease_factor,
-              preset.repetitions,
-              nextReview?.toISOString() || null,
-              note_id,
-              cardType
-            )
-            .run();
-        }
-
-        return {
-          content: [{
-            type: "text" as const,
-            text: `Set "${note.hanzi}" (${note.pinyin}) to ${familiarity} for ${typesToUpdate.length} card type(s). ${preset.interval > 0 ? `Next review in ${preset.interval} day(s).` : 'Will appear as new card.'}`,
-          }],
-        };
-      }
-    );
-
-    this.server.tool(
-      "update_card_settings",
-      "Update specific SRS settings for a card. Use for fine-grained control over scheduling.",
-      {
-        note_id: z.string().describe("The note ID"),
-        card_type: z.enum(['hanzi_to_meaning', 'meaning_to_hanzi', 'audio_to_hanzi']).describe("Which card type to update"),
-        ease_factor: z.number().optional().describe("Ease factor (e.g., 2.5). Higher = longer intervals."),
-        interval: z.number().optional().describe("Current interval in days"),
-        queue: z.enum(['new', 'learning', 'review', 'relearning']).optional().describe("Card queue/state"),
-        next_review_days: z.number().optional().describe("Days until next review (sets next_review_at)"),
-      },
-      async ({ note_id, card_type, ease_factor, interval, queue, next_review_days }) => {
-        const note = await this.env.DB
-          .prepare(`
-            SELECT n.* FROM notes n
-            JOIN decks d ON n.deck_id = d.id
-            WHERE n.id = ? AND d.user_id = ?
-          `)
-          .bind(note_id, userId)
-          .first<Note>();
-
-        if (!note) {
-          return {
-            content: [{ type: "text" as const, text: `Note not found: ${note_id}` }],
-            isError: true,
-          };
-        }
-
-        const updates: string[] = [];
-        const values: (string | number | null)[] = [];
-
-        if (ease_factor !== undefined) {
-          updates.push('ease_factor = ?');
-          values.push(ease_factor);
-        }
-        if (interval !== undefined) {
-          updates.push('interval = ?');
-          values.push(interval);
-        }
-        if (queue !== undefined) {
-          const queueMap: Record<string, number> = { new: 0, learning: 1, review: 2, relearning: 3 };
-          updates.push('queue = ?');
-          values.push(queueMap[queue]);
-          if (queue === 'new') {
-            updates.push('learning_step = 0');
-            updates.push('next_review_at = NULL');
-            updates.push('due_timestamp = NULL');
-          }
-        }
-        if (next_review_days !== undefined) {
-          const nextReview = new Date();
-          nextReview.setDate(nextReview.getDate() + next_review_days);
-          updates.push('next_review_at = ?');
-          values.push(nextReview.toISOString());
-          updates.push('due_timestamp = NULL');
-        }
-
-        if (updates.length === 0) {
-          return {
-            content: [{ type: "text" as const, text: "No updates provided" }],
-            isError: true,
-          };
-        }
-
-        values.push(note_id);
-        values.push(card_type);
-
-        await this.env.DB
-          .prepare(`UPDATE cards SET ${updates.join(', ')} WHERE note_id = ? AND card_type = ?`)
-          .bind(...values)
-          .run();
-
-        // Fetch updated card
-        const card = await this.env.DB
-          .prepare('SELECT * FROM cards WHERE note_id = ? AND card_type = ?')
-          .bind(note_id, card_type)
-          .first();
-
-        return {
-          content: [{
-            type: "text" as const,
-            text: `Updated ${card_type} card for "${note.hanzi}": ${JSON.stringify(card, null, 2)}`,
-          }],
-        };
-      }
-    );
-
-    this.server.tool(
-      "batch_set_familiarity",
-      "Set familiarity for multiple notes at once. Useful for marking a whole deck or set of words as already known.",
-      {
-        note_ids: z.array(z.string()).describe("Array of note IDs to update"),
-        familiarity: z.enum(['new', 'seen', 'familiar', 'well_known', 'mastered']).describe(
-          "Familiarity level to set for all notes"
-        ),
-      },
-      async ({ note_ids, familiarity }) => {
-        const presets: Record<string, { queue: number; interval: number; ease_factor: number; repetitions: number }> = {
-          new: { queue: 0, interval: 0, ease_factor: 2.5, repetitions: 0 },
-          seen: { queue: 2, interval: 1, ease_factor: 2.5, repetitions: 1 },
-          familiar: { queue: 2, interval: 7, ease_factor: 2.5, repetitions: 2 },
-          well_known: { queue: 2, interval: 30, ease_factor: 2.6, repetitions: 4 },
-          mastered: { queue: 2, interval: 90, ease_factor: 2.7, repetitions: 6 },
-        };
-
-        const preset = presets[familiarity];
-        let updatedCount = 0;
-        const errors: string[] = [];
-
-        for (const noteId of note_ids) {
-          // Verify note belongs to user
-          const note = await this.env.DB
-            .prepare(`
-              SELECT n.id FROM notes n
-              JOIN decks d ON n.deck_id = d.id
-              WHERE n.id = ? AND d.user_id = ?
-            `)
-            .bind(noteId, userId)
-            .first();
-
-          if (!note) {
-            errors.push(noteId);
-            continue;
-          }
-
-          const nextReview = preset.interval > 0 ? new Date() : null;
-          if (nextReview) {
-            nextReview.setDate(nextReview.getDate() + preset.interval);
-          }
-
-          await this.env.DB
-            .prepare(`
-              UPDATE cards SET
-                queue = ?,
-                interval = ?,
-                ease_factor = ?,
-                repetitions = ?,
-                learning_step = 0,
-                next_review_at = ?,
-                due_timestamp = NULL
-              WHERE note_id = ?
-            `)
-            .bind(
-              preset.queue,
-              preset.interval,
-              preset.ease_factor,
-              preset.repetitions,
-              nextReview?.toISOString() || null,
-              noteId
-            )
-            .run();
-
-          updatedCount++;
-        }
-
-        return {
-          content: [{
-            type: "text" as const,
-            text: `Set ${updatedCount} note(s) to "${familiarity}"${errors.length > 0 ? `. ${errors.length} note(s) not found.` : '.'}`,
-          }],
-        };
-      }
-    );
+    // set_card_familiarity / batch_set_familiarity: tools/study.ts (forget events only — card state
+    // comes from review events).
 
     // ============ History Tools ============
 
@@ -1285,434 +1035,77 @@ Optional \`unlock\` makes the lesson wait LOCKED (never offered, not even in tod
 
     this.server.tool(
       "get_due_cards",
-      "Get cards that are due for review",
+      "Get the cards of today's study session (all decks, or one deck's session), in session order: learning / review cards due by the end of the learner's study day plus the new cards today's daily budget allows — exactly what the app's Study button would show. due_today = that total, reviews_due = the reviews alone (no new cards).",
       {
-        deck_id: z.string().optional().describe("Filter by deck ID (optional)"),
-        limit: z.number().optional().describe("Maximum number of cards (default 20)"),
+        deck_id: z.string().optional().describe("One deck's session (optional; default: all decks)"),
+        limit: z.number().optional().describe("Maximum number of cards (default 20, at most 200)"),
       },
-      async ({ deck_id, limit = 20 }) => {
-        let query = `
-          SELECT c.*, n.hanzi, n.pinyin, n.english, n.fun_facts, n.deck_id
-          FROM cards c
-          JOIN notes n ON c.note_id = n.id
-          JOIN decks d ON n.deck_id = d.id
-          WHERE d.user_id = ? AND (c.next_review_at IS NULL OR c.next_review_at <= datetime('now'))
-            AND NOT EXISTS (SELECT 1 FROM card_holds h WHERE h.card_id = c.id AND h.cleared_at IS NULL AND (h.kind = 'suspend' OR h.until > ?))
-        `;
+      async ({ deck_id, limit = 20 }) => guard(async () => {
+        const queue = await api.get<ApiStudyQueue>('/api/me/study-queue', { deck_id, limit: Math.max(1, Math.min(200, limit)) });
+        const ids = (queue.cards ?? []).map((c) => c.id);
+        const rows = ids.length
+          ? (await this.env.DB
+            .prepare(`
+              SELECT c.id, c.card_type, c.queue, c.stability, c.interval, c.repetitions, c.next_review_at,
+                     n.hanzi, n.pinyin, n.english, n.fun_facts, n.deck_id
+              FROM cards c
+              JOIN notes n ON c.note_id = n.id
+              JOIN decks d ON n.deck_id = d.id
+              WHERE d.user_id = ? AND c.id IN (${ids.map(() => '?').join(',')})
+            `)
+            .bind(userId, ...ids)
+            .all<Record<string, unknown> & { id: string }>()).results
+          : [];
+        const at = new Map(ids.map((id, i) => [id, i]));
+        const queueNames = ['new', 'learning', 'review', 'relearning'];
+        const cards = [...rows]
+          .sort((a, b) => (at.get(a.id) ?? 0) - (at.get(b.id) ?? 0))
+          .map((row) => ({
+            card_id: row.id,
+            card_type: row.card_type,
+            state: queueNames[(row.queue as number) ?? 0] ?? 'new',
+            hanzi: row.hanzi,
+            pinyin: row.pinyin,
+            english: row.english,
+            fun_facts: row.fun_facts,
+            stability: row.stability,
+            interval: row.interval,
+            repetitions: row.repetitions,
+            next_review_at: row.next_review_at,
+          }));
 
-        const params: (string | number)[] = [userId, (await studyToday()).key];
-
-        if (deck_id) {
-          query += ' AND n.deck_id = ?';
-          params.push(deck_id);
-        }
-
-        query += ' ORDER BY c.next_review_at ASC NULLS LAST LIMIT ?';
-        params.push(limit);
-
-        const result = await this.env.DB
-          .prepare(query)
-          .bind(...params)
-          .all();
-
-        const cards = result.results.map((row: any) => ({
-          card_id: row.id,
-          card_type: row.card_type,
-          hanzi: row.hanzi,
-          pinyin: row.pinyin,
-          english: row.english,
-          fun_facts: row.fun_facts,
-          ease_factor: row.ease_factor,
-          interval: row.interval,
-          repetitions: row.repetitions,
-          next_review_at: row.next_review_at,
-        }));
-
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({
-              count: cards.length,
-              cards,
-            }, null, 2),
-          }],
-        };
-      }
+        return textResult(JSON.stringify({
+          due_today: queue.due_today,
+          reviews_due: queue.reviews_due,
+          new_today: queue.new_today,
+          new_cards_paused: queue.new_cards_paused,
+          count: cards.length,
+          cards,
+        }, null, 2));
+      })
     );
 
     this.server.tool(
       "get_overall_stats",
-      "Get overall study statistics",
+      "Get overall study statistics: total decks / cards, due_today (what the app's Home shows: reviews due + the new cards today's budget allows), reviews_due (learning + review cards due today, no new cards), cards studied today.",
       {},
-      async () => {
-        const today = await studyToday();
-        const [totalCards, cardsDue, studiedToday, totalDecks] = await Promise.all([
-          this.env.DB.prepare(`
-            SELECT COUNT(*) as count FROM cards c
-            JOIN notes n ON c.note_id = n.id
-            JOIN decks d ON n.deck_id = d.id
-            WHERE d.user_id = ?
-          `).bind(userId).first<{ count: number }>(),
-          this.env.DB.prepare(`
-            SELECT COUNT(*) as count FROM cards c
-            JOIN notes n ON c.note_id = n.id
-            JOIN decks d ON n.deck_id = d.id
-            WHERE d.user_id = ? AND (c.next_review_at IS NULL OR c.next_review_at <= datetime('now'))
-              AND NOT EXISTS (SELECT 1 FROM card_holds h WHERE h.card_id = c.id AND h.cleared_at IS NULL AND (h.kind = 'suspend' OR h.until > ?))
-          `).bind(userId, today.key).first<{ count: number }>(),
-          this.env.DB.prepare(`
-            SELECT COUNT(*) as count FROM review_events
-            WHERE user_id = ? AND ${inStudyDaySql('reviewed_at')}
-          `).bind(userId, ...inStudyDaySqlParams(today)).first<{ count: number }>(),
-          this.env.DB.prepare('SELECT COUNT(*) as count FROM decks WHERE user_id = ?')
-            .bind(userId).first<{ count: number }>(),
-        ]);
-
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({
-              total_decks: totalDecks?.count || 0,
-              total_cards: totalCards?.count || 0,
-              cards_due_today: cardsDue?.count || 0,
-              cards_studied_today: studiedToday?.count || 0,
-            }, null, 2),
-          }],
-        };
-      }
+      async () => guard(async () => {
+        // The worker's one definition (GET /api/stats/overview → services/study-queue.ts).
+        const stats = await api.get<Record<string, unknown>>('/api/stats/overview');
+        return textResult(JSON.stringify({
+          total_decks: stats.total_decks,
+          total_cards: stats.total_cards,
+          due_today: stats.due_today,
+          reviews_due: stats.reviews_due,
+          new_cards_paused: stats.new_cards_paused,
+          cards_studied_today: stats.cards_studied_today,
+        }, null, 2));
+      })
     );
 
     // ============ Study MCP App Tools ============
-
-    const studyResourceUri = "ui://study/mcp-app.html";
-
-    // Helper to compute interval previews for rating buttons
-    const computeIntervalPreviews = (card: {
-      queue: number;
-      ease_factor: number;
-      interval: number;
-      learning_step: number;
-    }) => {
-      // Simplified SM-2 previews
-      const formatInterval = (days: number): string => {
-        if (days < 1) {
-          const mins = Math.round(days * 24 * 60);
-          return mins < 60 ? `${mins}m` : `${Math.round(mins / 60)}h`;
-        }
-        return days < 30 ? `${Math.round(days)}d` : `${Math.round(days / 30)}mo`;
-      };
-
-      const isNew = card.queue === 0;
-      const isLearning = card.queue === 1 || card.queue === 3;
-
-      if (isNew || isLearning) {
-        return {
-          0: { intervalText: '1m', queue: 1 },
-          1: { intervalText: '6m', queue: 1 },
-          2: { intervalText: '10m', queue: 1 },
-          3: { intervalText: '4d', queue: 2 },
-        };
-      }
-
-      // Review card
-      const ease = card.ease_factor;
-      const interval = card.interval || 1;
-      return {
-        0: { intervalText: '10m', queue: 3 },
-        1: { intervalText: formatInterval(interval * 1.2), queue: 2 },
-        2: { intervalText: formatInterval(interval * ease), queue: 2 },
-        3: { intervalText: formatInterval(interval * ease * 1.3), queue: 2 },
-      };
-    };
-
-    // Study tool - opens interactive flashcard UI
-    registerAppTool(
-      appServer(this.server),
-      "study",
-      {
-        title: "Study Flashcards",
-        description: "Open an interactive flashcard study session for a deck. Use list_decks first to get deck IDs.",
-        inputSchema: {
-          deck_id: z.string().describe("The deck ID to study"),
-        },
-        _meta: {
-          ui: { resourceUri: studyResourceUri },
-        },
-      },
-      async ({ deck_id }) => {
-        // Verify deck exists and belongs to user
-        const deck = await this.env.DB
-          .prepare('SELECT id, name, description FROM decks WHERE id = ? AND user_id = ?')
-          .bind(deck_id, userId)
-          .first<{ id: string; name: string; description: string | null }>();
-
-        if (!deck) {
-          return {
-            content: [{ type: "text" as const, text: `Deck not found: ${deck_id}` }],
-            isError: true,
-          };
-        }
-
-        // Get due cards with note data
-        const cardsResult = await this.env.DB
-          .prepare(`
-            SELECT
-              c.id, c.card_type, c.queue, c.ease_factor, c.interval, c.learning_step,
-              n.id as note_id, n.hanzi, n.pinyin, n.english, n.audio_url, n.fun_facts
-            FROM cards c
-            JOIN notes n ON c.note_id = n.id
-            WHERE n.deck_id = ?
-              AND (c.next_review_at IS NULL OR c.next_review_at <= datetime('now'))
-              AND NOT EXISTS (SELECT 1 FROM card_holds h WHERE h.card_id = c.id AND h.cleared_at IS NULL AND (h.kind = 'suspend' OR h.until > ?))
-            ORDER BY
-              CASE WHEN c.queue IN (1, 3) THEN 0 ELSE 1 END,
-              c.due_timestamp ASC NULLS LAST,
-              c.next_review_at ASC NULLS LAST
-            LIMIT 50
-          `)
-          .bind(deck_id, (await studyToday()).key)
-          .all();
-
-        const cards = cardsResult.results.map((row: Record<string, unknown>) => ({
-          id: row.id as string,
-          card_type: row.card_type as string,
-          queue: row.queue as number,
-          ease_factor: row.ease_factor as number,
-          interval: row.interval as number,
-          learning_step: row.learning_step as number,
-          note: {
-            id: row.note_id as string,
-            hanzi: row.hanzi as string,
-            pinyin: row.pinyin as string,
-            english: row.english as string,
-            audio_url: row.audio_url as string | null,
-            fun_facts: row.fun_facts as string | null,
-          },
-        }));
-
-        // Get queue counts
-        const countsResult = await this.env.DB
-          .prepare(`
-            SELECT
-              SUM(CASE WHEN c.queue = 0 AND (c.next_review_at IS NULL OR c.next_review_at <= datetime('now')) THEN 1 ELSE 0 END) as new_count,
-              SUM(CASE WHEN c.queue IN (1, 3) AND (c.next_review_at IS NULL OR c.next_review_at <= datetime('now')) THEN 1 ELSE 0 END) as learning_count,
-              SUM(CASE WHEN c.queue = 2 AND c.next_review_at <= datetime('now') THEN 1 ELSE 0 END) as review_count
-            FROM cards c
-            JOIN notes n ON c.note_id = n.id
-            WHERE n.deck_id = ?
-          `)
-          .bind(deck_id)
-          .first<{ new_count: number; learning_count: number; review_count: number }>();
-
-        const counts = {
-          new: countsResult?.new_count || 0,
-          learning: countsResult?.learning_count || 0,
-          review: countsResult?.review_count || 0,
-        };
-
-        // Compute interval previews for first card
-        const intervalPreviews = cards.length > 0
-          ? computeIntervalPreviews(cards[0])
-          : { 0: { intervalText: '', queue: 0 }, 1: { intervalText: '', queue: 0 }, 2: { intervalText: '', queue: 0 }, 3: { intervalText: '', queue: 0 } };
-
-        const result = {
-          deck: { id: deck.id, name: deck.name },
-          cards,
-          counts,
-          intervalPreviews,
-        };
-
-        return {
-          content: [{
-            type: "text" as const,
-            text: `Opening study session for "${deck.name}" with ${cards.length} cards due.`,
-          }],
-          structuredContent: result,
-        };
-      }
-    );
-
-    // Submit review tool - called by the UI to record reviews
-    // Hidden from model (app-only visibility)
-    registerAppTool(
-      appServer(this.server),
-      "submit_review",
-      {
-        title: "Submit Review",
-        description: "Submit a card review rating (called by study UI)",
-        inputSchema: {
-          card_id: z.string().describe("The card ID"),
-          rating: z.number().min(0).max(3).describe("Rating: 0=again, 1=hard, 2=good, 3=easy"),
-          time_spent_ms: z.number().optional().describe("Time spent in milliseconds"),
-          user_answer: z.string().optional().describe("User's typed answer"),
-        },
-        _meta: {
-          ui: {
-            resourceUri: studyResourceUri,
-            visibility: ["app"], // Only callable by the UI, not the model
-          },
-        },
-      },
-      async ({ card_id, rating, time_spent_ms, user_answer }) => {
-        // Get card with note to verify ownership
-        const card = await this.env.DB
-          .prepare(`
-            SELECT c.*, n.deck_id, d.user_id
-            FROM cards c
-            JOIN notes n ON c.note_id = n.id
-            JOIN decks d ON n.deck_id = d.id
-            WHERE c.id = ? AND d.user_id = ?
-          `)
-          .bind(card_id, userId)
-          .first<{
-            id: string;
-            note_id: string;
-            deck_id: string;
-            queue: number;
-            ease_factor: number;
-            interval: number;
-            repetitions: number;
-            learning_step: number;
-          }>();
-
-        if (!card) {
-          return {
-            content: [{ type: "text" as const, text: `Card not found: ${card_id}` }],
-            isError: true,
-          };
-        }
-
-        // Simple SM-2 implementation
-        let newQueue = card.queue;
-        let newEase = card.ease_factor;
-        let newInterval = card.interval;
-        let newReps = card.repetitions;
-        let newLearningStep = card.learning_step;
-        let nextReviewAt: Date;
-
-        const isNew = card.queue === 0;
-        const isLearning = card.queue === 1 || card.queue === 3;
-
-        if (isNew || isLearning) {
-          // Learning/new card logic
-          if (rating === 0) {
-            // Again - restart learning
-            newQueue = 1;
-            newLearningStep = 0;
-            nextReviewAt = new Date(Date.now() + 60 * 1000); // 1 min
-          } else if (rating === 3) {
-            // Easy - graduate immediately
-            newQueue = 2;
-            newInterval = 4;
-            newReps = 1;
-            nextReviewAt = new Date(Date.now() + 4 * 24 * 60 * 60 * 1000);
-          } else {
-            // Hard/Good - advance learning step
-            newLearningStep = Math.min(newLearningStep + 1, 2);
-            if (newLearningStep >= 2) {
-              // Graduate to review
-              newQueue = 2;
-              newInterval = 1;
-              newReps = 1;
-              nextReviewAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
-            } else {
-              newQueue = 1;
-              const stepMinutes = [1, 10][newLearningStep] || 10;
-              nextReviewAt = new Date(Date.now() + stepMinutes * 60 * 1000);
-            }
-          }
-        } else {
-          // Review card logic
-          if (rating === 0) {
-            // Again - relearn
-            newQueue = 3;
-            newLearningStep = 0;
-            newEase = Math.max(1.3, newEase - 0.2);
-            nextReviewAt = new Date(Date.now() + 10 * 60 * 1000);
-          } else {
-            // Hard/Good/Easy
-            const multipliers = { 1: 1.2, 2: newEase, 3: newEase * 1.3 };
-            const easeAdjust = { 1: -0.15, 2: 0, 3: 0.15 };
-
-            newInterval = Math.max(1, Math.round(newInterval * multipliers[rating as 1 | 2 | 3]));
-            newEase = Math.max(1.3, Math.min(3.0, newEase + easeAdjust[rating as 1 | 2 | 3]));
-            newReps++;
-            newQueue = 2;
-            nextReviewAt = new Date(Date.now() + newInterval * 24 * 60 * 60 * 1000);
-          }
-        }
-
-        // Update card
-        await this.env.DB
-          .prepare(`
-            UPDATE cards SET
-              queue = ?,
-              ease_factor = ?,
-              interval = ?,
-              repetitions = ?,
-              learning_step = ?,
-              next_review_at = ?,
-              due_timestamp = NULL
-            WHERE id = ?
-          `)
-          .bind(
-            newQueue,
-            newEase,
-            newInterval,
-            newReps,
-            newLearningStep,
-            nextReviewAt.toISOString(),
-            card_id
-          )
-          .run();
-
-        // Record review event
-        const reviewId = generateId();
-        await this.env.DB
-          .prepare(`
-            INSERT INTO review_events (id, card_id, user_id, rating, time_spent_ms, user_answer, reviewed_at)
-            VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
-          `)
-          .bind(reviewId, card_id, userId, rating, time_spent_ms || null, user_answer || null)
-          .run();
-
-        // Get updated queue counts
-        const countsResult = await this.env.DB
-          .prepare(`
-            SELECT
-              SUM(CASE WHEN c.queue = 0 AND (c.next_review_at IS NULL OR c.next_review_at <= datetime('now')) THEN 1 ELSE 0 END) as new_count,
-              SUM(CASE WHEN c.queue IN (1, 3) AND (c.next_review_at IS NULL OR c.next_review_at <= datetime('now')) THEN 1 ELSE 0 END) as learning_count,
-              SUM(CASE WHEN c.queue = 2 AND c.next_review_at <= datetime('now') THEN 1 ELSE 0 END) as review_count
-            FROM cards c
-            JOIN notes n ON c.note_id = n.id
-            WHERE n.deck_id = ?
-          `)
-          .bind(card.deck_id)
-          .first<{ new_count: number; learning_count: number; review_count: number }>();
-
-        const counts = {
-          new: countsResult?.new_count || 0,
-          learning: countsResult?.learning_count || 0,
-          review: countsResult?.review_count || 0,
-        };
-
-        // Compute interval previews for next potential card (using updated state pattern)
-        const intervalPreviews = computeIntervalPreviews({
-          queue: newQueue,
-          ease_factor: newEase,
-          interval: newInterval,
-          learning_step: newLearningStep,
-        });
-
-        return {
-          content: [{
-            type: "text" as const,
-            text: `Review recorded`,
-          }],
-          structuredContent: { counts, intervalPreviews },
-        };
-      }
-    );
+    // study + submit_review: tools/study.ts (reviews go to the API as events).
+    registerStudyTools(ctx);
 
     // ============ Feature Request Tools (Admin) ============
 
@@ -1963,21 +1356,6 @@ Optional \`unlock\` makes the lesson wait LOCKED (never offered, not even in tod
           }],
         };
       }
-    );
-
-    // Register the study app HTML resource
-    registerAppResource(
-      appServer(this.server),
-      studyResourceUri,
-      studyResourceUri,
-      { mimeType: RESOURCE_MIME_TYPE },
-      async () => ({
-        contents: [{
-          uri: studyResourceUri,
-          mimeType: RESOURCE_MIME_TYPE,
-          text: STUDY_APP_HTML,
-        }],
-      })
     );
 
     // ============ Tutor tooling (src/tools/) ============

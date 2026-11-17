@@ -5,7 +5,9 @@ package dev.jeromeswannack.chineselearning.lab.core
  * shared/decks/study-today.ts, parity-tested (parity/fixtures/study-today.ts → StudyTodayParityTest).
  *
  *   - an UNSTARTED word → a card-level bump of ONE card: its listening card (audio_to_hanzi) when the
- *     note has audio and a NEW listening card; else its lead card (meaning_to_hanzi for a word of known
+ *     note has a NEW listening card and either has audio or "Start new words by ear" is on ([plan]'s
+ *     `newWordsByEar` — a word just added has no clip for a few seconds; the card waits on "Audio coming…");
+ *     else its lead card (meaning_to_hanzi for a word of known
  *     characters with "English → Chinese" on, else hanzi_to_meaning). Its other cards wait
  *     ([Bumps.pocketSiblingIds]) and later arrive as purple cards; the word goes into long-term review
  *     when it isn't already ([Plan.longTerm]);
@@ -35,6 +37,8 @@ object StudyToday {
         hasAudio: Boolean,
         longTermPref: Int?,
         deckInReview: Boolean,
+        /** "Start new words by ear" is on: an unstarted word's listening card leads even before its clip exists. */
+        newWordsByEar: Boolean = false,
         knownCharactersLead: (() -> Boolean)? = null,
     ): Plan {
         if (started) {
@@ -46,7 +50,7 @@ object StudyToday {
         else cards.filter { it.queue == CardQueue.NEW }.mapTo(HashSet()) { it.cardType }
         val setLongTerm = !LongTerm.isLongTerm(longTermPref, deckInReview, false)
         val longTerm = if (setLongTerm) LongTerm.prefForToggle(true, deckInReview) else null
-        if (hasAudio && LeadCard.EAR_TYPE in newTypes) return Plan(LISTENING, listOf(LeadCard.EAR_TYPE), setLongTerm, longTerm)
+        if ((hasAudio || newWordsByEar) && LeadCard.EAR_TYPE in newTypes) return Plan(LISTENING, listOf(LeadCard.EAR_TYPE), setLongTerm, longTerm)
         val lead = when {
             LeadCard.KNOWN_CHARACTERS_TYPE in newTypes && knownCharactersLead?.invoke() == true -> LeadCard.KNOWN_CHARACTERS_TYPE
             LeadCard.DEFAULT_TYPE in newTypes -> LeadCard.DEFAULT_TYPE

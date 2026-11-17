@@ -76,6 +76,12 @@ class ExplorerEnv(
     val addActions: SentenceActions = SentenceActions(),
     /** "⚡ Study it today" (null = previews). */
     val bump: BumpHanzi? = null,
+    /**
+     * "⚡ Study it today" on a word "+ Add as card" just made ([AddedTo.noteId]): bumped even before the sync
+     * brings the note down, planned as an unstarted word (its listening card with "Start new words by ear").
+     * Null = [bump] by hanzi only.
+     */
+    val bumpJustAdded: (suspend (hanzi: String, noteId: String, preferDeck: String?) -> String)? = null,
     /** "Open card" → the card hub (null = no link). */
     val openCard: ((noteId: String) -> Unit)? = null,
     /** "✍️ Write it" is offered (the stroke-order practice). */
@@ -205,6 +211,10 @@ fun rememberExplorerEnv(app: LabApp, nav: LabNav?, close: () -> Unit): ExplorerE
             bump = { hanzi, deck ->
                 app.haptics.tick()
                 dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.bumpHanzi(app, hanzi, "explorer", deck).message
+            },
+            bumpJustAdded = { hanzi, noteId, deck ->
+                app.haptics.tick()
+                dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.bumpHanzi(app, listOf(hanzi), "explorer", deck, justCreated = mapOf(hanzi to noteId)).message
             },
             openCard = nav?.let { n -> { id: String -> close(); n.open(Routes.cardHub(id)) } },
             idiomKnown = { h -> dev.jeromeswannack.chineselearning.lab.data.idioms.IdiomStore.isCached(app, h) },

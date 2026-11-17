@@ -233,6 +233,12 @@ function cardToLocal(card: Card | SyncCard, deckId: string): LocalCard {
 class SyncService {
   private isSyncing = false;
   private pendingFullSync = false;
+  /**
+   * A background sync was asked for while one was running ("+ Add as card" → `syncSoon`): run once more when it
+   * ends, so the word just added reaches this device now — not at the next periodic sync (the running one may
+   * have fetched its changes before the add). The study session waits for it to put a ⚡ word next.
+   */
+  private syncAgain = false;
   private syncPromise: Promise<void> | null = null;
   private syncListeners: Set<(syncing: boolean) => void> = new Set();
   private progressListeners: Set<(progress: SyncProgress | null) => void> = new Set();
@@ -276,6 +282,10 @@ class SyncService {
   private notifySyncListeners(syncing: boolean) {
     this.isSyncing = syncing;
     this.syncListeners.forEach(listener => listener(syncing));
+    if (!syncing && this.syncAgain) {
+      this.syncAgain = false;
+      setTimeout(() => { void this.syncInBackground(); }, 0);
+    }
   }
 
   private notifyProgress(progress: SyncProgress | null) {
@@ -1025,7 +1035,10 @@ class SyncService {
    * Called when coming online or periodically
    */
   async syncInBackground(): Promise<void> {
-    if (this.isSyncing) return;
+    if (this.isSyncing) {
+      this.syncAgain = true;
+      return;
+    }
 
     const startTime = Date.now();
     const details: SyncLogEntry['details'] = {};

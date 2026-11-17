@@ -2,6 +2,7 @@ package dev.jeromeswannack.chineselearning.lab.data.claude
 
 import dev.jeromeswannack.chineselearning.lab.core.claude.ClaudeChats
 import dev.jeromeswannack.chineselearning.lab.core.claude.ClaudeInbox
+import dev.jeromeswannack.chineselearning.lab.core.claude.ClaudeThreadCache
 import dev.jeromeswannack.chineselearning.lab.data.Api
 import dev.jeromeswannack.chineselearning.lab.data.api.ClaudeThreadDto
 import dev.jeromeswannack.chineselearning.lab.data.api.claudeThreadList
@@ -58,22 +59,20 @@ object ClaudeThreadList {
             if (list == null && locals.isEmpty()) null else inboxThreads(list?.threads.orEmpty(), locals)
         }
 
-    /** Pure: the rows + deletions over what the phone has (port of applyThreadList; a row replaces its old copy). */
-    fun apply(prev: List<ClaudeThreadDto>, rows: List<ClaudeThreadDto>, deleted: Collection<String>): List<ClaudeThreadDto> {
-        val byId = LinkedHashMap<String, ClaudeThreadDto>()
-        for (t in prev) byId[t.id] = t
-        for (t in rows) byId[t.id] = t
-        for (id in deleted) byId.remove(id)
-        return byId.values.toList()
-    }
+    /** Pure: the rows + deletions over what the phone has (core [ClaudeThreadCache.mergeThreadList]; a row replaces its old copy). */
+    fun apply(prev: List<ClaudeThreadDto>, rows: List<ClaudeThreadDto>, deleted: Collection<String>): List<ClaudeThreadDto> =
+        ClaudeThreadCache.mergeThreadList(prev, rows, deleted, ClaudeThreads.Companion.ThreadLens).threads
 
     /**
      * Pure: the rows as the core inbox rule takes them. A thread started offline that the server
      * already lists (by its client id — the outbox sent it, the sync step hasn't moved it yet) shows once.
      */
     fun inboxThreads(rows: List<ClaudeThreadDto>, locals: List<ClaudeThreadDto>): List<ClaudeInbox.Thread> {
-        val known = rows.mapNotNullTo(HashSet()) { it.client_id }
-        return rows.map { toInbox(it, local = false) } + locals.filter { it.id !in known }.map { toInbox(it, local = true) }
+        val localIds = locals.mapTo(HashSet()) { it.id }
+        val lens = object : ClaudeThreadCache.ThreadLens<ClaudeThreadDto> by ClaudeThreads.Companion.ThreadLens {
+            override fun local(t: ClaudeThreadDto) = t.id in localIds
+        }
+        return ClaudeThreadCache.mergeThreadList(rows, locals, emptyList(), lens).threads.map { toInbox(it, local = it.id in localIds) }
     }
 
     fun toInbox(t: ClaudeThreadDto, local: Boolean): ClaudeInbox.Thread = ClaudeInbox.Thread(

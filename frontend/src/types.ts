@@ -292,7 +292,11 @@ export interface GeneratedNote {
 // Statistics types
 export interface OverviewStats {
   total_cards: number;
+  /** Today's study queue: reviews due + the budget's new cards (= due_today; worker services/study-queue.ts). */
   cards_due_today: number;
+  due_today?: number;
+  /** Learning + review cards due today — no new cards. */
+  reviews_due?: number;
   cards_studied_today: number;
   total_decks: number;
 }
@@ -300,7 +304,11 @@ export interface OverviewStats {
 export interface DeckStats {
   total_notes: number;
   total_cards: number;
-  cards_due: number;
+  /** This deck's session today: reviews due + the new cards the budget gives it (null when asked without). */
+  cards_due: number | null;
+  /** This deck's learning + review cards due today. */
+  reviews_due?: number | null;
+  /** Review with stability > 21 days (shared/progress/mastery.ts). */
   cards_mastered: number;
   cards_learning: number;
 }

@@ -106,12 +106,35 @@ export async function studyTodayPlanFor(
     cards: noteCards,
     started: noteCards.some((c) => c.queue !== CardQueue.NEW),
     hasAudio: !!note.audio_url,
+    // "Start new words by ear": a word just added (its clip still being made) starts with its listening card too.
+    newWordsByEar: readNewCardOrder().new_words_by_ear,
     longTermPref: toLongTermPref(note.long_term),
     deckInReview: deck ? deckInDailyReview(deck.new_cards_per_day, deck.secondary_cards_per_day ?? DEFAULT_DECK_SETTINGS.secondary_cards_per_day) : true,
   };
   const first = studyTodayPlan(base);
   if (first.kind !== 'lead') return first;
   const lead = allCharactersKnown(note.hanzi ?? '', await known());
+  return studyTodayPlan({ ...base, knownCharactersLead: () => lead });
+}
+
+/**
+ * The plan of a note this device hasn't synced yet but has just made ("+ Add as card" in the explorer /
+ * a sentence breakdown, Claude's "✓ Added" chips): three NEW cards, no clip yet (the server makes it a few
+ * seconds after the add), its source deck in daily review. With "Start new words by ear" that is its
+ * listening card — the same card it leads with in the regular pool — never the reading card.
+ */
+async function studyTodayPlanForJustCreated(hanzi: string, known: () => Promise<Set<string>>): Promise<StudyTodayPlan> {
+  const base = {
+    cards: [],
+    started: false,
+    hasAudio: false,
+    newWordsByEar: readNewCardOrder().new_words_by_ear,
+    longTermPref: null,
+    deckInReview: true,
+  };
+  const first = studyTodayPlan(base);
+  if (first.kind !== 'lead') return first;
+  const lead = allCharactersKnown(hanzi, await known());
   return studyTodayPlan({ ...base, knownCharactersLead: () => lead });
 }
 
@@ -140,7 +163,13 @@ async function putWholeBump(noteId: string, source: BumpSource, now: string, pla
  * A note not on this device is sent as a whole-note row without a plan: the server applies the rule.
  * Returns the toast line. `hanziById` names words not on the device.
  */
-export async function bumpNotes(noteIds: string[], source: BumpSource, hanziById?: Map<string, string>): Promise<BumpOutcome> {
+export async function bumpNotes(
+  noteIds: string[],
+  source: BumpSource,
+  hanziById?: Map<string, string>,
+  /** Notes just created by this device ("+ Add as card") that the sync hasn't brought down yet: planned here, not sent as a whole-note row. */
+  opts: { justCreated?: ReadonlySet<string> } = {},
+): Promise<BumpOutcome> {
   const ids = [...new Set(noteIds.filter(Boolean))];
   const now = new Date().toISOString();
   const notes = await db.notes.bulkGet(ids);
@@ -150,11 +179,11 @@ export async function bumpNotes(noteIds: string[], source: BumpSource, hanziById
   for (let i = 0; i < ids.length; i++) {
     const noteId = ids[i];
     const note = notes[i];
-    if (!note) {
+    if (!note && !opts.justCreated?.has(noteId)) {
       results.push({ noteId, kind: 'whole', cardTypes: null, added: await putWholeBump(noteId, source, now, false) });
       continue;
     }
-    const plan = await studyTodayPlanFor(note, undefined, known);
+    const plan = note ? await studyTodayPlanFor(note, undefined, known) : await studyTodayPlanForJustCreated(hanziById?.get(noteId) ?? '', known);
     let res: StudyTodayNoteResult;
     if (plan.cardTypes) {
       const r = await putCardTypesBump(noteId, plan.cardTypes, source);
@@ -162,7 +191,7 @@ export async function bumpNotes(noteIds: string[], source: BumpSource, hanziById
     } else {
       res = { noteId, kind: 'whole', cardTypes: null, added: await putWholeBump(noteId, source, now, true) };
     }
-    if (res.added && plan.longTerm !== undefined) {
+    if (note && res.added && plan.longTerm !== undefined) {
       res.longTermBefore = toLongTermPref(note.long_term);
       await setNoteLongTerm(noteId, plan.longTerm);
     }

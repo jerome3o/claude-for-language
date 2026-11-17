@@ -9,6 +9,8 @@ import { addBumps, MAX_BUMPS_PER_REQUEST } from '../../study-bumps';
 import type { ToolContext } from '../types';
 import { inStudyDaySql, inStudyDaySqlParams } from '@shared/study/studyDay';
 import { loadUserStudyDaySql } from '../../study-day';
+import { serverStudyQueue } from '../../study-queue';
+import { masteryLevel } from '@shared/progress/mastery';
 import { executeReadChat, executeSearchMyChats } from './memory';
 
 /**
@@ -201,60 +203,60 @@ export async function executeReadTool(
 
       case 'get_deck_progress': {
         const cards = await ctx.db.prepare(`
-          SELECT c.interval, c.next_review_at, c.card_type, c.ease_factor, c.repetitions,
-                 n.hanzi, n.pinyin, n.english, n.id as note_id
+          SELECT c.queue, c.stability
           FROM cards c
           JOIN notes n ON c.note_id = n.id
           WHERE n.deck_id = ? AND n.deck_id IN (SELECT id FROM decks WHERE user_id = ?)
-          ORDER BY n.hanzi
-        `).bind(ctx.deckId, ctx.userId).all();
+        `).bind(ctx.deckId, ctx.userId).all<{ queue: number | null; stability: number | null }>();
 
+        // Mastery levels = the deck page's (shared/progress/mastery.ts); due = this deck's session today.
         const results = cards.results || [];
+        const levels = { new: 0, learning: 0, familiar: 0, mastered: 0 };
+        for (const c of results) levels[masteryLevel(c.queue ?? 0, c.stability ?? 0)]++;
+        const queue = ctx.deckId ? await serverStudyQueue(ctx.db, ctx.userId, { deckId: ctx.deckId }) : null;
         const stats = {
           total_cards: results.length,
-          new_cards: results.filter((c: Record<string, unknown>) => c.next_review_at === null).length,
-          learning: results.filter((c: Record<string, unknown>) => c.next_review_at !== null && (c.interval as number) <= 1).length,
-          reviewing: results.filter((c: Record<string, unknown>) => (c.interval as number) > 1 && (c.interval as number) <= 21).length,
-          mastered: results.filter((c: Record<string, unknown>) => (c.interval as number) > 21).length,
-          due_now: results.filter((c: Record<string, unknown>) =>
-            c.next_review_at === null || new Date(c.next_review_at as string) <= new Date()
-          ).length,
+          new_cards: levels.new,
+          learning: levels.learning,
+          reviewing: levels.familiar,
+          mastered: levels.mastered,
+          reviews_due: queue?.reviews_due ?? 0,
+          due_today: queue?.due_today ?? 0,
         };
         return { stats };
       }
 
       case 'get_due_cards': {
         const limit = Math.min((input.limit as number) || 20, 30);
-        const result = await ctx.db.prepare(`
-          SELECT c.card_type, c.ease_factor, c.interval, c.repetitions, c.next_review_at,
-                 n.hanzi, n.pinyin, n.english, n.id as note_id
-          FROM cards c
-          JOIN notes n ON c.note_id = n.id
-          JOIN decks d ON n.deck_id = d.id
-          WHERE d.user_id = ? AND n.deck_id = ?
-            AND (c.next_review_at IS NULL OR c.next_review_at <= datetime('now'))
-          ORDER BY c.next_review_at ASC NULLS LAST
-          LIMIT ?
-        `).bind(ctx.userId, ctx.deckId, limit).all();
-        return { count: (result.results || []).length, cards: result.results || [] };
+        // This deck's session today (services/study-queue.ts): reviews due + the budget's new cards.
+        const queue = await serverStudyQueue(ctx.db, ctx.userId, { deckId: ctx.deckId ?? null });
+        const ids = queue.due.slice(0, limit).map((c) => c.id);
+        const rows = ids.length
+          ? (await ctx.db.prepare(`
+              SELECT c.id, c.card_type, c.queue, c.stability, c.next_review_at,
+                     n.hanzi, n.pinyin, n.english, n.id as note_id
+              FROM cards c
+              JOIN notes n ON c.note_id = n.id
+              JOIN decks d ON n.deck_id = d.id
+              WHERE d.user_id = ? AND c.id IN (${ids.map(() => '?').join(',')})
+            `).bind(ctx.userId, ...ids).all<Record<string, unknown> & { id: string }>()).results || []
+          : [];
+        const at = new Map(ids.map((id, i) => [id, i]));
+        rows.sort((a, b) => (at.get(a.id) ?? 0) - (at.get(b.id) ?? 0));
+        return { due_today: queue.due_today, reviews_due: queue.reviews_due, count: rows.length, cards: rows };
       }
 
       case 'get_overall_stats': {
         // "Studied today" = the learner's STUDY day ("New day starts at"), never the UTC date.
         const today = await loadUserStudyDaySql(ctx.db, ctx.userId);
-        const [totalCards, cardsDue, studiedToday, totalDecks] = await Promise.all([
+        const [totalCards, queue, studiedToday, totalDecks] = await Promise.all([
           ctx.db.prepare(`
             SELECT COUNT(*) as count FROM cards c
             JOIN notes n ON c.note_id = n.id
             JOIN decks d ON n.deck_id = d.id
             WHERE d.user_id = ?
           `).bind(ctx.userId).first<{ count: number }>(),
-          ctx.db.prepare(`
-            SELECT COUNT(*) as count FROM cards c
-            JOIN notes n ON c.note_id = n.id
-            JOIN decks d ON n.deck_id = d.id
-            WHERE d.user_id = ? AND (c.next_review_at IS NULL OR c.next_review_at <= datetime('now'))
-          `).bind(ctx.userId).first<{ count: number }>(),
+          serverStudyQueue(ctx.db, ctx.userId),
           ctx.db.prepare(`
             SELECT COUNT(*) as count FROM review_events
             WHERE user_id = ? AND ${inStudyDaySql('reviewed_at')}
@@ -265,7 +267,9 @@ export async function executeReadTool(
         return {
           total_decks: totalDecks?.count || 0,
           total_cards: totalCards?.count || 0,
-          cards_due_today: cardsDue?.count || 0,
+          // Home's Study button: reviews due + today's new cards (the budget's), and the reviews alone.
+          due_today: queue.due_today,
+          reviews_due: queue.reviews_due,
           cards_studied_today: studiedToday?.count || 0,
         };
       }

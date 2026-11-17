@@ -43,7 +43,9 @@ class StudyTodayParityTest {
             val started = c["started"]!!.jsonPrimitive.boolean
             val got = StudyToday.plan(
                 cards, started, c["hasAudio"]!!.jsonPrimitive.boolean, intOrNull(c["longTermPref"]), c["deckInReview"]!!.jsonPrimitive.boolean,
-            ) { known }
+                knownCharactersLead = { known },
+                newWordsByEar = c["newWordsByEar"]!!.jsonPrimitive.boolean,
+            )
             val want = c["plan"]!!.jsonObject
             assertEquals(want["kind"]!!.jsonPrimitive.content, got.kind, "$n kind")
             assertEquals(stringsOrNull(want["cardTypes"]), got.cardTypes, "$n cardTypes")
@@ -52,9 +54,11 @@ class StudyTodayParityTest {
             assertEquals(!keep, got.setLongTerm, "$n setLongTerm")
             if (!keep) assertEquals(intOrNull(lt), got.longTerm, "$n longTerm")
             seen += "${if (started) "started" else "new"}:${got.kind}"
+            // "Start new words by ear": a word whose clip is still being made (just added) — its listening card.
+            if (!started && !c["hasAudio"]!!.jsonPrimitive.boolean && got.kind == StudyToday.LISTENING) seen += "new:listening:no-clip-yet"
         }
         // Every branch: unstarted listening / lead / whole, started listening / whole.
-        assertTrue(seen.containsAll(setOf("new:listening", "new:lead", "started:listening", "started:whole")), "$seen")
+        assertTrue(seen.containsAll(setOf("new:listening", "new:lead", "started:listening", "started:whole", "new:listening:no-clip-yet")), "$seen")
     }
 
     @Test
