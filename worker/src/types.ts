@@ -387,6 +387,11 @@ export interface NoteSentence {
   structure?: string | null;
   /** JSON SentenceExplanation, generated on demand and cached (see 0055) */
   explanation: string | null;
+  /**
+   * 1 = the card's own example sentence (id `<note id>-card`, position -1; migration 0154,
+   * shared/study/cardSentence.ts). 0 = a generated set row.
+   */
+  is_card?: number;
   created_at: string;
   updated_at: string;
 }
@@ -833,18 +838,6 @@ export interface CreateAIConversationRequest {
   ai_role: string;
   voice_id?: string;
   voice_speed?: number;
-}
-
-export interface AIRespondRequest {
-  // Optional: override voice settings for this response
-  voice_id?: string;
-  voice_speed?: number;
-}
-
-export interface AIRespondResponse {
-  message: MessageWithSender;
-  audio_base64: string | null;
-  audio_content_type: string | null;
 }
 
 export interface ConversationTTSRequest {

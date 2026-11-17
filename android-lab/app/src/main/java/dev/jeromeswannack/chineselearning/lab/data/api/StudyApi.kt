@@ -5,13 +5,13 @@ import dev.jeromeswannack.chineselearning.lab.data.NoteEntity
 import kotlinx.serialization.EncodeDefault
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.JsonElement
+
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import java.io.File
 
 // The study card's online extras (package A) — the same endpoints frontend/src/api/client.ts
-// calls from StudyPage.tsx, SentenceSet.tsx, WordDefinitionPopup.tsx, CardEditModal.tsx,
+// calls from StudyPage.tsx, SentenceSet.tsx, CardEditModal.tsx,
 // services/recording-notes.ts and services/cardFlags.ts.
 
 /** A note as the notes endpoints return it (`Note` in frontend/src/types.ts), only what the card uses. */
@@ -187,22 +187,6 @@ suspend fun Api.createNote(deckId: String, body: NewNoteBody): StudyNoteDto = po
 @Serializable
 data class SourceDeckDto(val id: String, val name: String = "", val source_key: String? = null)
 
-// ---------------- tap a character → definition ----------------
-
-@Serializable
-data class DefineBody(val hanzi: String, val context: String? = null, val skipCache: Boolean? = null)
-
-@Serializable
-data class VocabularyDefinition(
-    val hanzi: String,
-    val pinyin: String = "",
-    val english: String = "",
-    val fun_facts: String? = null,
-    val example: String? = null,
-)
-
-suspend fun Api.defineVocabulary(hanzi: String, context: String?, skipCache: Boolean = false): VocabularyDefinition =
-    post("/api/vocabulary/define", DefineBody(hanzi, context, if (skipCache) true else null))
 
 // ---------------- sentence sets ----------------
 
@@ -218,6 +202,8 @@ data class SentenceDto(
     val focus: String? = null,
     val focus_note: String? = null,
     val explanation: String? = null,
+    /** 1 = the card's own sentence row (`<note>-card`, migration 0154). */
+    val is_card: Int? = 0,
 )
 
 @Serializable
@@ -272,6 +258,13 @@ suspend fun Api.ensureSentenceAudio(sentenceId: String): SentenceAudioAnswer =
 
 suspend fun Api.explainSentence(sentenceId: String): SentenceExplanation =
     post<ExplanationAnswer>("/api/sentences/${enc(sentenceId)}/explain").explanation
+
+@Serializable
+data class SentenceTranslationAnswer(val translation: String = "")
+
+/** A row written without English (many card sentences): its breakdown's one-line translation, kept on the row server-side. */
+suspend fun Api.translateSentence(sentenceId: String): String =
+    post<SentenceTranslationAnswer>("/api/sentences/${enc(sentenceId)}/translate").translation
 
 suspend fun Api.explainSentenceText(body: ExplainTextBody): SentenceExplanation =
     post<ExplainTextBody, ExplanationAnswer>("/api/sentences/explain-text", body).explanation
@@ -364,20 +357,6 @@ data class TextToFlashcardBody(val text: String)
 data class FlashcardDraft(val hanzi: String, val pinyin: String = "", val english: String = "", val fun_facts: String? = null)
 
 suspend fun Api.textToFlashcard(text: String): FlashcardDraft = post("/api/text-to-flashcard", TextToFlashcardBody(text))
-
-// ---------------- roleplay (a Claude conversation about this word) ----------------
-
-@Serializable
-data class NewConversationBody(val title: String, val scenario: String, val user_role: String, val ai_role: String)
-
-@Serializable
-data class ConversationIdDto(val id: String)
-
-suspend fun Api.createConversation(relationshipId: String, body: NewConversationBody): ConversationIdDto =
-    post("/api/relationships/${enc(relationshipId)}/conversations", body)
-
-suspend fun Api.initiateAIConversation(conversationId: String): JsonElement =
-    post("/api/conversations/${enc(conversationId)}/ai-initiate")
 
 // ---------------- voice recordings ----------------
 

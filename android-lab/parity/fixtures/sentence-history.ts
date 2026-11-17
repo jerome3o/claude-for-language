@@ -12,7 +12,7 @@ import {
   moreSentencesWanted, isFreshSentence, freshSentenceCount, freshTopUpCount, sentencesComingShown,
   SENTENCE_FRESH_BUFFER, SENTENCE_FRESH_LOW, SENTENCE_TOPUP_MIN, SENTENCE_TOPUP_MAX, SENTENCE_TOPUP_RETRY_MS,
   SENTENCE_KNOWN_RIGHTS, SENTENCE_HIDE_REASONS, SENTENCE_HIDE_REASON_LABEL, SENTENCES_COMING_NOTE, SENTENCE_HIDE_TITLE,
-  SENTENCE_HIDE_HINT, SENTENCE_HIDDEN_TOAST, SENTENCE_SHOW_AGAIN, SENTENCE_ROUND_MIN_VISIBLE, CLUE_SENTENCE_KEY,
+  SENTENCE_HIDE_HINT, SENTENCE_HIDDEN_TOAST, SENTENCE_SHOW_AGAIN, SENTENCE_ROUND_MIN_VISIBLE,
   type SentencePracticeEvent, type SentenceStats,
 } from '../../../shared/study/sentenceHistory';
 import { pickRoundExercises, pickListenRoundExercises, listenRoundSentenceCount, sentenceRoundProgress, spreadOrder, type RoundSentence } from '../../../shared/study/sentenceRound';
@@ -40,9 +40,10 @@ for (let i = 0; i < 360; i++) {
   const long = i >= 200;
   const n = long ? Math.floor(r() * 17) : Math.floor(r() * 9);
   const sentences: RoundSentence[] = [];
-  if (r() < 0.7) sentences.push({ key: 'clue:n1', hanzi: '我去银行。', translation: r() < 0.3 ? null : 'I go to the bank.', audio: r() < 0.5 });
+  if (r() < 0.7) sentences.push({ key: r() < 0.8 ? 'n1-card' : 'clue:n1', hanzi: '我去银行。', translation: r() < 0.3 ? null : 'I go to the bank.', audio: r() < 0.5 });
   for (let k = 0; k < n; k++) sentences.push({ key: `s${k}`, hanzi: `句子${k}。`, translation: r() < 0.12 ? (r() < 0.5 ? '' : null) : `Sentence ${k}.`, audio: r() < 0.75 });
-  const keys = [...sentences.map((s) => sentenceHistoryKey(s.key)), 'gone'];
+  // `clue` = an event written before migration 0154 for the card sentence (folded into `n1-card`).
+  const keys = [...sentences.map((s) => sentenceHistoryKey(s.key)), 'gone', 'clue'];
   const events: SentencePracticeEvent[] = [];
   const count = long ? Math.floor(r() * 10) : Math.floor(r() * 30);
   for (let e = 0; e < count; e++) {
@@ -104,9 +105,9 @@ const spreads = Array.from({ length: 12 }, (_, n) => ({ n, order: spreadOrder(n)
 
 writeFileSync(join(OUT, 'sentence-history.json'), JSON.stringify({
   cases, spreads, topUpCounts, comingShown: comingShownVectors,
-  keys: ['clue:n1', 'clue:abc', 'abc', 'clue'].map((k) => ({ row: k, key: sentenceHistoryKey(k) })),
+  keys: ['clue:n1', 'clue:abc', 'abc', 'clue', 'n1-card'].map((k) => ({ row: k, key: sentenceHistoryKey(k) })),
   copy: {
-    clueKey: CLUE_SENTENCE_KEY, knownRights: SENTENCE_KNOWN_RIGHTS, minVisible: SENTENCE_ROUND_MIN_VISIBLE,
+    knownRights: SENTENCE_KNOWN_RIGHTS, minVisible: SENTENCE_ROUND_MIN_VISIBLE,
     reasons: SENTENCE_HIDE_REASONS, reasonLabels: SENTENCE_HIDE_REASON_LABEL, coming: SENTENCES_COMING_NOTE,
     hideTitle: SENTENCE_HIDE_TITLE, hideHint: SENTENCE_HIDE_HINT, hiddenToast: SENTENCE_HIDDEN_TOAST, showAgain: SENTENCE_SHOW_AGAIN,
     showHidden: [0, 1, 7].map(showHiddenLabel),

@@ -194,6 +194,8 @@ export interface NoteSentence {
   focus_note: string | null;
   /** JSON SentenceBriefExplanation, filled in the first time it's asked for */
   explanation: string | null;
+  /** 1 = the card's own example sentence (`<note>-card`, shared/study/cardSentence.ts; migration 0154). */
+  is_card?: number;
   created_at: string;
   updated_at: string;
 }
@@ -452,13 +454,6 @@ export type ChatAttachment =
   /** A short video clip (MP4 / WebM / MOV ≤ 25 MB); size and length as the sender's device measured them. */
   | { kind: 'video'; bytes: number; mime: string; duration_ms?: number | null; width?: number | null; height?: number | null };
 
-export interface VocabularyDefinition {
-  hanzi: string;
-  pinyin: string;
-  english: string;
-  fun_facts?: string;
-  example?: string;
-}
 
 export interface MessageReaction {
   emoji: string;
@@ -709,11 +704,6 @@ export const DEFAULT_MINIMAX_VOICE = 'Chinese (Mandarin)_Radio_Host';
 // Default speaking rate for all TTS (MiniMax, Google, browser SpeechSynthesis).
 export const DEFAULT_TTS_SPEED = 0.6;
 
-export interface AIRespondResponse {
-  message: MessageWithSender;
-  audio_base64: string | null;
-  audio_content_type: string | null;
-}
 
 export interface ConversationTTSResponse {
   audio_base64: string;
@@ -738,10 +728,6 @@ export interface DiscussMessageResponse {
   flashcards: GeneratedNote[] | null;
 }
 
-// Helper to check if a conversation is with Claude AI
-export function isClaudeConversation(conversation: Conversation): boolean {
-  return conversation.is_ai_conversation;
-}
 
 // Helper to check if a user is Claude AI
 export function isClaudeUser(userId: string): boolean {

@@ -69,12 +69,7 @@ class VoiceFirstSurfacesTest : LabScreenshotTest() {
 
     @Test fun chatTyping() = shoot("voice-first-04-chat-typing") { ChatScreen(ChatScreenshots.base.copy(voicePreview = VoiceDictationUi(mode = "type")), ChatActions()) }
 
-    @Test fun chatClaudeIdle() {
-        shoot("voice-first-05-claude-chat-idle") { ChatScreen(ChatScreenshots.aiUi.copy(waitingForAi = false, playingId = null, draft = "", voicePreview = VoiceDictationUi()), ChatActions()) }
-        // A Claude role-play has no voice messages: only dictation.
-        compose.onNodeWithTag("chat-say").assertExists()
-        compose.onAllNodesWithTag("chat-mic").assertCountEquals(0)
-    }
+
 
     @Test fun coachIdle() = shoot("voice-first-06-coach-idle") {
         CoachHomeScreen(CoachHomeUi(conversations = Loadable(CoachSamples.conversations)), CoachHomeActions(onBack = {}), voicePreview = VoiceDictationUi())

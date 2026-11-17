@@ -88,9 +88,17 @@ object RecordingQueueRules {
         }
     }
 
-    /** What was heard, each character marked `true` when it matches the card (LCS, like diffHanzi). */
-    fun heardMarks(hanzi: String, heard: String): List<Pair<String, Boolean>> =
-        LessonAnswers.diffHanzi(heard, hanzi).typed.map { it.ch to it.hit }
+    /**
+     * What was heard, each character marked `true` when it lines up with the card — the web's `heardChars`: the slim
+     * answer diff's alignment (core AnswerDiff), judged by the characters; the card's characters it left out aren't shown.
+     */
+    fun heardMarks(hanzi: String, heard: String): List<Pair<String, Boolean>> {
+        val t = heard.trim()
+        if (t.isEmpty()) return emptyList()
+        val d = dev.jeromeswannack.chineselearning.lab.core.AnswerDiff.of(t, hanzi, written = true)
+        if (d.empty) return LessonAnswers.chars(t).map { it to true }
+        return d.parts.filter { it.kind != "missing" }.flatMap { p -> LessonAnswers.chars(p.text).map { it to (p.kind == "ok" || p.kind == "plain") } }
+    }
 
     /** The Expected / Heard lines are worth showing: something was heard differently, or a character sounded off. */
     fun showExpected(item: RecordingQueueItemDto): Boolean {

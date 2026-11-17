@@ -4,7 +4,7 @@ import { CustomLessonSpec, LessonExercise, lessonTtsClips, exercisePoints, count
 import { EXERCISE_TYPE_INFO } from './registry';
 import { SAMPLE_LESSONS } from './samples';
 import { resolveConversationVoices, conversationVoicesFor, CONVERSATION_TTS_SPEED, LESSON_VOICE_IDS, LESSON_VOICE_POOLS } from './voices';
-import { diffHanzi, isHanziAnswerCorrect, normalizeHanziAnswer, sentenceUsesWord } from './answer-check';
+import { answerForm, diffHanzi, isHanziAnswerCorrect, normalizeHanziAnswer, sentenceUsesWord } from './answer-check';
 import { sanitizeAttemptData, sectionTimes, formatDuration } from './attempt';
 import { lessonToMarkdown, lessonVocabRows } from './export';
 import { diffLessonSpecs, exercisePrimaryText } from './diff';
@@ -142,6 +142,12 @@ describe('answer checking', () => {
     expect(d.expected.filter(m => !m.hit).map(m => m.ch)).toEqual(['起']);
     expect(d.typed.filter(m => !m.hit).map(m => m.ch)).toEqual(['气']);
     expect(d.accuracy).toBeCloseTo(8 / 9);
+  });
+  it('shows an answer against the accepted form it is', () => {
+    expect(answerForm('你们好', '你好', ['你们好'])).toBe('你们好');
+    expect(answerForm('你们好。', '你好', ['你们好'])).toBe('你们好');
+    expect(answerForm('您好', '你好', ['你们好'])).toBe('你好');
+    expect(answerForm('', '你好', [''])).toBe('你好');
   });
   it('checks that a sentence uses a word', () => {
     expect(sentenceUsesWord('因为下雨，所以我没去。', '所以')).toBe(true);

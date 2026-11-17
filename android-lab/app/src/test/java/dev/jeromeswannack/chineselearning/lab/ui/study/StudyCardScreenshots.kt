@@ -272,7 +272,7 @@ class StudyCardScreenshots : LabScreenshotTest() {
     private fun SentenceListOpen(v: CardView, ex: dev.jeromeswannack.chineselearning.lab.data.api.SentenceExplanation) {
         val u = ui(v)
         // "Show all" opens every row; the clue row has its explanation cached.
-        SentenceList(v, u, null, StudyActions(), startExplained = mapOf("clue:n1" to ex), startShowAll = true)
+        SentenceList(v, u, null, StudyActions(), startExplained = mapOf("n1-card" to ex), startShowAll = true)
     }
 
     @Test fun addChunk() = shoot("study-b12-add-as-card") {

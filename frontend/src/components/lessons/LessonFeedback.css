@@ -23,13 +23,6 @@
   height: 0;
   pointer-events: none;
 }
-.char-diff-chars.lesson-marked-answer .hit {
-  text-decoration: none;
-  color: inherit;
-}
-.char-diff-chars.lesson-marked-answer .extra {
-  color: var(--mark-wrong);
-}
 /* Claude's check below everything he is reading: a slim row while it is on its way. */
 .lesson-claude-slot {
   margin-top: 0.75rem;

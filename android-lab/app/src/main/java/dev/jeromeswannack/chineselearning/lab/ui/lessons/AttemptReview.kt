@@ -16,6 +16,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -37,6 +38,8 @@ import dev.jeromeswannack.chineselearning.lab.core.GapChoiceExercise
 import dev.jeromeswannack.chineselearning.lab.core.JudgeExercise
 import dev.jeromeswannack.chineselearning.lab.core.JudgeGap
 import dev.jeromeswannack.chineselearning.lab.core.LessonAnswers
+import dev.jeromeswannack.chineselearning.lab.ui.study.DiffMarkedText
+import dev.jeromeswannack.chineselearning.lab.ui.study.cells
 import dev.jeromeswannack.chineselearning.lab.core.LessonAttempts
 import dev.jeromeswannack.chineselearning.lab.core.LessonExercise
 import dev.jeromeswannack.chineselearning.lab.core.LessonSentence
@@ -147,14 +150,22 @@ private fun LessonSentence.line() = hanzi + (pinyin?.let { " $it" } ?: "") + (en
 @Composable
 private fun TypedDiff(text: String?, expected: String, alternatives: List<String>, input: String? = null) {
     if (text.isNullOrEmpty()) { AttRow("Answered", "(nothing typed)"); return }
-    val d = LessonAnswers.diffHanzi(text, expected, alternatives)
+    // The slim answer diff (core AnswerDiff), judged by the characters — the web's TypedDiff.
+    val form = LessonAnswers.answerForm(text, expected, alternatives)
+    val d = remember(text, form) { dev.jeromeswannack.chineselearning.lab.core.AnswerDiff.of(text, form, written = true) }
     Row {
         Text(dev.jeromeswannack.chineselearning.lab.core.LessonSpokenCheck.inputLabel(input), fontSize = 13.sp, color = Lab.colors.muted, modifier = Modifier.width(92.dp))
-        Text(buildAnnotatedString { d.typed.forEach { withStyle(SpanStyle(color = if (it.hit) Palette.Good else Palette.Again)) { append(it.ch) } } }, fontSize = 20.sp)
+        DiffMarkedText(d.cells(), 20.sp, Modifier.weight(1f), tag = "att-typed-diff")
     }
-    if (!d.correct) Row {
+    if (!LessonAnswers.isHanziCorrect(text, expected, alternatives)) Row {
         Text("Answer", fontSize = 13.sp, color = Lab.colors.muted, modifier = Modifier.width(92.dp))
-        Text(buildAnnotatedString { d.expected.forEach { withStyle(SpanStyle(color = if (it.hit) Lab.colors.ink else Palette.Hard, fontWeight = if (it.hit) null else FontWeight.Bold)) { append(it.ch) } } }, fontSize = 20.sp)
+        Text(
+            buildAnnotatedString {
+                append(form)
+                withStyle(SpanStyle(color = Lab.colors.muted, fontSize = 13.sp)) { append(" · ${dev.jeromeswannack.chineselearning.lab.core.AnswerDiff.summary(d)}") }
+            },
+            fontSize = 20.sp, color = Lab.colors.ink, modifier = Modifier.weight(1f),
+        )
     }
 }
 

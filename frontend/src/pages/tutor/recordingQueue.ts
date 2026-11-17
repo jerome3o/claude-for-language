@@ -4,7 +4,7 @@
  * optimistic removal of a marked item. The server decides membership and reasons
  * (shared/recordings/queue.ts); this only shapes what is on screen.
  */
-import { diffHanzi } from '@shared/lesson/answer-check';
+import { answerDiff } from '@shared/cards/answer-diff';
 import type { RecordingQueueItem, RecordingQueueResponse, WeakChar, WeakKind } from '@shared/recordings/queue';
 
 export interface ExpectedChar {
@@ -39,13 +39,18 @@ export interface HeardChar {
   wrong: boolean;
 }
 
-/** What the recogniser heard, with the characters that don't line up with the card marked. */
+/**
+ * What the recogniser heard, with the characters that don't line up with the card marked — the slim answer diff's
+ * alignment (shared/cards/answer-diff.ts), judged by the characters; the card's characters it left out are not shown.
+ */
 export function heardChars(transcript: string | null | undefined, hanzi: string): HeardChar[] {
   const t = (transcript ?? '').trim();
   if (!t) return [];
-  const d = diffHanzi(t, hanzi);
-  if (d.typed.length === 0) return Array.from(t).map((ch) => ({ ch, wrong: false }));
-  return d.typed.map((c) => ({ ch: c.ch, wrong: !c.hit }));
+  const d = answerDiff(t, hanzi, { written: true });
+  if (d.empty) return Array.from(t).map((ch) => ({ ch, wrong: false }));
+  return d.parts
+    .filter((p) => p.kind !== 'missing')
+    .flatMap((p) => Array.from(p.text).map((ch) => ({ ch, wrong: p.kind !== 'ok' && p.kind !== 'plain' })));
 }
 
 /** All recordings: unmarked first, then needs work, then listened; newest first within each. */

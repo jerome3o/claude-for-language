@@ -16,11 +16,10 @@ const NOTE = 'n1';
 const HANZI = ['我去银行。', '银行在哪儿？', '银行几点开门？', '他在银行工作。', '这家银行很大。', '银行关门了。', '我在银行等你。', '银行人很多。'];
 
 function rowsOf(n: number, clue = '你去银行吗？'): ListenRow[] {
-  return listenContextRows(
-    NOTE,
-    { hanzi: clue, translation: 'Are you going to the bank?' },
-    HANZI.slice(0, n).map((hanzi, i) => ({ id: `s${i}`, hanzi, translation: `T${i}`, position: i, focus: 'core' })),
-  );
+  return listenContextRows([
+    { id: `${NOTE}-card`, hanzi: clue, translation: 'Are you going to the bank?', position: -1, is_card: 1 },
+    ...HANZI.slice(0, n).map((hanzi, i) => ({ id: `s${i}`, hanzi, translation: `T${i}`, position: i, focus: 'core' })),
+  ]);
 }
 
 let evId = 0;
@@ -34,7 +33,9 @@ describe('sentenceStats — heard in context', () => {
   it('counts heard events per sentence with the latest time, and they are not takes', () => {
     const stats = sentenceStats([heard('s1', '2026-11-01T00:00:00Z'), heard('s1', '2026-11-03T00:00:00Z'), heard('clue', '2026-11-02T00:00:00Z')], NOTE);
     expect(stats.get('s1')?.heard).toEqual({ count: 2, last_at: '2026-11-03T00:00:00Z' });
-    expect(stats.get('clue')?.heard?.count).toBe(1);
+    // An older event's `clue` key is the card row's (shared/study/cardSentence.ts).
+    expect(stats.get('n1-card')?.heard?.count).toBe(1);
+    expect(stats.get('clue')).toBeUndefined();
     expect(stats.get('s1')?.read.attempts).toBe(0);
   });
 });
@@ -69,7 +70,7 @@ describe('pickListenRows', () => {
   });
 
   it('prefers simple sentences among equally fresh ones', () => {
-    const rows = listenContextRows(NOTE, null, [
+    const rows = listenContextRows([
       { id: 'long', hanzi: '虽然今天下雨，但是我们还是去银行办事了，因为很急。', position: 0 },
       { id: 'a', hanzi: '我去银行。', position: 1 },
       { id: 'b', hanzi: '银行在哪儿？', position: 2 },
@@ -79,7 +80,7 @@ describe('pickListenRows', () => {
   });
 
   it('leaves hidden and contrived sentences out', () => {
-    const rows = listenContextRows(NOTE, null, [
+    const rows = listenContextRows([
       { id: 'a', hanzi: '我去银行。', position: 0 },
       { id: 'b', hanzi: '银行在哪儿？', position: 1, focus: 'contrast' },
       { id: 'c', hanzi: '银行关门了。', position: 2 },
@@ -89,7 +90,7 @@ describe('pickListenRows', () => {
   });
 
   it('falls back to contrived sentences when there is nothing else', () => {
-    const rows = listenContextRows(NOTE, null, [{ id: 'b', hanzi: '银行在哪儿？', position: 1, focus: 'contrast' }]);
+    const rows = listenContextRows([{ id: 'b', hanzi: '银行在哪儿？', position: 1, focus: 'contrast' }]);
     expect(keys(pickListenRows(rows, new Map(), { seed: 's' }).rows)).toEqual(['b']);
   });
 
@@ -139,8 +140,8 @@ describe('pickListenRows', () => {
 describe('listenShownRows', () => {
   it('keeps the picked order with fresh data, then rows added during the showing', () => {
     const rows = rowsOf(3);
-    const shown = listenShownRows(rows, ['s2', 'clue:n1', 'gone', 's0'], ['s1', 's0']);
-    expect(keys(shown)).toEqual(['s2', 'clue:n1', 's0', 's1']);
+    const shown = listenShownRows(rows, ['s2', 'n1-card', 'gone', 's0'], ['s1', 's0']);
+    expect(keys(shown)).toEqual(['s2', 'n1-card', 's0', 's1']);
   });
 });
 

@@ -154,6 +154,11 @@ class NavRulesTest {
             }
             assertFalse(NavRules.isImmersiveRoute("/chats?compose=1"))
             assertTrue(NavRules.isImmersiveRoute("/chats/claude/t1?source=chats"))
+            // An old Claude practice chat's link lands in its Claude thread: immersive like the chat it replaces, Chats lit.
+            val practice = dev.jeromeswannack.chineselearning.lab.core.claude.ClaudePractice.legacyThreadPath("c1")
+            assertEquals("/chats/claude/pc-c1", practice)
+            assertTrue(NavRules.isImmersiveRoute(practice))
+            assertEquals(TabId.CHATS, NavRules.activeTab(tabs, practice))
             // The Coach page itself (from a chat message / a study card) stays under More, as on the web.
             assertEquals(TabId.MORE, NavRules.activeTab(tabs, "/coach?text=x&from=card"))
         }

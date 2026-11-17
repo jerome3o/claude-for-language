@@ -290,7 +290,17 @@ class ClaudeThreadViewModel(
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
-            local.update { it.copy(loadError = if (app.online.value) "Couldn't load this chat." else "You're offline and this chat isn't on this phone yet.") }
+            // An old practice chat whose thread couldn't be copied (deleted, not mine): say so (core ClaudePractice).
+            val gone = e is dev.jeromeswannack.chineselearning.lab.data.HttpException && e.code == 404 && id.startsWith("pc-")
+            local.update {
+                it.copy(
+                    loadError = when {
+                        !app.online.value -> "You're offline and this chat isn't on this phone yet."
+                        gone -> dev.jeromeswannack.chineselearning.lab.core.claude.ClaudePractice.LEGACY_THREAD_GONE
+                        else -> "Couldn't load this chat."
+                    },
+                )
+            }
         }
     }
 

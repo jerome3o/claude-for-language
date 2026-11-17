@@ -31,12 +31,13 @@ import dev.jeromeswannack.chineselearning.lab.ui.teaching.TeachingSamples as S
 
 /**
  * One chat per pair (docs/CHAT.md): the inbox has one row per person, a person's chat menu has
- * no New conversation / title / All conversations (a Claude practice chat keeps them), and the
- * student / tutor pages show ONE chat entry point instead of a list of conversations.
+ * no New conversation / title / All conversations (old Claude practice chats open their Claude
+ * thread instead), and the student / tutor pages show ONE chat entry point instead of a list of
+ * conversations.
  */
 class OneChatPerPairScreenshots : LabScreenshotTest() {
     private val person = ChatScreenshots.base
-    private val claude = ChatScreenshots.aiUi
+
 
     @Test fun inbox() = shootInShell("one-chat-01-inbox", active = TabId.CHATS) { ChatsScreen(ChatsSamples.loaded, ChatsActions()) }
 
@@ -44,9 +45,6 @@ class OneChatPerPairScreenshots : LabScreenshotTest() {
         LabScreen("王老师 · ⋯") { item { ChatMenuContent(person, ChatSheetActions()) } }
     }
 
-    @Test fun claudeMenu() = shoot("one-chat-03-menu-claude") {
-        LabScreen("Claude · ⋯") { item { ChatMenuContent(claude, ChatSheetActions()) } }
-    }
 
     @Test fun tutorPage() = shootInShell("one-chat-04-tutor-page", active = TabId.MORE) {
         TutorPageScreen(ConnectionsScreenshots.pageUi, TutorPageActions())
@@ -70,21 +68,6 @@ class OneChatPerPairScreenshots : LabScreenshotTest() {
         }
     }
 
-    @Test fun aClaudePracticeChatKeepsItsConversationTools() {
-        val calls = mutableListOf<String>()
-        compose.setContent {
-            LabTheme {
-                Column {
-                    ChatMenuContent(claude, ChatSheetActions(onNewConversation = { calls += "new" }, onOpenRename = { calls += "rename" }, onAllConversations = { calls += "all" }))
-                }
-            }
-        }
-        compose.onNodeWithText("New conversation").performClick()
-        compose.onNodeWithText("Rename conversation").performClick()
-        compose.onNodeWithText("All conversations").performClick()
-        compose.onNodeWithText("Voice settings").assertExists()
-        assertEquals(listOf("new", "rename", "all"), calls)
-    }
 
     @Test fun theTutorPageHasOneChatEntryPoint() {
         var opened = 0

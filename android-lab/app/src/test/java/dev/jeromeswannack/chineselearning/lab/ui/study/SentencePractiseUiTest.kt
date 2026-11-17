@@ -45,7 +45,7 @@ class SentencePractiseUiTest : LabScreenshotTest() {
         SentenceEntity("s1", "n1", 0, "银行在哪儿？", "Yínháng zài nǎr?", "Where is the bank?", null, "core", null),
         SentenceEntity("s2", "n1", 1, "这家银行几点开门？", "Zhè jiā yínháng jǐ diǎn kāimén?", "What time does this bank open?", null, "core", null),
     )
-    private val clueKey = clueRowKey("n1")
+    private val clueKey = cardRowKey("n1")
     private val prefs get() = StudyPrefs.get(ApplicationProvider.getApplicationContext())
 
     @After fun gateOff() = prefs.setHardMode("off")

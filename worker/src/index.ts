@@ -14,8 +14,9 @@ import { runIdiomJob, type IdiomQueueMessage } from './services/idioms';
 import messageTranslateRoutes from './routes/message-translate';
 import { cors } from 'hono/cors';
 import Anthropic from '@anthropic-ai/sdk';
-import { Env, Rating, User, CardQueue, SentenceBriefExplanation, SentenceSetMessage, QuestGenerationMessage, PictureHuntJobMessage, TutorNotesJobMessage, CreateConversationRequest, CLAUDE_AI_USER_ID, AIRespondResponse, ConversationTTSRequest, ConversationTTSResponse, CheckMessageResponse, GenerateReaderRequest, DifficultyLevel, ImageGenerationMessage, CustomLessonImageMessage, StoryGenerationMessage, VocabularyItem } from './types';
+import { Env, Rating, User, CardQueue, SentenceBriefExplanation, SentenceSetMessage, QuestGenerationMessage, PictureHuntJobMessage, TutorNotesJobMessage, CreateConversationRequest, CLAUDE_AI_USER_ID, ConversationTTSRequest, ConversationTTSResponse, CheckMessageResponse, GenerateReaderRequest, DifficultyLevel, ImageGenerationMessage, CustomLessonImageMessage, StoryGenerationMessage, VocabularyItem } from './types';
 import * as db from './db/queries';
+import { reconcileCardSentencesForUser } from './db/card-sentence';
 import * as content from './services/content';
 import { enqueueSentenceSet, enqueueSentenceTopUp, ensureSentenceClueAudio, enqueueClueAudio, ContentError } from './services/content';
 import { LISTEN_CONTEXT_MIN_SENTENCES, needsSentenceTopUp, topUpCount } from '@shared/study/listenContext';
@@ -44,7 +45,7 @@ import {
   parseLearningSteps,
 } from './services/anki-scheduler';
 import { fakeGeneratedDeck } from './services/generate-deck-fake';
-import { generateDeck, suggestCards, generateAIConversationResponse, generateAIConversationOpener, checkUserMessage, generateIDontKnowOptions } from './services/ai';
+import { generateDeck, suggestCards, checkUserMessage, generateIDontKnowOptions } from './services/ai';
 import { ClaudeContextError, discussTurns, proposedFlashcards, runClaudeTurn } from './services/claude-agent';
 import { analyzeSentence } from './services/sentence';
 import { coachSentence } from './services/sentence-coach';
@@ -88,7 +89,7 @@ import readerQueueRoutes from './routes/reader-queue';
 import { placeNewReader, readerQueuePositions, withQueuePositions } from './services/reader-queue';
 import { isReaderQueuePlacement } from '@shared/reader/queue';
 import { loadMessageForMember, ChatMessageError } from './services/chat/messages';
-import { storeAudio, getAudio, deleteAudio, getRecordingKey, ownRecordingKey, generateTTS, generateConversationTTS, parseByteRange, resolveServedRange, classifyMp3, DEFAULT_TTS_SPEED, DEFAULT_MINIMAX_VOICE } from './services/audio';
+import { storeAudio, getAudio, deleteAudio, getRecordingKey, ownRecordingKey, generateTTS, parseByteRange, resolveServedRange, classifyMp3, DEFAULT_TTS_SPEED, DEFAULT_MINIMAX_VOICE } from './services/audio';
 import {
   getGoogleAuthUrl,
   exchangeCodeForTokens,
@@ -141,6 +142,7 @@ import { emailPublic, emailPrefs } from './routes/email-prefs';
 import { HOMEWORK_EMAIL_CRON, runAssignedEmail, runHomeworkEmailCron, type HomeworkEmailMessage } from './services/homework-emails';
 import linkPreview from './routes/link-preview';
 import chatLiveRoutes, { mountLiveSocket } from './routes/chat-live';
+import retiredPracticeChatRoutes from './routes/retired-practice-chat';
 import chatListeningRoutes from './routes/chat-listening';
 import chatMessagesRoutes from './routes/chat-messages';
 import chatLearningRoutes from './routes/chat-learning';
@@ -703,6 +705,8 @@ app.route('/api', emailPrefs);
 app.route('/api', linkPreview);
 // Chat: messages, read markers, inbox, native push tokens, live ticket (docs/CHAT.md)
 app.route('/api', chatLiveRoutes);
+// The old Claude practice chat's endpoints answer 410 (role-plays are Claude threads now).
+app.route('/api', retiredPracticeChatRoutes);
 app.route('/api', chatListeningRoutes);
 // Rich messages: photo / voice upload + serving, edit, delete, pin, reactions (docs/CHAT.md PR 2)
 app.route('/api', chatMessagesRoutes);
@@ -1713,13 +1717,10 @@ app.post('/api/notes/:id/sentences/generate', async (c) => {
   }
 
   try {
-    const existingRows = await db.getNoteSentences(c.env.DB, id);
-    // The note's inline sentence clue counts as "already seen" so the set
-    // doesn't just repeat it back.
-    const seen = [
-      ...(note.sentence_clue ? [note.sentence_clue] : []),
-      ...existingRows.map((s) => s.hanzi),
-    ];
+    // Every row — the card's own sentence included — counts as "already seen", so the set doesn't repeat it.
+    const allRows = await db.getNoteSentences(c.env.DB, id);
+    const existingRows = allRows.filter((s) => !s.is_card);
+    const seen = allRows.map((s) => s.hanzi);
 
     // The learner's bio, known words and lesson structures (services/sentence-learner-context.ts).
     const learner = await sentenceLearnerContext(c.env.DB, id, note.hanzi);
@@ -1800,17 +1801,23 @@ app.delete('/api/notes/:id/sentences', async (c) => {
 });
 
 /**
- * Offline sync: every sentence the user owns that changed since `since`.
- * Sets are always written whole, so the client can safely replace all local
- * rows for each note_id that appears in the response.
+ * Offline sync: every sentence the user owns that changed since `since`, whole notes at a time (the card's
+ * own sentence row included, migration 0154). The client replaces all local rows for each note in
+ * `note_ids` (older clients: each note_id that appears in `sentences`).
  */
 app.get('/api/sentences/changes', async (c) => {
   const userId = c.get('user').id;
   const since = c.req.query('since') || null;
   // Before the query: a set written while it runs is newer than the next cursor.
   const serverTime = new Date().toISOString();
-  const sentences = await db.getNoteSentencesForUser(c.env.DB, userId, since);
-  return c.json({ sentences, server_time: serverTime });
+  // The card sentence rows of the notes changed since the cursor are made to match their notes first
+  // (db/card-sentence.ts): whatever wrote a note's card sentence, its row comes down with this sync.
+  await reconcileCardSentencesForUser(c.env.DB, userId, since).catch((err) =>
+    console.error('[sentences] card sentence reconcile failed', err)
+  );
+  const { sentences, noteIds } = await db.getNoteSentencesForUser(c.env.DB, userId, since);
+  // note_ids: every note whose rows these are (a note with none left included) — replace them whole.
+  return c.json({ sentences, note_ids: noteIds, server_time: serverTime });
 });
 
 /**
@@ -1982,9 +1989,9 @@ app.post('/api/sentences/top-up', async (c) => {
 });
 
 /**
- * The same brief breakdown, for a sentence that isn't a stored set row — the
- * card's own example sentence, which lives on the note rather than in
- * note_sentences. There's no row to cache it on, so the client caches it.
+ * The same brief breakdown, for a sentence that isn't a stored row (the Coach's Explain, a chat message).
+ * The card's own sentence is a row since migration 0154 and uses `/api/sentences/:id/explain`; older app
+ * builds still send it here.
  */
 app.post('/api/sentences/explain-text', async (c) => {
   if (!c.env.ANTHROPIC_API_KEY) {
@@ -2015,6 +2022,48 @@ app.post('/api/sentences/explain-text', async (c) => {
     // 503 = worth another try; 502 = Claude declined this one.
     const retryable = !(error instanceof StructuredCallError) || error.retryable;
     return c.json({ error: 'Failed to explain sentence', retryable }, retryable ? 503 : 502);
+  }
+});
+
+/**
+ * The English line of a row written without one (many card sentences — MCP-added / older notes): the same
+ * Haiku breakdown's one-line translation, kept on the row (and, for the card's own sentence, on its note's
+ * deprecated sentence_clue_translation) — the breakdown itself is NOT stored, so opening the row later never
+ * unfolds a breakdown nobody asked for. A row with English (or a cached breakdown carrying one) answers at once.
+ */
+app.post('/api/sentences/:id/translate', async (c) => {
+  const userId = c.get('user').id;
+  const id = c.req.param('id');
+  const sentence = await db.getNoteSentenceById(c.env.DB, id, userId);
+  if (!sentence) return c.json({ error: 'Sentence not found' }, 404);
+  const have = sentence.translation?.trim();
+  if (have) return c.json({ translation: have, cached: true });
+  if (sentence.explanation) {
+    try {
+      const cached = (JSON.parse(sentence.explanation) as SentenceBriefExplanation).translation?.trim();
+      if (cached) {
+        await db.setNoteSentenceTranslation(c.env.DB, sentence, cached);
+        return c.json({ translation: cached, cached: true });
+      }
+    } catch {
+      // A corrupt cache: ask again below.
+    }
+  }
+  if (!c.env.ANTHROPIC_API_KEY) return c.json({ error: 'AI service is not configured', retryable: true }, 503);
+  try {
+    const explanation = await explainSentenceBriefly(c.env.ANTHROPIC_API_KEY, {
+      hanzi: sentence.hanzi,
+      pinyin: sentence.pinyin,
+      translation: null,
+    });
+    const translation = explanation.translation?.trim();
+    if (!translation) return c.json({ error: 'No translation came back', retryable: true }, 503);
+    await db.setNoteSentenceTranslation(c.env.DB, sentence, translation);
+    return c.json({ translation, cached: false });
+  } catch (error) {
+    console.error('Sentence translation error:', error);
+    const retryable = !(error instanceof StructuredCallError) || error.retryable;
+    return c.json({ error: 'Failed to translate sentence', retryable }, retryable ? 503 : 502);
   }
 });
 
@@ -2059,6 +2108,13 @@ app.post('/api/sentences/:id/explain', async (c) => {
       sentence.note_id,
       JSON.stringify(explanation)
     );
+    // A row without English (many card sentences were written without one) keeps the breakdown's line.
+    const translation = explanation.translation?.trim();
+    if (!sentence.translation?.trim() && translation) {
+      await db.setNoteSentenceTranslation(c.env.DB, sentence, translation).catch((err) =>
+        console.error('[sentences] could not keep the translation', err)
+      );
+    }
     return c.json({ explanation, cached: false });
   } catch (error) {
     console.error('Sentence explanation error:', error);
@@ -3905,142 +3961,6 @@ app.post('/api/conversations/:id/generate-response-options', async (c) => {
   }
 });
 
-// AI responds in conversation (Claude tutor)
-app.post('/api/conversations/:id/ai-respond', async (c) => {
-  const userId = c.get('user').id;
-  const convId = c.req.param('id');
-
-  if (!c.env.ANTHROPIC_API_KEY) {
-    return c.json({ error: 'AI is not configured' }, 500);
-  }
-
-  try {
-    // Get conversation details
-    const conv = await getConversationById(c.env.DB, convId, userId);
-    if (!conv) {
-      return c.json({ error: 'Conversation not found' }, 404);
-    }
-
-    if (!conv.is_ai_conversation) {
-      return c.json({ error: 'This is not an AI conversation' }, 400);
-    }
-
-    // Get chat context
-    const chatContext = await getChatContext(c.env.DB, convId, userId);
-    if (!chatContext || chatContext.trim() === '') {
-      return c.json({ error: 'No messages found' }, 400);
-    }
-
-    // Get the latest user message
-    const { messages } = await getMessages(c.env.DB, convId, userId);
-    const latestUserMessage = messages.filter(m => m.sender_id !== CLAUDE_AI_USER_ID).pop();
-    if (!latestUserMessage) {
-      return c.json({ error: 'No user message found' }, 400);
-    }
-
-    // Generate AI response
-    const aiResponse = await generateAIConversationResponse(
-      c.env.ANTHROPIC_API_KEY,
-      conv,
-      chatContext,
-      latestUserMessage.content
-    );
-
-    // Save AI message
-    const aiMessage = await sendMessage(c.env.DB, convId, CLAUDE_AI_USER_ID, aiResponse);
-
-    // Generate TTS audio
-    let audioBase64: string | null = null;
-    let audioContentType: string | null = null;
-
-    const ttsResult = await generateConversationTTS(c.env, aiResponse, {
-      voiceId: conv.voice_id || DEFAULT_MINIMAX_VOICE,
-      speed: conv.voice_speed ?? DEFAULT_TTS_SPEED,
-      // Played once with the reply, never kept (docs/AUDIO.md "Google fallback").
-      allowGoogleFallback: true,
-    });
-
-    if (ttsResult) {
-      audioBase64 = ttsResult.audioBase64;
-      audioContentType = ttsResult.contentType;
-    }
-
-    const response: AIRespondResponse = {
-      message: aiMessage,
-      audio_base64: audioBase64,
-      audio_content_type: audioContentType,
-    };
-
-    return c.json(response);
-  } catch (error) {
-    console.error('AI respond error:', error);
-    const message = error instanceof Error ? error.message : 'Failed to get AI response';
-    return c.json({ error: message }, 500);
-  }
-});
-
-// Generate Claude's opening message for a new AI conversation (e.g. from study card)
-app.post('/api/conversations/:id/ai-initiate', async (c) => {
-  const userId = c.get('user').id;
-  const convId = c.req.param('id');
-
-  if (!c.env.ANTHROPIC_API_KEY) {
-    return c.json({ error: 'AI is not configured' }, 500);
-  }
-
-  try {
-    const conv = await getConversationById(c.env.DB, convId, userId);
-    if (!conv) {
-      return c.json({ error: 'Conversation not found' }, 404);
-    }
-
-    if (!conv.is_ai_conversation) {
-      return c.json({ error: 'This is not an AI conversation' }, 400);
-    }
-
-    // Check conversation has no messages yet (this is for initiating only)
-    const { messages } = await getMessages(c.env.DB, convId, userId);
-    if (messages.length > 0) {
-      return c.json({ error: 'Conversation already has messages' }, 400);
-    }
-
-    // Generate Claude's opening message
-    const aiResponse = await generateAIConversationOpener(
-      c.env.ANTHROPIC_API_KEY,
-      conv,
-    );
-
-    // Save AI message
-    const aiMessage = await sendMessage(c.env.DB, convId, CLAUDE_AI_USER_ID, aiResponse);
-
-    // Generate TTS audio
-    let audioBase64: string | null = null;
-    let audioContentType: string | null = null;
-
-    const ttsResult = await generateConversationTTS(c.env, aiResponse, {
-      voiceId: conv.voice_id || DEFAULT_MINIMAX_VOICE,
-      speed: conv.voice_speed ?? DEFAULT_TTS_SPEED,
-      // Played once with the reply, never kept (docs/AUDIO.md "Google fallback").
-      allowGoogleFallback: true,
-    });
-
-    if (ttsResult) {
-      audioBase64 = ttsResult.audioBase64;
-      audioContentType = ttsResult.contentType;
-    }
-
-    return c.json({
-      message: aiMessage,
-      audio_base64: audioBase64,
-      audio_content_type: audioContentType,
-    });
-  } catch (error) {
-    console.error('AI initiate error:', error);
-    const message = error instanceof Error ? error.message : 'Failed to initiate AI conversation';
-    return c.json({ error: message }, 500);
-  }
-});
-
 // Generate TTS for conversation messages (on-demand, not stored)
 app.post('/api/conversations/:id/tts', async (c) => {
   const userId = c.get('user').id;
@@ -4352,180 +4272,6 @@ function extractJSON(text: string): string | null {
   }
   return null;
 }
-
-// Helper: fetch a character definition from Claude AI and cache it in D1
-async function fetchAndCacheDefinition(
-  db: D1Database,
-  hanzi: string,
-  context: string | undefined,
-  apiKey: string,
-): Promise<{ hanzi: string; pinyin: string; english: string; fun_facts?: string; example?: string }> {
-  const prompt = `You are a Mandarin Chinese language expert. Define this Chinese word/phrase: "${hanzi}"
-${context ? `\nContext sentence: "${context}"` : ''}
-
-IMPORTANT: Use tone marks for pinyin (nǐ hǎo) NOT tone numbers (ni3 hao3).
-
-Provide:
-1. Hanzi (the word/phrase itself)
-2. Pinyin with tone marks
-3. English definition
-4. A substantive learning note: explain grammar patterns, cultural context, common mistakes, or disambiguation from similar characters/words
-5. An example sentence using the word (if not provided in context)
-
-Respond with ONLY a JSON object in this exact format:
-{
-  "hanzi": "...",
-  "pinyin": "...",
-  "english": "...",
-  "fun_facts": "...",
-  "example": "..."
-}`;
-
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01'
-    },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-5-20250929',
-      max_tokens: 1024,
-      messages: [{ role: 'user', content: prompt }]
-    })
-  });
-
-  if (!response.ok) {
-    throw new Error(`Anthropic API error: ${response.statusText}`);
-  }
-
-  const data = await response.json<any>();
-  const text = data.content[0].text;
-  const jsonStr = extractJSON(text);
-  if (!jsonStr) {
-    throw new Error('Failed to parse AI response');
-  }
-
-  const result = JSON.parse(jsonStr);
-
-  // Cache in D1 (fire-and-forget, don't block response)
-  try {
-    await db.prepare(
-      `INSERT OR REPLACE INTO character_definitions (hanzi, pinyin, english, fun_facts, example, updated_at)
-       VALUES (?, ?, ?, ?, ?, datetime('now'))`
-    ).bind(result.hanzi, result.pinyin, result.english, result.fun_facts || null, result.example || null).run();
-  } catch (e) {
-    console.error('Failed to cache definition:', e);
-  }
-
-  return result;
-}
-
-// Define a vocabulary word with context
-app.post('/api/vocabulary/define', async (c) => {
-  const userId = c.get('user').id;
-  const { hanzi, context, skipCache } = await c.req.json<{ hanzi: string; context?: string; skipCache?: boolean }>();
-
-  if (!c.env.ANTHROPIC_API_KEY) {
-    return c.json({ error: 'AI is not configured' }, 500);
-  }
-
-  if (!hanzi || hanzi.trim() === '') {
-    return c.json({ error: 'Hanzi is required' }, 400);
-  }
-
-  try {
-    // Check global D1 cache first (unless skipCache is set for refresh)
-    if (!skipCache) {
-      const cached = await c.env.DB.prepare(
-        'SELECT hanzi, pinyin, english, fun_facts, example FROM character_definitions WHERE hanzi = ?'
-      ).bind(hanzi.trim()).first<{ hanzi: string; pinyin: string; english: string; fun_facts: string | null; example: string | null }>();
-
-      if (cached) {
-        return c.json({ ...cached, cached: true });
-      }
-    }
-
-    const result = await fetchAndCacheDefinition(c.env.DB, hanzi.trim(), context, c.env.ANTHROPIC_API_KEY);
-    return c.json(result);
-  } catch (error) {
-    console.error('Define vocabulary error:', error);
-    const errMsg = error instanceof Error ? error.message : 'Failed to define word';
-    return c.json({ error: errMsg }, 500);
-  }
-});
-
-// Pre-populate character definitions for a user's learned vocabulary
-app.post('/api/vocabulary/populate', async (c) => {
-  const userId = c.get('user').id;
-
-  if (!c.env.ANTHROPIC_API_KEY) {
-    return c.json({ error: 'AI is not configured' }, 500);
-  }
-
-  try {
-    // Get all unique hanzi from the user's notes
-    const notes = await c.env.DB.prepare(
-      `SELECT DISTINCT n.hanzi FROM notes n
-       JOIN decks d ON n.deck_id = d.id
-       WHERE d.user_id = ? AND n.hanzi IS NOT NULL AND n.hanzi != ''`
-    ).bind(userId).all<{ hanzi: string }>();
-
-    if (!notes.results || notes.results.length === 0) {
-      return c.json({ message: 'No vocabulary to populate', populated: 0, skipped: 0 });
-    }
-
-    // Extract individual characters from all hanzi phrases
-    const allChars = new Set<string>();
-    for (const note of notes.results) {
-      for (const ch of note.hanzi) {
-        if (/[\u4e00-\u9fff\u3400-\u4dbf]/.test(ch)) {
-          allChars.add(ch);
-        }
-      }
-    }
-
-    // Check which ones are already cached
-    const charArray = Array.from(allChars);
-    const placeholders = charArray.map(() => '?').join(',');
-    const existing = await c.env.DB.prepare(
-      `SELECT hanzi FROM character_definitions WHERE hanzi IN (${placeholders})`
-    ).bind(...charArray).all<{ hanzi: string }>();
-
-    const existingSet = new Set((existing.results || []).map(r => r.hanzi));
-    const uncached = charArray.filter(ch => !existingSet.has(ch));
-
-    if (uncached.length === 0) {
-      return c.json({ message: 'All characters already cached', populated: 0, skipped: charArray.length });
-    }
-
-    // Populate in batches of 10 (to avoid timeout)
-    const batchSize = 10;
-    const batch = uncached.slice(0, batchSize);
-    let populated = 0;
-
-    for (const ch of batch) {
-      try {
-        await fetchAndCacheDefinition(c.env.DB, ch, undefined, c.env.ANTHROPIC_API_KEY);
-        populated++;
-      } catch (e) {
-        console.error(`Failed to populate definition for ${ch}:`, e);
-      }
-    }
-
-    return c.json({
-      message: `Populated ${populated} definitions`,
-      populated,
-      skipped: existingSet.size,
-      remaining: uncached.length - populated,
-      total: charArray.length,
-    });
-  } catch (error) {
-    console.error('Populate vocabulary error:', error);
-    const errMsg = error instanceof Error ? error.message : 'Failed to populate vocabulary';
-    return c.json({ error: errMsg }, 500);
-  }
-});
 
 // Convert arbitrary text into a flashcard (for Ask Claude messages)
 app.post('/api/text-to-flashcard', async (c) => {
@@ -6741,12 +6487,11 @@ async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | Ima
           // A listening card's top-up: ADD sentences after the set (the rows it has stay —
           // ids, clips, breakdowns), only while the note still has fewer than five natural ones.
           if (kind === 'top_up') {
+            // Every row counts — the card's own sentence is one of them (migration 0154).
             const current = await db.getNoteSentences(env.DB, noteId);
-            const clue = note.sentence_clue?.trim() ? note.sentence_clue : null;
-            const clueCounts = clue && !current.some((s) => s.hanzi === clue) ? 1 : 0;
-            const total = current.length + clueCounts;
+            const total = current.length;
             // Contrived rows (written around a look-alike, shared/study/sentenceFocus.ts) never make "enough".
-            const natural = naturalSentenceCount(current) + clueCounts;
+            const natural = naturalSentenceCount(current);
             // A Sentence round top-up adds to any set (up to the cap); a listening one only below five natural.
             if (round ? total >= SENTENCE_SET_MAX_TOTAL : !needsSentenceTopUp(natural)) {
               await db.markSentenceSetJobDone(env.DB, noteId);
@@ -6760,7 +6505,7 @@ async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | Ima
                 hanzi: note.hanzi,
                 pinyin: note.pinyin,
                 english: note.english,
-                existing: [...(clue ? [clue] : []), ...current.map((s) => s.hanzi)],
+                existing: current.map((s) => s.hanzi),
                 bio: learner.bio,
                 knownWords: learner.knownWords,
                 structures: learner.structures,
@@ -6768,7 +6513,7 @@ async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | Ima
               round ? Math.max(1, Math.min(count ?? SENTENCE_TOPUP_MIN, SENTENCE_SET_MAX_TOTAL - total)) : count ?? topUpCount(natural),
               { fake: env.E2E_TEST_MODE === 'true' }
             );
-            const known = new Set([...(clue ? [clue] : []), ...current.map((s) => s.hanzi)]);
+            const known = new Set(current.map((s) => s.hanzi));
             const fresh = generated.filter((s) => !known.has(s.hanzi));
             const stored = await db.appendNoteSentences(
               env.DB,
@@ -6796,9 +6541,9 @@ async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | Ima
             continue;
           }
 
-          // Someone may have generated it by hand between queueing and now
+          // Someone may have generated it by hand between queueing and now (the card's own row isn't a set)
           const existing = await db.getNoteSentences(env.DB, noteId);
-          if (existing.length > 0) {
+          if (existing.some((s) => !s.is_card)) {
             await db.markSentenceSetJobDone(env.DB, noteId);
             message.ack();
             continue;
@@ -6811,7 +6556,7 @@ async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | Ima
               hanzi: note.hanzi,
               pinyin: note.pinyin,
               english: note.english,
-              existing: note.sentence_clue ? [note.sentence_clue] : [],
+              existing: existing.map((s) => s.hanzi),
               bio: learner.bio,
               knownWords: learner.knownWords,
               structures: learner.structures,
@@ -6837,7 +6582,7 @@ async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | Ima
 
           // Every clip through tts-queue at the shared MiniMax rate; the card's own
           // sentence too (often silent, and this job visits every note).
-          await attachSentenceSetAudio(env, stored, 'batch');
+          await attachSentenceSetAudio(env, stored.filter((s) => !s.is_card), 'batch');
           await enqueueClip(env, { kind: 'clue', id: noteId });
           await db.markSentenceSetJobDone(env.DB, noteId);
           console.log('[Queue] Sentence set done:', noteId, stored.length, 'sentences');

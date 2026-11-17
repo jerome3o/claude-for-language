@@ -163,8 +163,8 @@ export const ANALYTICS_EVENTS = {
   'homework.skipped': e('homework', '"Skip this homework" on a tutor\'s homework row (long-press / ⋯; docs/HOMEWORK.md §3d): a `skip` event — the tutor sees "Skipped by <student>" (kind = deck | lesson | reader | link; undo = taken back with Undo).', ['kind', 'undo']),
 
   // ── chat ───────────────────────────────────────────────────────────────
-  'chat.open': e('chat', 'Opened a conversation.', ['is_ai', 'unread']),
-  'chat.send': e('chat', 'Sent a message.', ['kind', 'is_ai', 'reply', 'offline']),
+  'chat.open': e('chat', 'Opened a conversation with a person (is_ai = an old Claude practice chat — apps before Nov 2026; those open their Claude thread now: claude.thread_open context_kind practice).', ['is_ai', 'unread']),
+  'chat.send': e('chat', 'Sent a message to a person (is_ai = into an old Claude practice chat — apps before Nov 2026; role-plays are Claude threads now: claude.message_send).', ['kind', 'is_ai', 'reply', 'offline']),
   'chat.menu_action': e('chat', 'Chose an item in the message menu (long-press / ⋯).', ['action', 'kind']),
   'chat.reaction': e('chat', 'Reacted to a message.', []),
   'chat.make_flashcards': e('chat', 'Saved cards with Make flashcards.', ['count', 'focus']),

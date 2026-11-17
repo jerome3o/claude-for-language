@@ -29,7 +29,9 @@ import dev.jeromeswannack.chineselearning.lab.ui.nav.Routes
  * the pair; with Claude, the Chats tab's "🎭 Practice a situation" sheet (role-plays are Claude threads
  * now — web: ChatPage `wantsNew`). `/connections/:relId/chat` (no id) opens the one chat with that
  * person (one chat per pair, docs/CHAT.md). An id merged away on the server is swapped for the
- * chat it went into ([ChatPair]). Package E.
+ * chat it went into ([ChatPair]); an OLD Claude practice chat opens its Claude thread
+ * `/chats/claude/pc-<id>` (web: ChatRoute; docs/CHAT.md "Practice with Claude" → "Old practice chats").
+ * Package E.
  */
 fun NavGraphBuilder.chatGraph(nav: LabNav) {
     composable(
@@ -63,15 +65,20 @@ private fun TheChat(nav: LabNav, relId: String) {
 /**
  * An id the phone already knows was merged away opens the chat it went into at once (offline
  * too); one the server reveals while loading ([ChatUi.mergedInto]) is recorded (draft and
- * notification move along) and the screen swaps to the primary.
+ * notification move along) and the screen swaps to the primary. An old Claude practice chat the
+ * phone's conversation list already knows opens its Claude thread at once; one only the server's
+ * list reveals is swapped while loading ([ChatUi.movedToThread]).
  */
 @Composable
 private fun ResolvedChatRoute(nav: LabNav, relId: String, convId: String) {
-    val primary by androidx.compose.runtime.produceState<String?>(null, convId) { value = runCatching { ChatPair.primaryOf(nav.app, convId) }.getOrDefault(convId) }
-    when (val p = primary) {
+    val target by androidx.compose.runtime.produceState<String?>(null, convId) {
+        val practice = runCatching { ChatPair.cachedPracticeThreadPath(nav.app, relId, convId) }.getOrNull()
+        value = practice ?: Routes.chat(relId, runCatching { ChatPair.primaryOf(nav.app, convId) }.getOrDefault(convId))
+    }
+    when (val t = target) {
         null -> Unit
-        convId -> ChatRoute(nav, relId, convId)
-        else -> LaunchedEffect(p) { nav.back(); nav.open(Routes.chat(relId, p)) }
+        Routes.chat(relId, convId) -> ChatRoute(nav, relId, convId)
+        else -> LaunchedEffect(t) { nav.back(); nav.open(t) }
     }
 }
 
@@ -104,6 +111,14 @@ private fun ChatRoute(nav: LabNav, relId: String, convId: String) {
             nav.back()
             nav.open(Routes.chat(relId, primary))
         }
+    }
+    // An old Claude practice chat: its Claude thread (the server copies it on demand).
+    ui.movedToThread?.let { path ->
+        LaunchedEffect(path) {
+            nav.back()
+            nav.open(path)
+        }
+        return
     }
     // No notification for the chat on screen (data/chat/ChatPresence.kt).
     DisposableEffect(convId) {
@@ -165,7 +180,7 @@ private fun ChatRoute(nav: LabNav, relId: String, convId: String) {
             onOpenCoach = { m, source -> vm.openInCoach(m, source)?.let(nav::open) },
             onReact = vm::react,
             onViewCheck = vm::viewCheck,
-            onWord = vm::openWord,
+
             onDismissNotice = vm::dismissNotice,
             moveAdded = dev.jeromeswannack.chineselearning.lab.ui.kit.SourceDeckActions.from(nav.app, "chat_flashcards"),
             onJoinCall = { nav.open(Routes.call(it)) },
@@ -254,13 +269,6 @@ private fun ChatRoute(nav: LabNav, relId: String, convId: String) {
                 onSaveCards = { cards, deck, new -> vm.saveCards(cards, deck, new) },
                 onHelpMeSayIt = vm::helpMeSayIt,
                 onToggleOption = vm::toggleOption,
-                onRename = vm::rename,
-                onVoice = { vm.setVoice(voiceId = it) },
-                onSpeed = { vm.setVoice(speed = it) },
-                onNewConversation = { vm.openSheet(null); nav.open(Routes.chat(relId, "new")) },
-                onOpenRename = { vm.openSheet(ChatSheet.Rename) },
-                onOpenVoice = { vm.openSheet(ChatSheet.Voice) },
-                onAllConversations = { vm.openSheet(null); nav.back() },
                 onPersonLink = { link ->
                     vm.openSheet(null)
                     nav.app.analytics.track("chat.person_link", mapOf("link" to link.id))
@@ -268,8 +276,6 @@ private fun ChatRoute(nav: LabNav, relId: String, convId: String) {
                 },
                 onSaveDiscussCards = vm::saveDiscussCards,
                 onOpenAppPath = { path -> vm.openSheet(null); nav.open(path) },
-                define = vm::define,
-                deckHolding = vm::deckHolding,
                 onEdit = vm::startEdit,
                 onAskDelete = vm::askDelete,
                 onDelete = vm::delete,

@@ -162,7 +162,6 @@ class SentenceHistoryParityTest {
         }
         for (k in f["keys"]!!.jsonArray) assertEquals(k.jsonObject.s("key"), SentenceHistory.key(k.jsonObject.s("row")!!))
         val c = f["copy"]!!.jsonObject
-        assertEquals(c.s("clueKey"), SentenceHistory.CLUE_KEY)
         assertEquals(c["knownRights"]!!.jsonPrimitive.int, SentenceHistory.KNOWN_RIGHTS)
         assertEquals(c["minVisible"]!!.jsonPrimitive.int, SentenceHistory.MIN_VISIBLE)
         assertEquals(c["reasons"]!!.jsonArray.map { it.str }, SentenceHistory.HIDE_REASONS)

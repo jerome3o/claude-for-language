@@ -15,11 +15,11 @@ import dev.jeromeswannack.chineselearning.lab.data.api.CheckResultDto
 import dev.jeromeswannack.chineselearning.lab.data.api.ChatConversationDto
 import dev.jeromeswannack.chineselearning.lab.data.api.PracticeConversationBody
 import dev.jeromeswannack.chineselearning.lab.data.api.RelationshipDto
-import dev.jeromeswannack.chineselearning.lab.data.api.SegmentedDto
+
 import dev.jeromeswannack.chineselearning.lab.data.api.SuggestedCard
 import dev.jeromeswannack.chineselearning.lab.data.api.TranslateCardDto
 import dev.jeromeswannack.chineselearning.lab.data.api.addChatNote
-import dev.jeromeswannack.chineselearning.lab.data.api.aiRespond
+
 import dev.jeromeswannack.chineselearning.lab.data.api.chatMessages
 import dev.jeromeswannack.chineselearning.lab.data.api.checkChatMessage
 import dev.jeromeswannack.chineselearning.lab.data.api.conversationTts
@@ -28,15 +28,14 @@ import dev.jeromeswannack.chineselearning.lab.data.api.createDeck
 import dev.jeromeswannack.chineselearning.lab.data.api.displayName
 import dev.jeromeswannack.chineselearning.lab.data.api.other
 import dev.jeromeswannack.chineselearning.lab.data.api.relationship
-import dev.jeromeswannack.chineselearning.lab.data.api.renameConversation
+
 import dev.jeromeswannack.chineselearning.lab.data.api.responseOptions
-import dev.jeromeswannack.chineselearning.lab.data.api.sendChatMessage
-import dev.jeromeswannack.chineselearning.lab.data.api.setVoiceSettings
+
 import dev.jeromeswannack.chineselearning.lab.data.api.startConversation
 import dev.jeromeswannack.chineselearning.lab.data.api.toggleReaction
 import dev.jeromeswannack.chineselearning.lab.data.api.translateMessageCard
 import dev.jeromeswannack.chineselearning.lab.data.api.translateMessage
-import dev.jeromeswannack.chineselearning.lab.data.api.translateSegmented
+
 import dev.jeromeswannack.chineselearning.lab.data.api.userMessage
 import dev.jeromeswannack.chineselearning.lab.data.api.markChatRead
 import dev.jeromeswannack.chineselearning.lab.data.api.liveCalls
@@ -120,9 +119,7 @@ sealed interface ChatSheet {
     data object HelpMeSayIt : ChatSheet
     data class Options(val explanation: String?, val options: List<SuggestedCard>, val selected: Set<Int>) : ChatSheet
     data class Translate(val result: TranslateCardDto) : ChatSheet
-    data class Word(val hanzi: String, val context: String) : ChatSheet
-    data object Rename : ChatSheet
-    data object Voice : ChatSheet
+
     data class Discuss(val message: ChatMessageDto) : ChatSheet
     // ---- PR 2 ----
     /** + → Camera / Photos / Video / File / Help me say it. */
@@ -241,6 +238,11 @@ data class ChatUi(
     val loadError: String? = null,
     /** One chat per pair: the server served this (merged-away) id as another chat; the route swaps to it. */
     val mergedInto: String? = null,
+    /**
+     * An OLD Claude practice chat (`is_ai_conversation`): it lives in its Claude thread now (`pc-<id>`,
+     * core ClaudePractice.legacyThreadPath) — the route opens that instead (docs/CHAT.md "Practice with Claude").
+     */
+    val movedToThread: String? = null,
     val otherName: String = "",
     val otherIsClaude: Boolean = false,
     /** The chat's relationship (null until it loaded): the header's name → their page, the ⋯ menu's links. */
@@ -256,13 +258,10 @@ data class ChatUi(
     val draft: String = "",
     val replyingTo: ChatMessageDto? = null,
     val sending: Boolean = false,
-    val waitingForAi: Boolean = false,
     val playingId: String? = null,
     val checkingId: String? = null,
     val translatingId: String? = null,
     val checkStatuses: Map<String, String> = emptyMap(),
-    val wordByWord: Set<String> = emptySet(),
-    val segmentations: Map<String, SegmentedDto> = emptyMap(),
     val generatingOptions: Boolean = false,
     val notice: Notice? = null,
     val sheet: ChatSheet? = null,
@@ -328,8 +327,8 @@ data class ChatUi(
     // ---- listening mode (docs/CHAT.md "Listening mode") ----
     val listening: ListeningUi = ListeningUi(),
 ) {
-    /** Listening mode belongs to chats with a person (Claude's replies are spoken already). */
-    val listeningAvailable: Boolean get() = !isAi && !otherIsClaude
+    /** Listening mode belongs to chats with a person. */
+    val listeningAvailable: Boolean get() = !otherIsClaude
 
     /** Is [m] drawn as a hidden listening bubble (shared `shouldHideMessage`)? */
     fun isHidden(m: ChatMessageDto): Boolean {
@@ -345,14 +344,12 @@ data class ChatUi(
 
     fun rows(): List<ChatRow> = ChatRows.build(messages, pending, unreadId, myId, otherReadAt)
 
-    val isAi: Boolean get() = conversation?.is_ai_conversation ?: false
-
     /** The person's page from the header (null for Claude / before the relationship loaded) — core ChatPersonLinks. */
-    val personPath: String? get() = dev.jeromeswannack.chineselearning.lab.core.ChatPersonLinks.personPath(relationshipId, isAi || otherIsClaude)
+    val personPath: String? get() = dev.jeromeswannack.chineselearning.lab.core.ChatPersonLinks.personPath(relationshipId, otherIsClaude)
 
     /** The ⋯ menu's links to the person's page and its parts (web chatPersonLinks). */
     val personLinks: List<dev.jeromeswannack.chineselearning.lab.core.ChatPersonLinks.Link>
-        get() = dev.jeromeswannack.chineselearning.lab.core.ChatPersonLinks.links(relationshipId, otherName, viewerRole, isAi || otherIsClaude)
+        get() = dev.jeromeswannack.chineselearning.lab.core.ChatPersonLinks.links(relationshipId, otherName, viewerRole, otherIsClaude)
 
     /** A message's check status: what we learnt here, else what the server stored. */
     fun checkStatus(m: ChatMessageDto): String? = checkStatuses[m.id] ?: m.check_status
@@ -380,7 +377,7 @@ data class ChatUi(
             hasDiscussion = m.has_discussion, pinnedAt = m.pinned_at,
             systemKind = m.system_kind.takeIf { m.isSystem },
         ),
-        viewerRole, isAi, myId ?: "", pinyinOn = aids.pinyin(m.id), translateOn = aids.translation(m.id),
+        viewerRole, false, myId ?: "", pinyinOn = aids.pinyin(m.id), translateOn = aids.translation(m.id),
     )
 
     /**
@@ -563,6 +560,11 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
             val rel = api.relationship(relId).also { cache.put(ConnectionsKeys.relationship(relId), ConnectionsKeys.KIND, it) }
             val convs = api.chatConversations(relId).also { cache.put(ConnectionsKeys.conversations(relId), ConnectionsKeys.KIND, it) }
             applyHeader(rel, convs, me)
+            // An old Claude practice chat: its Claude thread instead (the route swaps; nothing else loads).
+            ChatPair.practiceThreadPath(convId, convs)?.let { path ->
+                _ui.update { it.copy(movedToThread = path) }
+                return
+            }
             val page = api.chatMessages(convId)
             // One chat per pair: an id merged away on the server is served as the chat it went into —
             // its messages carry the primary's id; an empty one is asked about (`merged_from`).
@@ -593,12 +595,12 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
             listening.onOpened(page.read_state?.me, _ui.value.messages)
             readHere()
             startPolling()
-            app.analytics.track("chat.open", mapOf("is_ai" to _ui.value.isAi, "unread" to (unread != null)))
+            app.analytics.track("chat.open", mapOf("unread" to (unread != null)))
         } catch (e: kotlinx.coroutines.CancellationException) {
             // Closed while loading: onCleared still reads the chat.
             throw e
         } catch (e: Exception) {
-            app.analytics.track("chat.open", mapOf("is_ai" to _ui.value.isAi))
+            app.analytics.track("chat.open", emptyMap())
             ChatNotifier.cancel(app, convId)
             _ui.update {
                 if (cachedMsgs != null || it.messages.isNotEmpty()) it.copy(loading = false, offlineHistory = true)
@@ -777,7 +779,7 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
         _ui.update { it.copy(draft = text, draftCheck = it.draftCheck?.takeIf { c -> c.draft == text.trim() }) }
         persistDraft(text)
         val s = _ui.value
-        if (!s.isAi && s.editing == null && typingOut.shouldSend(text, System.currentTimeMillis())) app.chatLive.sendTyping(convId)
+        if (s.editing == null && typingOut.shouldSend(text, System.currentTimeMillis())) app.chatLive.sendTyping(convId)
     }
 
     fun reply(m: ChatMessageDto?) = _ui.update { it.copy(replyingTo = m, sheet = null) }
@@ -789,9 +791,8 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
         val s = _ui.value
         if (s.editing != null) return saveEdit()
         val content = s.draft.trim()
-        if (content.isEmpty() || s.sending || s.waitingForAi) return
-        app.analytics.track("chat.send", mapOf("kind" to "text", "is_ai" to s.isAi, "reply" to (s.replyingTo != null), "offline" to !s.online))
-        if (s.isAi) return sendToClaude(content)
+        if (content.isEmpty() || s.sending) return
+        app.analytics.track("chat.send", mapOf("kind" to "text", "reply" to (s.replyingTo != null), "offline" to !s.online))
         // Optimistic: the bubble is the outbox row (it shows at once, offline too, and survives a restart).
         val clientId = java.util.UUID.randomUUID().toString()
         _ui.update { it.copy(draft = "", replyingTo = null, notice = null) }
@@ -826,43 +827,6 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
         app.scope.launch { app.outbox.discard(clientId) }
     }
 
-    /** Claude role-play conversations reply to the sent message, so that send stays direct (online). */
-    private fun sendToClaude(content: String) {
-        val s = _ui.value
-        if (!s.online) { error("You're offline. Messages to Claude can't be sent until you're back online."); return }
-        _ui.update { it.copy(sending = true, notice = null) }
-        val clientId = java.util.UUID.randomUUID().toString()
-        viewModelScope.launch {
-            try {
-                val msg = api.sendChatMessage(convId, content, s.replyingTo?.id, clientId)
-                app.sounds.play(Sounds.Sfx.POP, 0.5f)
-                app.haptics.tick()
-                addMessages(listOf(msg))
-                lastTimestamp = ChatRich.nextCursor(lastTimestamp, msg.created_at)
-                _ui.update { it.copy(sending = false, draft = "", replyingTo = null) }
-                persistDraft("", now = true)
-                aiReply()
-            } catch (e: Exception) {
-                _ui.update { it.copy(sending = false) }
-                error("Couldn't send your message. It's still in the box below — try again.")
-            }
-        }
-    }
-
-    private suspend fun aiReply() {
-        _ui.update { it.copy(waitingForAi = true) }
-        try {
-            val r = api.aiRespond(convId)
-            addMessages(listOf(r.message))
-            lastTimestamp = ChatRich.nextCursor(lastTimestamp, r.message.created_at)
-            if (r.audio_base64 != null) playBase64(r.audio_base64, r.message.id)
-        } catch (e: Exception) {
-            error("Claude couldn't reply. Your message was sent — try sending another to retry.")
-        } finally {
-            _ui.update { it.copy(waitingForAi = false) }
-            startPolling()
-        }
-    }
 
     // ---------------- list position ----------------
 
@@ -1030,7 +994,7 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
      */
     fun sendPhoto(caption: String) {
         val sheet = _ui.value.sheet as? ChatSheet.Photos ?: return
-        app.analytics.track("chat.send", mapOf("kind" to "photo", "is_ai" to _ui.value.isAi, "offline" to !_ui.value.online))
+        app.analytics.track("chat.send", mapOf("kind" to "photo", "offline" to !_ui.value.online))
         val count = sheet.photos.size
         val albumId = if (count > 1) java.util.UUID.randomUUID().toString() else null
         if (albumId != null) app.analytics.track("chat.album_sent", mapOf("count" to count, "offline" to !_ui.value.online))
@@ -1063,7 +1027,7 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
      */
     fun sendFile(context: android.content.Context, uri: android.net.Uri) {
         _ui.update { it.copy(sheet = null, notice = null) }
-        app.analytics.track("chat.send", mapOf("kind" to "file", "is_ai" to _ui.value.isAi, "offline" to !_ui.value.online))
+        app.analytics.track("chat.send", mapOf("kind" to "file", "offline" to !_ui.value.online))
         val replyTo = _ui.value.replyingTo
         viewModelScope.launch {
             try {
@@ -1092,7 +1056,7 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
     /** A video clip (≤ 25 MB): its length and shape read on the phone, sent as `kind=video&duration_ms=&width=&height=`. */
     fun sendVideo(context: android.content.Context, uri: android.net.Uri) {
         _ui.update { it.copy(sheet = null, notice = null) }
-        app.analytics.track("chat.send", mapOf("kind" to "video", "is_ai" to _ui.value.isAi, "offline" to !_ui.value.online))
+        app.analytics.track("chat.send", mapOf("kind" to "video", "offline" to !_ui.value.online))
         val replyTo = _ui.value.replyingTo
         viewModelScope.launch {
             try {
@@ -1301,7 +1265,7 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
 
     fun sendRecording() {
         val p = _ui.value.recorder as? RecorderUi.Preview ?: return
-        app.analytics.track("chat.send", mapOf("kind" to "voice", "is_ai" to _ui.value.isAi, "offline" to !_ui.value.online))
+        app.analytics.track("chat.send", mapOf("kind" to "voice", "offline" to !_ui.value.online))
         if (_ui.value.voice?.id == PREVIEW_ID) stopAudio()
         val clientId = java.util.UUID.randomUUID().toString()
         val replyTo = _ui.value.replyingTo?.id
@@ -1405,7 +1369,7 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
             MessageMenu.REMOVE_CORRECTION -> removeCorrection(m)
             MessageMenu.CORRECTION_CARD -> proposeCorrection(m)
             MessageMenu.PLAY -> play(m)
-            MessageMenu.WORD_BY_WORD -> toggleWordByWord(m)
+
             MessageMenu.DISCUSS -> openDiscussion(m)
             MessageMenu.PIN -> setPinned(m, true)
             MessageMenu.UNPIN -> setPinned(m, false)
@@ -1654,17 +1618,16 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
 
     /**
      * The voice + speed one message is read in (shared/chats/voice.ts via core ChatVoice): the
-     * sender's voice gender → the first voice of that gender in MY conversation voices; Claude's
-     * lines in a role-play chat keep the chat's persona voice. Never the legacy conversations.voice_id.
+     * sender's voice gender → the first voice of that gender in MY conversation voices. Never the
+     * legacy conversations.voice_id.
      */
     internal suspend fun readAloudVoice(m: ChatMessageDto): Pair<String, Double> = readAloudVoice(m.sender_id)
 
     private suspend fun readAloudVoice(senderId: String): Pair<String, Double> {
         val s = _ui.value
-        val c = s.conversation
         return ChatReadAloud.voice(
             app, senderIsMe = senderId.isNotEmpty() && senderId == s.myId, otherGender = otherVoiceGender,
-            fromAi = s.isAi && senderId == CLAUDE_USER_ID, personaVoice = c?.voice_id, personaSpeed = c?.voice_speed,
+            fromAi = false, personaVoice = null, personaSpeed = null,
         )
     }
 
@@ -1775,30 +1738,6 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
         }
     }
 
-    private fun toggleWordByWord(m: ChatMessageDto) {
-        val on = m.id !in _ui.value.wordByWord
-        _ui.update { it.copy(wordByWord = if (on) it.wordByWord + m.id else it.wordByWord - m.id) }
-        if (!on || _ui.value.segmentations.containsKey(m.id)) return
-        viewModelScope.launch {
-            val cached = m.segmentation?.let { runCatching { app.cache.json.decodeFromString(dev.jeromeswannack.chineselearning.lab.data.api.ChatBreakdownDto.serializer(), it) }.getOrNull() }
-            if (cached != null && m.translation != null) {
-                _ui.update { it.copy(segmentations = it.segmentations + (m.id to SegmentedDto(m.translation, cached))) }
-                return@launch
-            }
-            _ui.update { it.copy(translatingId = m.id) }
-            try {
-                val r = api.translateSegmented(m.id)
-                _ui.update { it.copy(segmentations = it.segmentations + (m.id to r)) }
-            } catch (e: Exception) {
-                _ui.update { it.copy(wordByWord = it.wordByWord - m.id) }
-                error("Couldn't load the word-by-word translation.")
-            } finally {
-                _ui.update { it.copy(translatingId = null) }
-            }
-        }
-    }
-
-    fun openWord(hanzi: String, context: String) = openSheet(ChatSheet.Word(hanzi, context))
 
     private fun copy(text: String) {
         runCatching {
@@ -1838,29 +1777,6 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
         s.copy(sheet = sheet.copy(selected = if (i in sheet.selected) sheet.selected - i else sheet.selected + i))
     }
 
-    fun rename(title: String) {
-        // Only Claude practice chats have titles (a person's chat answers 410: one chat per pair).
-        if (!_ui.value.isAi) return
-        _ui.update { it.copy(saving = true, modalNotice = null) }
-        viewModelScope.launch {
-            try {
-                val c = api.renameConversation(convId, title.trim())
-                _ui.update { it.copy(saving = false, sheet = null, conversation = (it.conversation ?: c).copy(title = c.title ?: title.trim())) }
-                runCatching { app.cache.put(ConnectionsKeys.conversations(relId), ConnectionsKeys.KIND, api.chatConversations(relId)) }
-            } catch (e: Exception) {
-                _ui.update { it.copy(saving = false, modalNotice = Notice("Couldn't save the title.", true)) }
-            }
-        }
-    }
-
-    fun setVoice(voiceId: String? = null, speed: Double? = null) {
-        _ui.update { s -> s.copy(conversation = s.conversation?.copy(voice_id = voiceId ?: s.conversation.voice_id, voice_speed = speed ?: s.conversation.voice_speed)) }
-        viewModelScope.launch {
-            runCatching { api.setVoiceSettings(convId, voiceId, speed) }.onFailure {
-                _ui.update { it.copy(modalNotice = Notice(if (voiceId != null) "Couldn't change the voice." else "Couldn't change the speed.", true)) }
-            }
-        }
-    }
 
     // ---------------- saving cards ----------------
 
@@ -1895,9 +1811,6 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
         }
     }
 
-    // word definition (reuses the study card's cache-first lookup)
-    suspend fun define(hanzi: String, context: String, refresh: Boolean) = cards.define(hanzi, context, refresh)
-    suspend fun deckHolding(hanzi: String) = cards.deckHolding(hanzi)
 
     // ---------------- Discuss with Claude ----------------
 

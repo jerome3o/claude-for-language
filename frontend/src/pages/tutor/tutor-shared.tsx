@@ -11,6 +11,8 @@ import { useAudioPlayer } from '../../hooks/useAudio';
 import { useAuth } from '../../contexts/AuthContext';
 import { getMyRoleInRelationship, getOtherUserInRelationship, type CardType, type UserSummary } from '../../types';
 import { Loading, ErrorMessage } from '../../components/Loading';
+import { answerDiff, answerDiffLabel, answerDiffSummary } from '@shared/cards/answer-diff';
+import { AnswerDiffChars } from '../../components/study/AnswerDiff';
 import './tutor.css';
 
 // ---------- Formatters ----------
@@ -123,9 +125,9 @@ export function answersMatch(userAnswer: string, correctAnswer: string): boolean
 }
 
 /**
- * Character-by-character diff of a typed answer against the correct hanzi
- * (same positional logic as the study card): wrong characters in red, then the
- * expected answer with the characters the student missed highlighted.
+ * A typed answer against the correct hanzi — the slim answer diff every surface uses (shared/cards/answer-diff.ts,
+ * judged by the characters): his answer marked (wrong rose, extra violet, a character he left out in grey), then the
+ * expected answer.
  */
 export function AnswerDiff({ userAnswer, correctAnswer }: { userAnswer: string; correctAnswer: string }) {
   const typed = userAnswer.trim();
@@ -139,25 +141,12 @@ export function AnswerDiff({ userAnswer, correctAnswer }: { userAnswer: string; 
       </span>
     );
   }
-  const maxLen = Math.max(typed.length, correctAnswer.length);
-  const userChars: Array<{ ch: string; ok: boolean }> = [];
-  const expected: Array<{ ch: string; ok: boolean }> = [];
-  for (let i = 0; i < maxLen; i++) {
-    const u = typed[i] ?? '';
-    const c = correctAnswer[i] ?? '';
-    const ok = u === c;
-    if (i < typed.length) userChars.push({ ch: u, ok });
-    if (i < correctAnswer.length) expected.push({ ch: c, ok });
-  }
+  const diff = answerDiff(typed, correctAnswer, { written: true });
   return (
-    <span className="tutor-answer-diff">
-      {userChars.map((c, i) => (
-        <span key={`u${i}`} className={`tutor-diff-char ${c.ok ? 'tutor-diff-correct' : 'tutor-diff-wrong'}`}>{c.ch}</span>
-      ))}
-      <span className="tutor-diff-arrow">→</span>
-      {expected.map((c, i) => (
-        <span key={`e${i}`} className={`tutor-diff-char ${c.ok ? 'tutor-diff-correct' : 'tutor-diff-expected'}`}>{c.ch}</span>
-      ))}
+    <span className="tutor-answer-diff" data-testid="tutor-answer-diff" aria-label={answerDiffLabel(diff, answerDiffSummary(diff))}>
+      <AnswerDiffChars parts={diff.parts} testId="tutor-answer-diff-chars" />
+      <span className="tutor-diff-arrow" aria-hidden="true">→</span>
+      <span className="tutor-diff-char" lang="zh-CN" aria-hidden="true">{correctAnswer}</span>
     </span>
   );
 }

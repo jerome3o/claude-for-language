@@ -103,7 +103,9 @@ describe('updateSharedDeckCopy', () => {
     expect(result).toMatchObject({ added: 0, kept: 1, audio_filled: 0, updated: 1 });
     const update = db.getQueries().find((q) => q.sql.includes('UPDATE notes SET english = ?, sentence_clue = ?'));
     expect(update?.params).toEqual(['windy (weather)', '今天刮风。', 't1']);
-    expect(db.getQueries().some((q) => q.sql.includes('INSERT INTO'))).toBe(false);
+    expect(db.getQueries().some((q) => q.sql.includes('INSERT INTO notes') || q.sql.includes('INSERT INTO cards'))).toBe(false);
+    // The copy's card sentence row follows its new sentence (db/card-sentence.ts).
+    expect(db.getQueries().some((q) => q.sql.includes('INSERT INTO note_sentences') && q.params.includes('t1'))).toBe(true);
     expect(db.getQueries().some((q) => q.sql.includes("UPDATE decks SET updated_at") && q.params[0] === 'tgt')).toBe(true);
   });
 

@@ -7,6 +7,7 @@
  * device, which folds them with `sentenceStats`. Pure-ish D1; no model calls.
  */
 import { LISTEN_CONTEXT_MODE, SENTENCE_HIDE_REASONS, type SentencePracticeEvent } from '../../../shared/study/sentenceHistory';
+import { canonicalSentenceKey } from '../../../shared/study/cardSentence';
 
 export const MAX_SENTENCE_EVENTS_PER_REQUEST = 200;
 export const SENTENCE_EVENTS_PAGE = 1000;
@@ -147,8 +148,10 @@ export async function hiddenSentenceKeys(db: D1Database, userId: string, noteIds
     for (const r of res.results ?? []) {
       let set = out.get(r.note_id);
       if (!set) out.set(r.note_id, (set = new Set()));
-      if (r.kind === 'hide') set.add(r.sentence_key);
-      else set.delete(r.sentence_key);
+      // An older build's `clue` / `clue:<note>` is the card's own sentence row.
+      const key = canonicalSentenceKey(r.sentence_key, r.note_id);
+      if (r.kind === 'hide') set.add(key);
+      else set.delete(key);
     }
   }
   return out;

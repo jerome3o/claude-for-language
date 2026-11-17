@@ -58,6 +58,30 @@ class AnswerDiffParityTest {
     }
 
     @Test
+    fun writtenAnswersJudgedByCharacter() {
+        val cases = fixture()["written"]!!.jsonArray
+        assertTrue(cases.size >= 30)
+        for (c in cases) {
+            val o = c.jsonObject
+            val said = o["said"]!!.str!!
+            val expected = o["expected"]!!.str!!
+            val d = AnswerDiff.of(said, expected, written = true)
+            val want = o["diff"]!!.jsonObject
+            val parts = want["parts"]!!.jsonArray.map {
+                val p = it.jsonObject
+                AnswerDiff.Part(p["text"]!!.str!!, p["kind"]!!.str!!, p["expected"]!!.str!!)
+            }
+            val ctx = "written $said / $expected"
+            assertEquals(parts, d.parts, ctx)
+            for (k in listOf("wrong", "tone", "missing", "extra", "sound")) assertEquals(want[k]!!.jsonPrimitive.int, d.count(k), "$ctx $k")
+            assertEquals(want["right"]!!.jsonPrimitive.boolean, d.right, ctx)
+            assertEquals(want["reordered"]!!.jsonPrimitive.boolean, d.reordered, ctx)
+            assertEquals(o["summary"]!!.str, AnswerDiff.summary(d), ctx)
+            assertEquals(o["tone"]!!.str, AnswerDiff.tone(d), ctx)
+        }
+    }
+
+    @Test
     fun firstSentences() {
         for (s in fixture()["sentences"]!!.jsonArray) {
             val o = s.jsonObject

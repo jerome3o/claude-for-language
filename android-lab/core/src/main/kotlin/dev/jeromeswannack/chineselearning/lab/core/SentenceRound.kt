@@ -25,13 +25,11 @@ object SentenceRound {
     data class Exercise(val id: String, val key: String, val mode: String, val index: Int)
     data class Progress(val needed: Int, val got: Int, val done: Boolean)
 
-    /** `roundSentences`: the card's own sentence first unless the set has it, then the set — natural sentences first. */
-    fun sentences(clue: Sentence?, set: List<Sentence>): List<Sentence> {
-        val out = ArrayList<Sentence>()
-        if (clue != null && NoteSearch.jsTrim(clue.hanzi).isNotEmpty() && set.none { it.hanzi == clue.hanzi }) out += clue
-        out += SentenceFocus.naturalFirst(set) { it.focus }
-        return out
-    }
+    /**
+     * `roundSentences`: the note's rows in their order (the card's own sentence row first,
+     * [CardSentence.withCardSentence]) — natural sentences first.
+     */
+    fun sentences(rows: List<Sentence>): List<Sentence> = SentenceFocus.naturalFirst(rows) { it.focus }
 
     /** `roundUsable`: not hidden, not the card's own text, not contrived ([SentenceFocus.isContrived]). */
     private fun usable(s: Sentence, stats: Map<String, SentenceHistory.Stats>?, cardHanzi: String?): Boolean =
@@ -149,8 +147,8 @@ object SentenceRound {
     /** `LISTEN_ROUND_SIZE` */
     const val LISTEN_SIZE = 3
 
-    /** `isCardSentenceKey`: the card's own sentence (`clue:<noteId>`). */
-    fun isCardSentenceKey(key: String) = key.startsWith("clue:")
+    /** `isCardSentenceKey`: the card's own sentence (`<note>-card`, [CardSentence]). */
+    fun isCardSentenceKey(key: String) = CardSentence.isCardKey(key)
 
     /** Spaces (ASCII and the ideographic one) never count when looking for the word (`squeeze`). */
     private fun squeeze(text: String): String = text.filterNot { it == ' ' || it == '\t' || it == '\n' || it == '\r' || it == '\u3000' }

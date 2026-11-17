@@ -100,4 +100,12 @@ describe('sentence practice events', () => {
     const hidden = await hiddenSentenceKeys(db as unknown as D1Database, ME, ['n-bank']);
     expect([...(hidden.get('n-bank') ?? [])]).toEqual(['s2']);
   });
+
+  it("hidden keys: an older build's `clue` is the card sentence row", async () => {
+    await me('POST', '/me/sentence-practice', { events: [
+      { id: 'h9', note_id: 'n-bank', sentence_key: 'clue', kind: 'hide', reason: 'wrong', at: '2026-10-20T08:02:00.000Z' },
+    ] });
+    const hidden = await hiddenSentenceKeys(db as unknown as D1Database, ME, ['n-bank']);
+    expect([...(hidden.get('n-bank') ?? [])]).toEqual(['n-bank-card']);
+  });
 });

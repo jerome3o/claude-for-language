@@ -7,9 +7,6 @@ import dev.jeromeswannack.chineselearning.lab.data.api.CheckResultDto
 import dev.jeromeswannack.chineselearning.lab.data.api.ChatConversationDto
 import dev.jeromeswannack.chineselearning.lab.data.api.ReactionDto
 import dev.jeromeswannack.chineselearning.lab.data.api.ReactionUserDto
-import dev.jeromeswannack.chineselearning.lab.data.api.SegmentChunk
-import dev.jeromeswannack.chineselearning.lab.data.api.SegmentedDto
-import dev.jeromeswannack.chineselearning.lab.data.api.ChatBreakdownDto
 import dev.jeromeswannack.chineselearning.lab.data.api.SuggestedCard
 import dev.jeromeswannack.chineselearning.lab.testing.LabScreenshotTest
 import org.junit.Test
@@ -36,24 +33,12 @@ class ChatScreenshots : LabScreenshotTest() {
             loading = false, otherName = "王老师", myId = "me", viewerRole = "student",
             conversation = ChatConversationDto("c1", "rel1", "Lesson questions"),
             messages = messages, draft = "明天见！",
-            wordByWord = setOf("m3"),
-            segmentations = mapOf("m3" to SegmentedDto("Great! Which word do you find hardest?", ChatBreakdownDto(chunks = listOf("太好了", "！", "你", "觉得", "哪个", "词", "最", "难", "？").map { SegmentChunk(it) }))),
-        )
-        val aiUi = ChatUi(
-            loading = false, otherName = "Claude", otherIsClaude = true, myId = "me",
-            conversation = ChatConversationDto("c2", "rel2", "Restaurant Practice", scenario = "Ordering food at a Chinese restaurant", user_role = "A tourist", ai_role = "A friendly waiter", is_ai_conversation = true),
-            messages = listOf(
-                ChatMessageDto("a1", sender_id = "claude-ai", sender = ChatSenderDto("claude-ai", "Claude"), content = "欢迎光临！请问几位？", created_at = at(5)),
-                ChatMessageDto("a2", sender_id = "me", sender = me, content = "两位，谢谢。", created_at = at(4)),
-            ),
-            waitingForAi = true, playingId = "a1",
         )
         val card = SuggestedCard("刮风", "guā fēng", "to be windy", "刮 (guā) to blow + 风 (fēng) wind. 今天刮风 = it's windy today.")
     }
 
     @Test fun chat() = shoot("chat-01-conversation") { ChatScreen(base, ChatActions()) }
 
-    @Test fun claude() = shoot("chat-02-claude-practice") { ChatScreen(aiUi, ChatActions()) }
 
     @Test fun offline() = shoot("chat-03-offline", dark = true) {
         ChatScreen(base.copy(online = false, offlineHistory = true, draft = ""), ChatActions())

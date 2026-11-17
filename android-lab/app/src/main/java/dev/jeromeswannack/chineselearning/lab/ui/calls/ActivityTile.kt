@@ -71,7 +71,8 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import dev.jeromeswannack.chineselearning.lab.core.LessonAnswers
+import dev.jeromeswannack.chineselearning.lab.ui.study.DiffMarkedText
+import dev.jeromeswannack.chineselearning.lab.ui.study.cells
 import dev.jeromeswannack.chineselearning.lab.core.calls.ActivityAction
 import dev.jeromeswannack.chineselearning.lab.core.calls.ActivityKinds
 import dev.jeromeswannack.chineselearning.lab.core.calls.ActivityPhases
@@ -913,27 +914,16 @@ private fun DictationBody(v: ActivityView) {
             if (v.can(ActivityAction.Reveal)) PrimaryPill("Reveal", Modifier.height(52.dp)) { v.act(ActivityAction.Reveal) }
         } else WriterField(v)
         else -> {
-            val diff = LessonAnswers.diffHanzi(d.draft.orEmpty(), item.hanzi.orEmpty())
+            // The slim answer diff, judged by the characters (a homophone is wrong — this is writing).
+            val diff = dev.jeromeswannack.chineselearning.lab.core.AnswerDiff.of(d.draft.orEmpty(), item.hanzi.orEmpty(), written = true)
             Card(border = if (d.mark == true) Right else Wrong) {
                 Text(item.hanzi.orEmpty(), color = Lab.colors.ink, fontSize = 36.sp, fontWeight = FontWeight.Bold)
                 Text("${item.pinyin} · ${item.english}", color = Lab.colors.muted, fontSize = 15.sp)
             }
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text("Written", color = Lab.colors.muted, fontSize = 13.sp)
-                Text(
-                    buildAnnotatedString {
-                        if (diff.typed.isEmpty()) withStyle(SpanStyle(color = Lab.colors.muted)) { append("(nothing)") }
-                        diff.typed.forEach { m -> withStyle(SpanStyle(color = if (m.hit) Right else Wrong)) { append(m.ch) } }
-                    },
-                    fontSize = 30.sp, fontWeight = FontWeight.Medium, modifier = Modifier.testTag("dictation-diff"),
-                )
-                if (diff.expected.any { !it.hit }) Text(
-                    buildAnnotatedString {
-                        append("Missed: ")
-                        diff.expected.filter { !it.hit }.forEach { m -> withStyle(SpanStyle(color = Wrong, fontWeight = FontWeight.Bold)) { append(m.ch) } }
-                    },
-                    color = Lab.colors.muted, fontSize = 15.sp,
-                )
+                if (diff.empty) Text("(nothing)", color = Lab.colors.muted, fontSize = 30.sp, modifier = Modifier.testTag("dictation-diff"))
+                else DiffMarkedText(diff.cells(), 30.sp, tag = "dictation-diff")
             }
             Verdict(d.mark, "Right", "Not quite")
             MarkAndNext(v)
@@ -1076,13 +1066,13 @@ private fun ReviewDetail(v: ActivityView) {
             horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally), verticalArrangement = Arrangement.spacedBy(6.dp),
         ) { labels.forEach { Pill(it, Lab.colors.faint, Lab.colors.ink, Modifier.widthIn(max = 300.dp)) } }
         item.transcript?.takeIf { it.isNotEmpty() }?.let { heard ->
-            val diff = LessonAnswers.diffHanzi(heard, item.hanzi.orEmpty())
+            val marks = dev.jeromeswannack.chineselearning.lab.ui.teaching.RecordingQueueRules.heardMarks(item.hanzi.orEmpty(), heard)
             Text(
                 buildAnnotatedString {
                     withStyle(SpanStyle(color = Lab.colors.muted)) { append("Heard: ") }
-                    diff.typed.forEach { m ->
-                        if (m.hit) append(m.ch)
-                        else withStyle(SpanStyle(color = Wrong, fontWeight = FontWeight.Bold, textDecoration = TextDecoration.Underline)) { append(m.ch) }
+                    marks.forEach { (ch, hit) ->
+                        if (hit) append(ch)
+                        else withStyle(SpanStyle(color = Wrong, fontWeight = FontWeight.Bold, textDecoration = TextDecoration.Underline)) { append(ch) }
                     }
                 },
                 color = Lab.colors.ink, fontSize = 17.sp, modifier = Modifier.testTag("review-heard"),

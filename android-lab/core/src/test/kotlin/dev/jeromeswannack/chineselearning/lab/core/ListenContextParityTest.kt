@@ -25,6 +25,23 @@ class ListenContextParityTest {
     private fun str(e: JsonElement?): String? = if (e == null || e is JsonNull) null else e.jsonPrimitive.content
     private fun int(e: JsonElement?): Int? = if (e == null || e is JsonNull) null else e.jsonPrimitive.int
 
+    /** The fixture's note (card-sentence fields) → [CardSentence.NoteFields]; null = no note. */
+    private fun noteOf(e: JsonElement?): CardSentence.NoteFields? = (e as? JsonObject)?.let {
+        CardSentence.NoteFields(it["id"]!!.jsonPrimitive.content, str(it["sentence_clue"]), str(it["sentence_clue_pinyin"]), str(it["sentence_clue_translation"]), str(it["sentence_clue_audio_url"]))
+    }
+
+    private fun storedRows(e: JsonElement?): List<CardSentence.Row> = e!!.jsonArray.map { it.jsonObject }.map {
+        CardSentence.Row(
+            id = it["id"]!!.jsonPrimitive.content, noteId = it["note_id"]!!.jsonPrimitive.content, position = it["position"]!!.jsonPrimitive.int,
+            hanzi = it["hanzi"]!!.jsonPrimitive.content, pinyin = str(it["pinyin"]), translation = str(it["translation"]), audioUrl = str(it["audio_url"]),
+            focus = str(it["focus"]), isCard = (int(it["is_card"]) ?: 0) == 1,
+        )
+    }
+
+    /** The note's rows as one list ([CardSentence.withCardSentence]) as Listen in context reads them. */
+    private fun listenSentences(note: CardSentence.NoteFields?, stored: List<CardSentence.Row>): List<ListenContext.Sentence> =
+        CardSentence.withCardSentence(note, stored).map { ListenContext.Sentence(it.id, it.hanzi, it.translation, it.audioUrl, it.position, it.focus, it.isCard) }
+
     private fun autoplayWire(a: ListenContext.Autoplay): String = when (a) {
         is ListenContext.Autoplay.Sentence -> "sentence:${a.index}"
         ListenContext.Autoplay.Word -> "word"
@@ -45,16 +62,12 @@ class ListenContextParityTest {
         var contrivedCases = 0
         for (c in cases) {
             val noteId = c["noteId"]!!.jsonPrimitive.content
-            val clue = (c["clue"] as? JsonObject)?.let { ListenContext.Clue(str(it["hanzi"]), str(it["translation"]), str(it["audio_url"])) }
-            val sentences = c["sentences"]!!.jsonArray.map { it.jsonObject }.map {
-                ListenContext.Sentence(it["id"]!!.jsonPrimitive.content, it["hanzi"]!!.jsonPrimitive.content, str(it["translation"]), str(it["audio_url"]), int(it["position"]), str(it["focus"]))
-            }
-            val rows = ListenContext.rows(noteId, clue, sentences)
+            val rows = ListenContext.rows(listenSentences(noteOf(c["note"]), storedRows(c["sentences"])))
             val expected = c["rows"]!!.jsonArray.map { it.jsonObject }
             assertEquals(expected.size, rows.size, "rows of $noteId")
             expected.zip(rows).forEach { (e, row) ->
                 assertEquals(e["key"]!!.jsonPrimitive.content, row.key)
-                assertEquals(str(e["sentenceId"]), row.sentenceId)
+                assertEquals(e["sentenceId"]!!.jsonPrimitive.content, row.sentenceId)
                 assertEquals(e["hanzi"]!!.jsonPrimitive.content, row.hanzi)
                 assertEquals(str(e["translation"]), row.translation, "translation of ${row.key}")
                 assertEquals(str(e["audioUrl"]), row.audioUrl)
@@ -63,7 +76,7 @@ class ListenContextParityTest {
             }
             val online = c["online"]!!.jsonPrimitive.boolean
             val cached = c["cached"]!!.jsonArray.map { it.jsonPrimitive.boolean }
-            val states = rows.mapIndexed { i, row -> ListenContext.rowState(row.audioUrl, row.sentenceId, online, cached[i]) }
+            val states = rows.mapIndexed { i, row -> ListenContext.rowState(row.audioUrl, online, cached[i]) }
             assertEquals(c["states"]!!.jsonArray.map { it.jsonPrimitive.content }, states.map { it.wire }, "states of $noteId")
             assertEquals(autoplayWire(c["autoplayOn"]!!.jsonObject), autoplayWire(ListenContext.autoplay(true, states)))
             assertEquals(autoplayWire(c["autoplayOff"]!!.jsonObject), autoplayWire(ListenContext.autoplay(false, states)))
@@ -100,16 +113,12 @@ class ListenContextParityTest {
         var wants = 0
         for (c in picks) {
             val noteId = c["noteId"]!!.jsonPrimitive.content
-            val clue = (c["clue"] as? JsonObject)?.let { ListenContext.Clue(str(it["hanzi"])) }
-            val sentences = c["sentences"]!!.jsonArray.map { it.jsonObject }.map {
-                ListenContext.Sentence(it["id"]!!.jsonPrimitive.content, it["hanzi"]!!.jsonPrimitive.content, str(it["translation"]), null, int(it["position"]), str(it["focus"]))
-            }
             val events = c["events"]!!.jsonArray.map { it.jsonObject }.map {
                 SentenceHistory.Event(it["id"]!!.jsonPrimitive.content, it["note_id"]!!.jsonPrimitive.content, it["sentence_key"]!!.jsonPrimitive.content, it["kind"]!!.jsonPrimitive.content, str(it["mode"]), str(it["result"]), str(it["reason"]), it["at"]!!.jsonPrimitive.content)
             }
             val stats = SentenceHistory.stats(events, noteId)
             if (stats.values.any { it.heard.count > 0 }) withHeard++
-            val rows = ListenContext.rows(noteId, clue, sentences)
+            val rows = ListenContext.rows(listenSentences(noteOf(c["note"]), storedRows(c["sentences"])))
             val seed = c["seed"]!!.jsonPrimitive.content
             val previous = keys(c["previous"])
             val count = int(c["count"])

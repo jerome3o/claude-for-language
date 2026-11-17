@@ -162,9 +162,7 @@
   letter-spacing: 0.06em;
 }
 
-.att-chars .hit { color: #166534; }
-.att-chars .extra { color: #b91c1c; text-decoration: line-through; }
-.att-chars .miss { color: #b91c1c; background: #fee2e2; border-radius: 4px; }
+.att-diff-line { font-size: 0.85rem; color: var(--color-text-light); }
 
 .att-hw {
   display: grid;

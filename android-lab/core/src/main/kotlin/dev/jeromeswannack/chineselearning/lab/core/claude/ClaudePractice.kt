@@ -146,4 +146,33 @@ object ClaudePractice {
 
     /** Port of practiceReplyLanguage: a role-play line is Chinese; help is in his Ask Claude language. */
     fun replyLanguage(text: String, askLanguage: String): String = if (isHelpRequest(text)) askLanguage else "zh"
+
+    // ---------- Old practice chats ----------
+
+    /**
+     * Port of legacyPracticeThreadId: an OLD Claude practice chat (a conversation with
+     * `is_ai_conversation`) was copied into the Claude thread `pc-<conversation id>`; its old link
+     * opens that thread (Nov 2026, docs/CHAT.md "Practice with Claude" → "Old practice chats").
+     */
+    fun legacyThreadId(conversationId: String): String = "pc-$conversationId"
+
+    /** Port of LEGACY_PRACTICE_THREAD_GONE: the thread view's line when an old practice chat's thread can't be had. */
+    const val LEGACY_THREAD_GONE =
+        "This old practice chat with Claude isn’t available any more. Start a new one from the Chats tab: ✏️ → 🎭 Practice a situation."
+
+    /** Port of legacyPracticeThreadPath: the thread's app path (the Claude thread view). */
+    fun legacyThreadPath(conversationId: String): String = "/chats/claude/${legacyThreadId(conversationId)}"
+
+    /** One conversation of a relationship's list, as [chatRedirect] needs it. */
+    data class ListedConversation(val id: String, val isAi: Boolean)
+
+    /**
+     * Port of practiceChatRedirect: the thread to open instead of the chat with a person when
+     * [conversationId] is an old practice chat among [conversations]; null when not known yet / a person.
+     */
+    fun chatRedirect(conversationId: String?, conversations: List<ListedConversation>?): String? {
+        if (conversationId.isNullOrEmpty() || conversations == null) return null
+        val conv = conversations.firstOrNull { it.id == conversationId } ?: return null
+        return if (conv.isAi) legacyThreadPath(conversationId) else null
+    }
 }

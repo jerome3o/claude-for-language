@@ -22,6 +22,7 @@
  */
 import { groupQuestionThreads, sqliteToIso, THREAD_GAP_MS } from '@shared/chats/threads';
 import { previewOf, titleFor, type ClaudeThreadContext, type ClaudeContextSnapshot } from '@shared/claude/context';
+import { legacyPracticeThreadId } from '@shared/claude/practice';
 import type { Note } from '../../types';
 import { insertMessageStatement, insertThreadStatement, latestCardThread, NOW_ISO, touchThreadStatement, type NewMessage } from './store';
 
@@ -86,6 +87,41 @@ export async function ensureClaudeThreadsBackfilled(db: D1Database, userId: stri
   if (!row || row.at) return false;
   await backfillClaudeThreads(db, userId);
   return true;
+}
+
+/** Is `conversationId` one of this user's old Claude practice chats? */
+export async function isOwnPracticeChat(db: D1Database, userId: string, conversationId: string): Promise<boolean> {
+  const row = await db
+    .prepare(
+      `SELECT 1 AS ok FROM conversations c JOIN tutor_relationships r ON r.id = c.relationship_id
+        WHERE c.id = ?2 AND c.is_ai_conversation = 1
+          AND ((r.requester_id = ?1 AND r.recipient_id = 'claude-ai') OR (r.recipient_id = ?1 AND r.requester_id = 'claude-ai'))`,
+    )
+    .bind(userId, conversationId)
+    .first<{ ok: number }>();
+  return !!row;
+}
+
+/**
+ * The thread an old practice chat lives in now (docs/CHAT.md "Practice with Claude" → "Old practice
+ * chats"): `pc-<id>`, copied on demand — the backfill runs again (idempotent) when the chat is the
+ * caller's and its copy is missing, or with `refresh` (an old app build still wrote into the chat:
+ * its newest messages join the thread). null = not the caller's practice chat, or the learner
+ * deleted its thread.
+ */
+export async function ensureLegacyPracticeThread(
+  db: D1Database,
+  userId: string,
+  conversationId: string,
+  opts: { refresh?: boolean } = {},
+): Promise<string | null> {
+  const threadId = legacyPracticeThreadId(conversationId);
+  const exists = async () =>
+    !!(await db.prepare('SELECT 1 AS ok FROM coach_conversations WHERE id = ? AND user_id = ? AND deleted_at IS NULL').bind(threadId, userId).first<{ ok: number }>());
+  if (!opts.refresh && (await exists())) return threadId;
+  if (!(await isOwnPracticeChat(db, userId, conversationId))) return null;
+  await backfillClaudeThreads(db, userId);
+  return (await exists()) ? threadId : null;
 }
 
 /** Copies everything (again — idempotent) and stamps the user. */
@@ -167,7 +203,7 @@ export async function backfillClaudeThreads(db: D1Database, userId: string): Pro
     byConversation.set(m.conversation_id, list);
   }
   for (const c of rows<PracticeRow>(practice)) {
-    const threadId = `pc-${c.id}`;
+    const threadId = legacyPracticeThreadId(c.id);
     if (dead.has(threadId)) continue;
     const context: ClaudeThreadContext = {
       kind: 'practice',

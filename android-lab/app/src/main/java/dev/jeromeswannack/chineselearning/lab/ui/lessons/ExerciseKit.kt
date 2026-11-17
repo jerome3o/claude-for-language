@@ -52,6 +52,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.jeromeswannack.chineselearning.lab.core.LessonAnswers
+import dev.jeromeswannack.chineselearning.lab.ui.study.AnswerDiffView
 import dev.jeromeswannack.chineselearning.lab.core.LessonSentence
 import dev.jeromeswannack.chineselearning.lab.core.LessonWord
 import dev.jeromeswannack.chineselearning.lab.ui.kit.PrimaryPill
@@ -339,36 +340,25 @@ fun WordChips(words: List<LessonWord>, env: ExerciseEnv, marks: List<Boolean>? =
     }
 }
 
-/** `CharDiffView`: typed characters (wrong in red) and, when wrong, the answer (missed underlined). */
-@Composable
-fun CharDiffView(diff: LessonAnswers.HanziDiff) {
-    Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Lab.colors.card).border(1.dp, Lab.colors.cardBorder, RoundedCornerShape(16.dp)).padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        DiffRow("You wrote", if (diff.typed.isEmpty()) null else diff.typed.map { it.ch to if (it.hit) Palette.Good else Palette.Again }, strike = true)
-        if (!diff.correct) DiffRow("Answer", diff.expected.map { it.ch to if (it.hit) Lab.colors.ink else Palette.Hard }, strike = false)
-    }
+/** `WrittenCheck`: a typed answer checked against the expected text (or the alternative it is), by its characters. */
+data class WrittenCheck(val correct: Boolean, val text: String, val form: String, val summary: String)
+
+/** `writtenCheck`: the verdict, the accepted form it is shown against, and what differs in one line (core AnswerDiff). */
+fun writtenCheck(text: String, expected: String, alternatives: List<String> = emptyList()): WrittenCheck {
+    val form = LessonAnswers.answerForm(text, expected, alternatives)
+    val summary = dev.jeromeswannack.chineselearning.lab.core.AnswerDiff.run { summary(of(text, form, written = true)) }
+    return WrittenCheck(LessonAnswers.isHanziCorrect(text, expected, alternatives), text, form, summary)
 }
 
+/**
+ * `CharDiffView`: the typed answer, marked against the expected text — the slim answer diff ([AnswerDiffView], judged
+ * by the characters). The banner above says the verdict + what differs; the sentence itself follows (Reference).
+ */
 @Composable
-private fun DiffRow(label: String, chars: List<Pair<String, Color>>?, strike: Boolean) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(label, style = MaterialTheme.typography.labelMedium, color = Lab.colors.muted, modifier = Modifier.padding(end = 12.dp))
-        if (chars == null) {
-            Text("(nothing)", color = Lab.colors.muted)
-        } else {
-            val muted = Lab.colors.ink
-            Text(
-                buildAnnotatedString {
-                    for ((ch, color) in chars) {
-                        val miss = color != Palette.Good && color != muted
-                        withStyle(SpanStyle(color = color, textDecoration = if (miss) (if (strike) TextDecoration.LineThrough else TextDecoration.Underline) else null, fontWeight = if (miss) FontWeight.Bold else null)) { append(ch) }
-                    }
-                },
-                fontSize = 26.sp,
-            )
-        }
+fun CharDiffView(check: WrittenCheck) {
+    if (check.text.isBlank()) { Text("(nothing written)", color = Lab.colors.muted, modifier = Modifier.testTag("char-diff-empty")); return }
+    Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Lab.colors.card).border(1.dp, Lab.colors.cardBorder, RoundedCornerShape(16.dp)).padding(horizontal = 14.dp, vertical = 8.dp)) {
+        AnswerDiffView(check.text, check.form, tag = "char-diff", written = true, showExpected = false, hideLine = true, saidLabel = "You wrote", whySurface = "lesson_write")
     }
 }
 

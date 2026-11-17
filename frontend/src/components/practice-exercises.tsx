@@ -11,7 +11,8 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  diffHanzi,
+  answerForm,
+  isHanziAnswerCorrect,
   sentenceUsesWord,
   CONVERSATION_LINE_GAP_MS,
   speakerGender,
@@ -20,7 +21,6 @@ import {
   type ConversationSpeaker,
   type ExerciseAnswer,
   type HandwritingAnswer,
-  type HanziDiff,
   type LessonSentence,
   type LessonWord,
   type SentenceFeedback,
@@ -38,6 +38,8 @@ import { checkMadeSentence, FeedbackUnavailable } from '../api/lessonPractice';
 import { SentenceCheckPanel } from './lessons/SentenceCheck';
 import { sentenceCheckView, SENTENCE_EXAMPLE_TOGGLE, SENTENCE_SELF_CHECK, SENTENCE_SELF_CHECK_HANDWRITTEN } from '@shared/lesson/sentenceCheck';
 import { spokenCheckAnswer } from '@shared/cards/answer';
+import { answerDiff, answerDiffSummary } from '@shared/cards/answer-diff';
+import { AnswerDiff } from './study/AnswerDiff';
 import { SpeakingAnswer } from './lessons/SpeakingAnswer';
 import { useLessonClips } from '../hooks/useLessonClips';
 import { shuffledIndexes } from '../utils/shuffle';
@@ -92,26 +94,30 @@ function SelfAssess({ onAnswer, question }: { onAnswer: (correct: boolean) => vo
   );
 }
 
-/** The typed answer and the expected text, wrong / missed characters marked. */
-function CharDiffView({ diff }: { diff: HanziDiff }) {
+/** A typed answer checked against the expected text (or the alternative it is), by its characters. */
+interface WrittenCheck {
+  correct: boolean;
+  text: string;
+  /** The accepted form it is shown against (`answerForm`). */
+  form: string;
+  /** What differs, in one short line (the slim answer diff). */
+  summary: string;
+}
+
+function writtenCheck(text: string, expected: string, alternatives: string[] = []): WrittenCheck {
+  const form = answerForm(text, expected, alternatives);
+  return { correct: isHanziAnswerCorrect(text, expected, alternatives), text, form, summary: answerDiffSummary(answerDiff(text, form, { written: true })) };
+}
+
+/**
+ * The typed answer, marked against the expected text — the slim answer diff (components/study/AnswerDiff.tsx), judged
+ * by the characters. The banner above says the verdict + what differs; the sentence itself follows (Reference).
+ */
+function CharDiffView({ check }: { check: WrittenCheck }) {
+  if (!check.text.trim()) return <p className="char-diff-empty" data-testid="char-diff-empty">(nothing written)</p>;
   return (
-    <div className="char-diff">
-      <div className="char-diff-row">
-        <span className="char-diff-label">You wrote</span>
-        <span className="char-diff-chars" lang="zh-CN">
-          {diff.typed.length === 0 ? <span className="char-diff-empty">(nothing)</span> : diff.typed.map((m, i) => (
-            <span key={i} className={m.hit ? 'hit' : 'extra'}>{m.ch}</span>
-          ))}
-        </span>
-      </div>
-      {!diff.correct && (
-        <div className="char-diff-row">
-          <span className="char-diff-label">Answer</span>
-          <span className="char-diff-chars" lang="zh-CN">
-            {diff.expected.map((m, i) => <span key={i} className={m.hit ? 'hit' : 'miss'}>{m.ch}</span>)}
-          </span>
-        </div>
-      )}
+    <div className="char-diff" data-testid="char-diff">
+      <AnswerDiff said={check.text} expected={check.form} written showExpected={false} hideLine saidLabel="You wrote" whySurface="lesson_write" />
     </div>
   );
 }
@@ -329,14 +335,14 @@ export function WriteTypedExercise(props: {
   const { answer, prompt, cues = ['english', 'pinyin'], alternatives, speak, onNext } = props;
   const [text, setText] = useState('');
   const [source, setSource] = useState<DictatedAnswer['source'] | null>(null);
-  const [diff, setDiff] = useState<HanziDiff | null>(null);
+  const [diff, setDiff] = useState<WrittenCheck | null>(null);
   const [spoken, setSpoken] = useState<LessonSpokenCheck | null>(null);
 
   // A spoken answer the recogniser wrote (unchanged): right by sound, or said inside a sentence (#584).
   function check(given: DictatedAnswer) {
     setText(given.text);
     setSource(given.source);
-    setDiff(diffHanzi(given.text, answer.hanzi, alternatives));
+    setDiff(writtenCheck(given.text, answer.hanzi, alternatives));
     setSpoken(lessonSpokenCheck(given.text, answer.hanzi, alternatives, given.source));
     speak(answer.hanzi);
   }
@@ -359,10 +365,10 @@ export function WriteTypedExercise(props: {
       ) : (
         <>
           <ResultBanner ok={correct}>
-            {diff.correct ? '✓ Correct' : correct ? '✓ Correct (spoken)' : `✗ Not quite — ${Math.round(diff.accuracy * 100)}% of the characters`}
+            {diff.correct ? '✓ Correct' : correct ? '✓ Correct (spoken)' : `✗ Not quite — ${diff.summary}`}
           </ResultBanner>
           {spoken?.note && <p className="result-explanation" data-testid="lesson-spoken-note">{spoken.note}</p>}
-          {!(correct && !diff.correct) && <CharDiffView diff={diff} />}
+          {!(correct && !diff.correct) && <CharDiffView check={diff} />}
           <Reference sentence={answer} speak={speak} exerciseType="write_typed" />
           <SayItAgain hanzi={answer.hanzi} exerciseType="write_typed" />
           <TakeLockActions>
@@ -514,7 +520,7 @@ export function DictationExercise(props: {
   const pad = useStrokePadAvailable(typed ? '' : audio.hanzi);
   const [text, setText] = useState('');
   const [hw, setHw] = useState<HandwritingAnswer | null>(null);
-  const [diff, setDiff] = useState<HanziDiff | null>(null);
+  const [diff, setDiff] = useState<WrittenCheck | null>(null);
   const [source, setSource] = useState<DictatedAnswer['source'] | null>(null);
   const [spoken, setSpoken] = useState<LessonSpokenCheck | null>(null);
   const [revealed, setRevealed] = useState(false);
@@ -526,7 +532,7 @@ export function DictationExercise(props: {
     if (typed && given) {
       setText(given.text);
       setSource(given.source);
-      setDiff(diffHanzi(given.text, audio.hanzi, alternatives));
+      setDiff(writtenCheck(given.text, audio.hanzi, alternatives));
       // Said back and unchanged: the recogniser chose the characters — right by sound (#584).
       setSpoken(lessonSpokenCheck(given.text, audio.hanzi, alternatives, given.source));
     }
@@ -580,10 +586,10 @@ export function DictationExercise(props: {
           {diff && (
             <>
               <ResultBanner ok={!!typedCorrect}>
-                {diff.correct ? '✓ Every character right' : typedCorrect ? '✓ Right (spoken)' : `${Math.round(diff.accuracy * 100)}% of the characters`}
+                {diff.correct ? '✓ Every character right' : typedCorrect ? '✓ Right (spoken)' : `✗ ${diff.summary}`}
               </ResultBanner>
               {spoken?.note && <p className="result-explanation" data-testid="lesson-spoken-note">{spoken.note}</p>}
-              {!(typedCorrect && !diff.correct) && <CharDiffView diff={diff} />}
+              {!(typedCorrect && !diff.correct) && <CharDiffView check={diff} />}
             </>
           )}
           {strokeRun && (

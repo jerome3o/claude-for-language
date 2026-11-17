@@ -8,7 +8,7 @@
 
 import { useEffect, useState } from 'react';
 import { reviewMarkOf, type ReviewSpec } from '@shared/call-activities';
-import { diffHanzi } from '@shared/lesson/answer-check';
+import { heardChars } from '../../../pages/tutor/recordingQueue';
 import type { BodyProps } from './ActivityViews';
 
 const SOURCE_LABEL: Record<string, string> = { recording: '🎤', flag: '🚩', needs_work: '🔁' };
@@ -33,7 +33,7 @@ export function ReviewView({ session: s, host, act, can, spec }: BodyProps & { s
   }
 
   const weak = new Map(item.weak.map((w) => [w.char, w.kind]));
-  const heard = item.transcript ? diffHanzi(item.transcript, item.hanzi) : null;
+  const heard = item.transcript ? heardChars(item.transcript, item.hanzi) : null;
 
   return (
     <div className="act-review" data-testid="review-activity">
@@ -77,7 +77,7 @@ export function ReviewView({ session: s, host, act, can, spec }: BodyProps & { s
         {heard && (
           <p className="act-review-heard" data-testid="review-heard">
             Heard:{' '}
-            {heard.typed.map((c, i) => <span key={i} className={c.hit ? undefined : 'act-off'}>{c.ch}</span>)}
+            {heard.map((c, i) => <span key={i} className={c.wrong ? 'act-off' : undefined}>{c.ch}</span>)}
           </p>
         )}
         {item.flag_message && <p className="act-review-flag" data-testid="review-flag">🚩 “{item.flag_message}”</p>}

@@ -148,3 +148,39 @@ export function isPracticeHelpRequest(text: string): boolean {
 export function practiceReplyLanguage(text: string, askLanguage: AskLanguage): AskLanguage {
   return isPracticeHelpRequest(text) ? askLanguage : 'zh';
 }
+
+// ---------- Old practice chats ----------
+
+/**
+ * The OLD Claude practice chats (a `conversations` row with `is_ai_conversation`, from before role-plays
+ * were Claude threads) were copied into Claude threads as `pc-<conversation id>` (worker
+ * services/claude-agent/backfill.ts). Opening one by its old link (`/connections/:relId/chat/:convId`,
+ * a notification, an MCP link) opens that thread instead — the server copies it on demand. Nov 2026
+ * (docs/CHAT.md "Practice with Claude" → "Old practice chats").
+ */
+export function legacyPracticeThreadId(conversationId: string): string {
+  return `pc-${conversationId}`;
+}
+
+/** The thread view's line when an old practice chat's thread can't be had (deleted, not yours). */
+export const LEGACY_PRACTICE_THREAD_GONE =
+  'This old practice chat with Claude isn’t available any more. Start a new one from the Chats tab: ✏️ → 🎭 Practice a situation.';
+
+/** The app path of an old practice chat's thread (the Claude thread view). */
+export function legacyPracticeThreadPath(conversationId: string): string {
+  return `/chats/claude/${legacyPracticeThreadId(conversationId)}`;
+}
+
+/**
+ * Where a chat route should go instead of the chat with a person: the thread when `conversationId`
+ * is an old practice chat among `conversations` (the relationship's list), else null (not known yet,
+ * or a chat with a person).
+ */
+export function practiceChatRedirect(
+  conversationId: string | null | undefined,
+  conversations: ReadonlyArray<{ id: string; is_ai_conversation?: boolean | null }> | null | undefined,
+): string | null {
+  if (!conversationId || !conversations) return null;
+  const conv = conversations.find((c) => c.id === conversationId);
+  return conv?.is_ai_conversation ? legacyPracticeThreadPath(conversationId) : null;
+}

@@ -64,7 +64,7 @@ import { loadDiscussedMessage } from '../services/claude-agent/contexts/chat_mes
 import { exerciseAt } from '../services/claude-agent/contexts/exercise';
 import { exerciseTypeInfo } from '@shared/lesson/registry';
 import { ClaudeContextError } from '../services/claude-agent/types';
-import { backfillClaudeThreads, ensureClaudeThreadsBackfilled } from '../services/claude-agent/backfill';
+import { backfillClaudeThreads, ensureClaudeThreadsBackfilled, ensureLegacyPracticeThread } from '../services/claude-agent/backfill';
 import { adminMiddleware } from '../middleware/auth';
 import { startThreadTurn } from '../services/claude-agent/thread-turn';
 import * as store from '../services/claude-agent/store';
@@ -334,7 +334,12 @@ async function startReply(c: Context<{ Bindings: Env }>, reply: store.MessageRow
 threads.get('/claude/threads/:id', async (c) => {
   const userId = userIdOf(c);
   const id = c.req.param('id');
-  const thread = await store.getThreadRow(c.env.DB, userId, id);
+  let thread = await store.getThreadRow(c.env.DB, userId, id);
+  // An old Claude practice chat opened by its link (`/connections/:relId/chat/:convId` → `pc-<id>`)
+  // before the lazy copy reached it: copied now (docs/CHAT.md "Practice with Claude").
+  if (!thread && id.startsWith('pc-') && (await ensureLegacyPracticeThread(c.env.DB, userId, id.slice(3)))) {
+    thread = await store.getThreadRow(c.env.DB, userId, id);
+  }
   if (!thread) return c.json({ error: 'Chat not found' }, 404);
   const sinceRaw = c.req.query('since');
   const since = sinceRaw && !Number.isNaN(Date.parse(sinceRaw)) ? new Date(sinceRaw).toISOString() : null;

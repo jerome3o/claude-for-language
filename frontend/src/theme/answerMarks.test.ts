@@ -7,7 +7,7 @@ const index = read('../index.css');
 
 /**
  * The answer diff's marks — the slim answer diff (components/study/AnswerDiff.css), the "You said" row (YouSaid.css),
- * the typed answer (index.css `.diff-*`), a mini lesson's marked answer and 🎤 Read it aloud on a reader page
+ * the multiple-choice answer (index.css `.diff-*`), a mini lesson's marked answer and 🎤 Read it aloud on a reader page
  * (components/reader/ReadAloud.css) — are COLOUR ONLY (Jerome, Nov 2026: "we don't need the outlines and the color and
  * the underlines … make the colors a little bit more subtle as well. Not too subtle"). So:
  * - the colours are the `--mark-*` tokens of index.css, in both themes, never a one-off hex in a mark rule;
@@ -79,7 +79,6 @@ describe('the answer diff marks: colour only, readable in both themes', () => {
     ['../components/study/AnswerDiff.css', /\.adiff--\w+[^{]*\{[^}]*\}/g],
     ['../components/study/YouSaid.css', /\.spoken-mark--\w+[^{]*\{[^}]*\}/g],
     ['../components/reader/ReadAloud.css', /\.ra-char\.ra-\w+[^{]*\{[^}]*\}/g],
-    ['../components/lesson-exercises.css', /\.char-diff-chars \.(hit|extra|miss)\s*\{[^}]*\}/g],
     ['../components/lessons/LessonFeedback.css', /\.lesson-marked-(answer|model)[^{]*\{[^}]*\}/g],
     ['../index.css', /\.diff-(correct|wrong|expected|skipped)\s*\{[^}]*\}/g],
   ];

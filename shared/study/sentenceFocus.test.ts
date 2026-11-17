@@ -33,12 +33,12 @@ describe('the Sentence round never uses a contrived sentence', () => {
   const set = [s('a'), s('b', 'shared_character'), s('c', 'collocation'), s('d', 'contrast'), s('e'), s('f', 'complex')];
 
   it('the list puts them last (like the card list)', () => {
-    expect(roundSentences({ clue: { key: 'clue:n', hanzi: '我去银行。', translation: 'x' }, set }).map((r) => r.key))
-      .toEqual(['clue:n', 'a', 'c', 'e', 'f', 'b', 'd']);
+    expect(roundSentences([s('n-card'), ...set]).map((r) => r.key))
+      .toEqual(['n-card', 'a', 'c', 'e', 'f', 'b', 'd']);
   });
 
   it('no exercise and no count for them', () => {
-    const list = roundSentences({ clue: null, set });
+    const list = roundSentences(set);
     const picked = pickRoundExercises(list);
     expect(picked.map((e) => e.key).sort()).toEqual(['a', 'c', 'e', 'f']);
     expect(roundSentenceCount(list)).toBe(4);
@@ -49,14 +49,14 @@ describe('the Sentence round never uses a contrived sentence', () => {
   });
 
   it('nor in the listening card round', () => {
-    const list = roundSentences({ clue: null, set });
+    const list = roundSentences(set);
     expect(pickListenRoundExercises(list, '银行').map((e) => e.key)).toEqual(['a', 'c', 'e']);
     expect(listenRoundSentenceCount(list, '银行')).toBe(4);
     expect(listenRoundSentenceCount([s('x', 'contrast')], '银行')).toBe(0);
   });
 
   it('a round logged before is resumed without them', () => {
-    const list = roundSentences({ clue: null, set });
+    const list = roundSentences(set);
     expect(exercisesFromLog(list, ['read:b', 'translate:c'])?.map((e) => e.id)).toEqual(['translate:c']);
     expect(exercisesFromLog(list, ['read:b', 'translate:d'])).toBeNull();
   });
@@ -71,13 +71,14 @@ describe('the Sentence round never uses a contrived sentence', () => {
 
 describe('Listen in context', () => {
   it('lists the contrived rows last, flagged, and never counts them', () => {
-    const rows = listenContextRows('n', { hanzi: '我去银行。' }, [
+    const rows = listenContextRows([
+      { id: 'n-card', hanzi: '我去银行。', position: -1, is_card: 1 },
       { id: 'a', hanzi: '银行a', position: 0, focus: 'contrast' },
       { id: 'b', hanzi: '银行b', position: 1, focus: 'core' },
       { id: 'c', hanzi: '银行c', position: 2, focus: 'shared_character' },
       { id: 'd', hanzi: '银行d', position: 3 },
     ]);
-    expect(rows.map((r) => [r.key, r.contrived])).toEqual([['clue:n', false], ['b', false], ['d', false], ['a', true], ['c', true]]);
+    expect(rows.map((r) => [r.key, r.contrived])).toEqual([['n-card', false], ['b', false], ['d', false], ['a', true], ['c', true]]);
     expect(listenNaturalCount(rows)).toBe(3);
     expect(needsSentenceTopUp(listenNaturalCount(rows))).toBe(true);
   });

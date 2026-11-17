@@ -133,9 +133,8 @@ import { DEFAULT_TTS_SPEED } from '../types';
 import { useLiveQuery } from 'dexie-react-hooks';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { pinyin } from 'pinyin-pro';
 import { devicePinyinLine } from '../utils/autoPinyin';
-import { typedAnswerDiff, type DiffCell } from '../utils/answerDiff';
+import { AnswerDiff as AnswerDiffView } from '../components/study/AnswerDiff';
 import { NewCharsLabel, shimmerText } from '../components/study/NewCharShimmer';
 import { CardControlSheet, type CardControlMode, type CardControlTarget } from '../components/cardControls/CardControlSheet';
 import { ForgetSheet } from '../components/cardControls/ForgetSheet';
@@ -149,7 +148,7 @@ import { useHardMode } from '../services/hardModePrefs';
 import { HardModeChip } from '../components/study/HardModeChip';
 import { useTopbarFit } from '../components/study/useTopbarFit';
 import { HardModeFeedback } from '../components/study/HardModeFeedback';
-import { answerDiff as answerDiffOf, answerDiffSummary } from '@shared/cards/answer-diff';
+import { ANSWER_DIFF_YOUR_ANSWER } from '@shared/cards/answer-diff';
 import '../components/study/AnswerDiff.css';
 import {
   hardModeApplies, goodEasyGate, hardModeQuestionResult, hardModeRoundFollows, hardModeGiveUpInPlace,
@@ -213,9 +212,9 @@ function AnswerDiffBody({ userAnswer, correctAnswer, onCharacterClick, verdict, 
 
   const userChars = [...userAnswer];
 
-  // Generate pinyin for user's answer
-  const userPinyin = pinyin(userAnswer, { toneType: 'symbol', type: 'string' });
-  const canonicalPinyin = pinyin(correctAnswer, { toneType: 'symbol', type: 'string' });
+  // The app's auto-pinyin (一 / 不 tone changes applied).
+  const userPinyin = devicePinyinLine(userAnswer);
+  const canonicalPinyin = devicePinyinLine(correctAnswer);
 
   const clickable = onCharacterClick ? ' diff-char-clickable' : '';
 
@@ -257,30 +256,27 @@ function AnswerDiffBody({ userAnswer, correctAnswer, onCharacterClick, verdict, 
     );
   }
 
-  // A wrong answer: character by character against the canonical answer
-  const diff = typedAnswerDiff(userAnswer, correctAnswer);
+  // A wrong answer: the slim answer diff (docs/STUDY_SESSION.md "Answer feedback: one line and a diff") — ONE line
+  // that says what differs and his answer marked, judged by the characters (typed: a homophone is wrong) —, then the
+  // card's answer, tappable; the card's pinyin follows under it.
   return (
     <div className="answer-diff" data-testid="typed-answer-diff" data-verdict={verdict}>
-      {/* ONE line that says what differs (shared/cards/answer-diff.ts; docs/STUDY_SESSION.md "Answer feedback"). */}
-      <p className="adiff-line adiff-line--wrong typed-answer-line" data-testid="typed-answer-line">{answerDiffSummary(answerDiffOf(userAnswer, correctAnswer))}</p>
-      <div className="answer-diff-row">
-        {diff.typed.map((c, i) => <DiffCellView key={i} cell={c} clickable={clickable} onCharacterClick={onCharacterClick} />)}
-      </div>
-      <div className="answer-diff-pinyin">{userPinyin}</div>
-      <div className="answer-diff-arrow">↓</div>
-      <div className="answer-diff-row">
-        {diff.expected.map((c, i) => (
-          <span key={i} className={`diff-char ${c.matched ? 'diff-correct' : 'diff-expected'}${clickable}`} onClick={() => onCharacterClick?.(c.char)}>{shimmerText(c.char, newChars, i)}</span>
+      <AnswerDiffView said={userAnswer} expected={correctAnswer} written showExpected={false} saidLabel={ANSWER_DIFF_YOUR_ANSWER} whySurface="typed_answer" />
+      <div className="answer-diff-row" data-testid="typed-answer-expected">
+        {[...correctAnswer].map((c, i) => (
+          <span key={i} className={`diff-char diff-expected${clickable}`} onClick={() => onCharacterClick?.(c)}>{shimmerText(c, newChars, i)}</span>
         ))}
       </div>
     </div>
   );
 }
 
+/** One multiple-choice row's pick ('' = left blank). */
+type DiffCell = { char: string; mark: 'correct' | 'wrong' | 'missing' };
+
 /**
- * One character of the answer as typed / picked: green when right; red with a solid
- * underline when wrong (or extra); a muted "?" with a dashed underline when missing —
- * so the marks read without relying on colour (see utils/answerDiff.ts).
+ * One multiple-choice row's pick, colour only: the "right" ink when right; the wrong mark's colour when wrong; a "?"
+ * in the missing grey when left blank. Wrong / missing cells carry an aria-label.
  */
 function DiffCellView({ cell, status, clickable, onCharacterClick }: { cell: DiffCell; status?: string; clickable: string; onCharacterClick?: (char: string) => void }) {
   if (cell.mark === 'missing') {
@@ -323,7 +319,7 @@ function McAnswerDiff({ slots, onCharacterClick, newChars }: { slots: McAnswerSl
           />
         ))}
       </div>
-      {picked && <div className="answer-diff-pinyin">{pinyin(picked, { toneType: 'symbol', type: 'string' })}</div>}
+      {picked && <div className="answer-diff-pinyin">{devicePinyinLine(picked)}</div>}
       {skipped > 0 && (
         <div className="answer-diff-alternative-label">{skipped} of {choiceRows} left blank</div>
       )}
@@ -615,7 +611,7 @@ export function StudyCard({
   // The Sentence round (shared/study/sentenceRound.ts): with the setting on, the question goes to a
   // round of four sentence exercises before the answer; two right open it with Good / Easy unlocked.
   const roundCardType = hardApplies && SENTENCE_GATE_CARD_TYPES.includes(card.card_type);
-  const roundSentenceRowsAll = useRoundSentences(card.note, roundCardType, { fetchClueEnglish: card.card_type === 'audio_to_hanzi' });
+  const roundSentenceRowsAll = useRoundSentences(card.note, roundCardType, { fetchMissingEnglish: card.card_type === 'audio_to_hanzi' });
   // His practice history of these sentences: hidden ones never come (docs/STUDY_SESSION.md "Sentence practice history").
   const roundStats = useSentenceStats(card.note.id);
   // (null until both the sentences and the history are read)
@@ -1701,12 +1697,7 @@ export function StudyCard({
               key={card.id}
               noteId={card.note.id}
               word={card.note.hanzi}
-              cardSentence={{
-                hanzi: card.note.sentence_clue,
-                pinyin: card.note.sentence_clue_pinyin,
-                translation: card.note.sentence_clue_translation,
-                audio_url: card.note.sentence_clue_audio_url,
-              }}
+              note={card.note}
               online={aiAvailable}
               playAudio={(url, text) => playAudio(url, text, API_BASE)}
               isPlaying={isPlaying}
@@ -3534,16 +3525,7 @@ export function StudyCard({
                 <div className="study-sentences" data-testid="study-sentences">
                   <SentenceSet
                     noteId={card.note.id}
-                    cardSentence={
-                      card.note.sentence_clue
-                        ? {
-                            hanzi: card.note.sentence_clue,
-                            pinyin: card.note.sentence_clue_pinyin,
-                            translation: card.note.sentence_clue_translation,
-                            audio_url: card.note.sentence_clue_audio_url,
-                          }
-                        : null
-                    }
+                    note={card.note}
                     {...(pass ? { variant: 'pass' as const } : { compact: true })}
                     practise
                     showingKey={card.id}

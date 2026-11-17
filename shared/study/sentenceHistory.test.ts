@@ -30,7 +30,8 @@ describe('sentenceStats', () => {
       ev({ sentence_key: 's2', kind: 'hide', reason: 'bogus' as never, at: '2026-10-03T00:00:00.000Z' }),
     ];
     const st = sentenceStats(events, 'n1');
-    expect(st.get('clue')!.hidden).toBeNull();
+    // The legacy `clue` key folds into the card row's (cardSentence.ts).
+    expect(st.get('n1-card')!.hidden).toBeNull();
     expect(st.get('s2')!.hidden).toEqual({ at: '2026-10-03T00:00:00.000Z', reason: null });
   });
   it('known after three rights in a mode', () => {
@@ -38,8 +39,9 @@ describe('sentenceStats', () => {
     expect(knownInMode(st, 'read')).toBe(true);
     expect(knownInMode(st, 'translate')).toBe(false);
   });
-  it('clue rows map to the clue key', () => {
-    expect(sentenceHistoryKey('clue:n1')).toBe('clue');
+  it('an older build\'s clue row key maps to the card row id', () => {
+    expect(sentenceHistoryKey('clue:n1')).toBe('n1-card');
+    expect(sentenceHistoryKey('n1-card')).toBe('n1-card');
     expect(sentenceHistoryKey('abc')).toBe('abc');
     expect(showHiddenLabel(2)).toBe('Show hidden (2)');
   });

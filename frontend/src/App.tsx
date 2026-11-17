@@ -48,7 +48,7 @@ const AdminPage = lazy(() => import('./pages/AdminPage').then(m => ({ default: m
 const AdminAudioPage = lazy(() => import('./pages/AdminAudioPage').then(m => ({ default: m.AdminAudioPage })));
 const ConnectionsPage = lazy(() => import('./pages/ConnectionsPage').then(m => ({ default: m.ConnectionsPage })));
 const ConnectionDetailPage = lazy(() => import('./pages/ConnectionDetailPage').then(m => ({ default: m.ConnectionDetailPage })));
-const ChatPage = lazy(() => import('./pages/ChatPage').then(m => ({ default: m.ChatPage })));
+const ChatRoute = lazy(() => import('./pages/ChatRoute').then(m => ({ default: m.ChatRoute })));
 const StudentProgressPage = lazy(() => import('./pages/StudentProgressPage').then(m => ({ default: m.StudentProgressPage })));
 const SessionNotesPage = lazy(() => import('./pages/tutor/SessionNotesPage').then(m => ({ default: m.SessionNotesPage })));
 const StudentInsightsPage = lazy(() => import('./pages/tutor/StudentInsightsPage').then(m => ({ default: m.StudentInsightsPage })));
@@ -408,7 +408,7 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <ErrorBoundary fallbackTitle="Chat couldn't load">
-              <ChatPage />
+              <ChatRoute />
             </ErrorBoundary>
           </ProtectedRoute>
         }
@@ -419,7 +419,7 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <ErrorBoundary fallbackTitle="Chat couldn't load">
-              <ChatPage />
+              <ChatRoute />
             </ErrorBoundary>
           </ProtectedRoute>
         }
