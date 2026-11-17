@@ -306,7 +306,7 @@ fun AlbumViewerContent(photos: List<AlbumPhoto>, start: Int, ui: ChatUi, actions
                 val m = current?.message
                 if (m != null) {
                     ViewerButton("📤", "Share photo") { actions.onSharePhoto(m) }
-                    if (!ui.isAi) ViewerButton("↪️", "Forward this photo") { onClose(); actions.onForwardPhoto(m) }
+                    ViewerButton("↪️", "Forward this photo") { onClose(); actions.onForwardPhoto(m) }
                     if (m.sender_id == ui.myId) ViewerButton("🗑️", "Delete this photo") { onClose(); actions.onDeletePhoto(m) }
                 }
                 ViewerButton("✕", "Close photos", onClose)

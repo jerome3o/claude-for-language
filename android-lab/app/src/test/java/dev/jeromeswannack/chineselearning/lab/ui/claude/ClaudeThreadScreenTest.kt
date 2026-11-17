@@ -320,4 +320,11 @@ class ClaudeThreadScreenTest : LabScreenshotTest() {
     @Test fun shotQueuedDark() = shoot("claude-thread-08-queued-offline-dark", dark = true) { ClaudeThreadScreen(S.queuedOffline, ClaudeThreadActions()) }
     @Test fun shotNewChat() = shoot("claude-thread-09-new-chat-composer") { ClaudeThreadScreen(S.newChinese, ClaudeThreadActions(), voicePreview = typing) }
     @Test fun shotTool() = shoot("claude-thread-10-tool-status", settleMs = 600) { ClaudeThreadScreen(S.generalTool, ClaudeThreadActions()) }
+
+    /** An old practice chat's link whose thread can't be had (deleted / not mine): one plain line, no crash. */
+    @Test fun anOldPracticeChatThatIsGoneSaysSo() {
+        val gone = ClaudeThreadUi(threadId = "pc-c1", loadError = dev.jeromeswannack.chineselearning.lab.core.claude.ClaudePractice.LEGACY_THREAD_GONE)
+        shoot("claude-thread-11-old-practice-gone-dark", dark = true) { ClaudeThreadScreen(gone, ClaudeThreadActions()) }
+        compose.onNodeWithText(dev.jeromeswannack.chineselearning.lab.core.claude.ClaudePractice.LEGACY_THREAD_GONE).assertIsDisplayed()
+    }
 }

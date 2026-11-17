@@ -56,4 +56,16 @@ class ChatPairTest {
         assertEquals("newer", ChatPair.cachedChat("rel-m", null, null, convs, emptyMap()))
         assertNull(ChatPair.cachedChat("rel-x", null, null, null, emptyMap()))
     }
+
+    /** An old Claude practice chat's link (`/connections/:relId/chat/:convId`) opens its Claude thread. */
+    @Test fun anOldPracticeChatOpensItsClaudeThread() {
+        val convs = listOf(
+            ChatConversationDto("home", "rel-ai", null, "2026-01-01T00:00:00Z"),
+            ChatConversationDto("cafe", "rel-ai", "Café", "2026-03-01T00:00:00Z", is_ai_conversation = true),
+        )
+        assertEquals("/chats/claude/pc-cafe", ChatPair.practiceThreadPath("cafe", convs))
+        assertNull(ChatPair.practiceThreadPath("home", convs))
+        assertNull(ChatPair.practiceThreadPath("unknown", convs))
+        assertNull(ChatPair.practiceThreadPath("cafe", null))
+    }
 }

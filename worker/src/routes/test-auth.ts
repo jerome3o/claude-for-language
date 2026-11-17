@@ -5,6 +5,7 @@ import { createAuthCode, createSession, parseAuthChallenge } from '../services/a
 import * as tutorJobs from '../db/tutor-notes-queries';
 import * as insightsQ from '../db/insights-queries';
 import * as huntDb from '../db/picture-hunt-queries';
+import { ensureClaudeRelationship } from '../services/relationships';
 import type { HuntObject } from '@shared/picture-hunt';
 
 /**
@@ -313,6 +314,34 @@ testAuth.post('/merged-chats', async (c) => {
   }
   if (last) await db.prepare('UPDATE conversations SET last_message_at = ? WHERE id = ?').bind(last, primary).run();
   return c.json({ conversation_id: primary, merged_ids: mergedIds });
+});
+
+/**
+ * POST /api/test/practice-chat — an OLD Claude practice chat (a `conversations` row with
+ * `is_ai_conversation`, as apps before the Claude threads made them) with its messages, for the
+ * redirect to its Claude thread (e2e/tests/old-practice-chat.spec.ts). Body: { user_id, title?,
+ * scenario?, ai_role?, messages: [{ from: 'me' | 'claude', content, created_at }] }
+ * → { relationship_id, conversation_id }.
+ */
+testAuth.post('/practice-chat', async (c) => {
+  const b = await c.req.json<{ user_id: string; title?: string; scenario?: string; ai_role?: string; messages?: Array<{ from: 'me' | 'claude'; content: string; created_at: string }> }>();
+  const db = c.env.DB;
+  const relId = await ensureClaudeRelationship(db, b.user_id);
+  const convId = crypto.randomUUID();
+  await db
+    .prepare('INSERT INTO conversations (id, relationship_id, title, scenario, ai_role, is_ai_conversation) VALUES (?, ?, ?, ?, ?, 1)')
+    .bind(convId, relId, b.title ?? null, b.scenario ?? null, b.ai_role ?? null)
+    .run();
+  let last: string | null = null;
+  for (const m of b.messages ?? []) {
+    await db
+      .prepare('INSERT INTO messages (id, conversation_id, sender_id, content, created_at) VALUES (?, ?, ?, ?, ?)')
+      .bind(crypto.randomUUID(), convId, m.from === 'claude' ? 'claude-ai' : b.user_id, m.content, m.created_at)
+      .run();
+    if (!last || m.created_at > last) last = m.created_at;
+  }
+  if (last) await db.prepare('UPDATE conversations SET last_message_at = ? WHERE id = ?').bind(last, convId).run();
+  return c.json({ relationship_id: relId, conversation_id: convId });
 });
 
 /**

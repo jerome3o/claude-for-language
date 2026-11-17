@@ -8,7 +8,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -25,7 +24,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -39,20 +37,15 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
-import kotlinx.coroutines.launch
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.jeromeswannack.chineselearning.lab.core.MessageMenu
 import dev.jeromeswannack.chineselearning.lab.data.api.ChatMessageDto
-import dev.jeromeswannack.chineselearning.lab.data.api.MINIMAX_VOICES
 import dev.jeromeswannack.chineselearning.lab.data.api.SuggestedCard
-import dev.jeromeswannack.chineselearning.lab.data.api.VocabularyDefinition
-import dev.jeromeswannack.chineselearning.lab.ui.kit.ChipRow
 import dev.jeromeswannack.chineselearning.lab.ui.kit.InlineNotice
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LabBottomSheet
-import dev.jeromeswannack.chineselearning.lab.ui.kit.LabChip
 import dev.jeromeswannack.chineselearning.lab.ui.kit.MarkdownText
 import dev.jeromeswannack.chineselearning.lab.ui.kit.NavRow
 import dev.jeromeswannack.chineselearning.lab.ui.kit.NoticeKind
@@ -61,7 +54,6 @@ import dev.jeromeswannack.chineselearning.lab.ui.kit.RowDivider
 import dev.jeromeswannack.chineselearning.lab.ui.kit.SecondaryPill
 import dev.jeromeswannack.chineselearning.lab.ui.kit.ToggleRow
 import dev.jeromeswannack.chineselearning.lab.ui.kit.bouncyClickable
-import dev.jeromeswannack.chineselearning.lab.ui.study.CardTools
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Palette
 
@@ -73,21 +65,13 @@ class ChatSheetActions(
     val onSaveCards: (cards: List<SuggestedCard>, deckId: String?, newDeck: String?) -> Unit = { _, _, _ -> },
     val onHelpMeSayIt: (intended: String, guess: String) -> Unit = { _, _ -> },
     val onToggleOption: (Int) -> Unit = {},
-    val onRename: (String) -> Unit = {},
-    val onVoice: (String) -> Unit = {},
-    val onSpeed: (Double) -> Unit = {},
-    val onNewConversation: () -> Unit = {},
-    val onOpenRename: () -> Unit = {},
-    val onOpenVoice: () -> Unit = {},
-    val onAllConversations: () -> Unit = {},
     /** A row of the ⋯ menu's person links (core ChatPersonLinks): open its Lab path. */
     val onPersonLink: (dev.jeromeswannack.chineselearning.lab.core.ChatPersonLinks.Link) -> Unit = {},
     /** Discuss with Claude: save the cards Claude proposed in reply [replyId] (the chosen ones). */
     val onSaveDiscussCards: (ChatMessageDto, cards: List<SuggestedCard>, replyId: String, deckId: String?, newDeck: String?) -> Unit = { _, _, _, _, _ -> },
     /** Open an app path (the Discuss sheet's Open in Coach / context chip). */
     val onOpenAppPath: (String) -> Unit = {},
-    val define: suspend (hanzi: String, context: String, refresh: Boolean) -> CardTools.Definition = { _, _, _ -> error("offline") },
-    val deckHolding: suspend (String) -> String? = { null },
+
     // ---- PR 2 ----
     val onEdit: (ChatMessageDto) -> Unit = {},
     val onAskDelete: (ChatMessageDto) -> Unit = {},
@@ -263,9 +247,7 @@ fun ChatSheetHost(ui: ChatUi, actions: ChatSheetActions) {
                 Spacer(Modifier.height(12.dp))
             }
         }
-        is ChatSheet.Word -> WordSheet(s.hanzi, s.context, ui, actions)
-        ChatSheet.Rename -> if (ui.isAi) RenameSheet(ui, actions)
-        ChatSheet.Voice -> VoiceSheet(ui, actions)
+
         // Discuss with Claude = the message's Claude thread (ui/claude/DiscussClaudeSheet.kt).
         is ChatSheet.Discuss -> dev.jeromeswannack.chineselearning.lab.ui.claude.DiscussClaudeSheet(
             messageId = s.message.id,
@@ -300,8 +282,7 @@ fun ChatSheetHost(ui: ChatUi, actions: ChatSheetActions) {
 /**
  * The header's ⋯: Search, Make flashcards, pinyin / translations for all. One chat per pair
  * (docs/CHAT.md): a chat with a person has no title, no "New conversation" and no list of
- * conversations; a Claude practice chat (there may be several) keeps New conversation, its
- * title, Voice settings and All conversations.
+ * conversations (old Claude practice chats open their Claude thread instead).
  */
 @Composable
 fun ChatMenuContent(ui: ChatUi, actions: ChatSheetActions) {
@@ -323,16 +304,6 @@ fun ChatMenuContent(ui: ChatUi, actions: ChatSheetActions) {
         ToggleRow("拼", "Show pinyin for all", ui.aids.pinyinAll) { actions.onPinyinAll(it) }
         RowDivider()
         ToggleRow("EN", "Show translations for all", ui.aids.translationAll) { actions.onTranslationAll(it) }
-        if (ui.isAi) {
-            RowDivider()
-            NavRow("＋", "New conversation", desc = if (!ui.online) "Needs internet" else null, enabled = ui.online, onClick = actions.onNewConversation)
-            RowDivider()
-            NavRow("✏️", if (ui.conversation?.title.isNullOrBlank()) "Add a title" else "Rename conversation", enabled = ui.online, onClick = actions.onOpenRename)
-            RowDivider()
-            NavRow("🔊", "Voice settings", onClick = actions.onOpenVoice)
-            RowDivider()
-            NavRow("☰", "All conversations", onClick = actions.onAllConversations)
-        }
         // The person's page and its parts — what the learner's Tutor tab offered (core ChatPersonLinks).
         for (link in ui.personLinks) {
             RowDivider()
@@ -346,17 +317,16 @@ fun ChatMenuContent(ui: ChatUi, actions: ChatSheetActions) {
 @Composable
 fun AttachContent(ui: ChatUi, actions: ChatSheetActions) {
     Column(Modifier.fillMaxWidth().testTag("chat-attach-sheet")) {
-        if (!ui.isAi) {
-            NavRow("📷", "Camera", trailing = {}, onClick = actions.onCamera)
-            RowDivider()
-            NavRow("🖼️", "Photos", desc = "Up to 10 from the gallery", trailing = {}, onClick = actions.onGallery, modifier = Modifier.testTag("chat-attach-photos"))
-            RowDivider()
-            // Round 2 PR 3: a short clip, a document.
-            NavRow("🎬", "Video", desc = "A clip up to 25 MB", trailing = {}, onClick = actions.onVideo, modifier = Modifier.testTag("chat-attach-video"))
-            RowDivider()
-            NavRow("📄", "File", desc = "PDF, Office, text, zip, audio — up to 20 MB", trailing = {}, onClick = actions.onFile, modifier = Modifier.testTag("chat-attach-file"))
-            RowDivider()
-        }
+        NavRow("📷", "Camera", trailing = {}, onClick = actions.onCamera)
+        RowDivider()
+        NavRow("🖼️", "Photos", desc = "Up to 10 from the gallery", trailing = {}, onClick = actions.onGallery, modifier = Modifier.testTag("chat-attach-photos"))
+        RowDivider()
+        // Round 2 PR 3: a short clip, a document.
+        NavRow("🎬", "Video", desc = "A clip up to 25 MB", trailing = {}, onClick = actions.onVideo, modifier = Modifier.testTag("chat-attach-video"))
+        RowDivider()
+        NavRow("📄", "File", desc = "PDF, Office, text, zip, audio — up to 20 MB", trailing = {}, onClick = actions.onFile, modifier = Modifier.testTag("chat-attach-file"))
+        RowDivider()
+
         val help = ui.online && ui.messages.isNotEmpty() && !ui.generatingOptions
         NavRow(
             "💡", "Help me say it",
@@ -486,37 +456,6 @@ private fun HelpMeSayItSheet(actions: ChatSheetActions) {
     }
 }
 
-@Composable
-private fun RenameSheet(ui: ChatUi, actions: ChatSheetActions) {
-    var title by rememberSaveable { mutableStateOf(ui.conversation?.title.orEmpty()) }
-    LabBottomSheet(onDismiss = actions.onDismiss, title = if (ui.conversation?.title.isNullOrBlank()) "Add a title" else "Rename conversation") {
-        Column(Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            OutlinedTextField(title, { if (it.length <= 120) title = it }, label = { Text("Title (optional)") }, placeholder = { Text("e.g. This week's homework") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            ui.modalNotice?.let { InlineNotice(it.text, kind = NoticeKind.Error) }
-            PrimaryPill(if (ui.saving) "Saving…" else "Save", Modifier.fillMaxWidth().height(52.dp), enabled = !ui.saving) { actions.onRename(title) }
-            Spacer(Modifier.height(12.dp))
-        }
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun VoiceSheet(ui: ChatUi, actions: ChatSheetActions) {
-    val current = ui.conversation?.voice_id ?: "Chinese (Mandarin)_Gentleman"
-    var speed by remember { mutableStateOf((ui.conversation?.voice_speed ?: 0.8).toFloat()) }
-    LabBottomSheet(onDismiss = actions.onDismiss, title = "Voice Settings") {
-        Column(Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("Voice", style = MaterialTheme.typography.titleSmall, color = Lab.colors.ink)
-            ChipRow { MINIMAX_VOICES.forEach { (id, name) -> LabChip(name, selected = id == current) { actions.onVoice(id) } } }
-            Text("Speed: ${"%.1f".format(speed)}x", style = MaterialTheme.typography.titleSmall, color = Lab.colors.ink)
-            Slider(speed, { speed = (Math.round(it * 10) / 10f) }, valueRange = 0.3f..1.0f, steps = 6, onValueChangeFinished = { actions.onSpeed(speed.toDouble()) })
-            ui.modalNotice?.let { InlineNotice(it.text, kind = NoticeKind.Error) }
-            PrimaryPill("Done", Modifier.fillMaxWidth().height(52.dp), onClick = actions.onDismiss)
-            Spacer(Modifier.height(12.dp))
-        }
-    }
-}
-
 /** Claude's proposed cards under a Discuss reply: ticked by default; a deck and Save adds the ticked ones. */
 @Composable
 internal fun ProposedDiscussCards(m: ChatMessageDto, cards: List<SuggestedCard>, replyId: String, ui: ChatUi, actions: ChatSheetActions) {
@@ -538,48 +477,3 @@ internal fun ProposedDiscussCards(m: ChatMessageDto, cards: List<SuggestedCard>,
         if (selected.isNotEmpty()) DeckPicker(ui, selected.size, actions) { deck, new -> actions.onSaveDiscussCards(m, cards.filterIndexed { i, _ -> i in selected }, replyId, deck, new) }
     }
 }
-
-/** A word tapped in the word-by-word view: its definition (device cache first), then save it to a deck. */
-@Composable
-private fun WordSheet(hanzi: String, context: String, ui: ChatUi, actions: ChatSheetActions) {
-    var def by remember(hanzi) { mutableStateOf<VocabularyDefinition?>(null) }
-    var error by remember(hanzi) { mutableStateOf<String?>(null) }
-    var existing by remember(hanzi) { mutableStateOf<String?>(null) }
-    val bump = dev.jeromeswannack.chineselearning.lab.ui.bumps.rememberBumpHanzi("chat")
-    var bumped by remember(hanzi) { mutableStateOf<String?>(null) }
-    var bumping by remember { mutableStateOf(false) }
-    val scope = androidx.compose.runtime.rememberCoroutineScope()
-    androidx.compose.runtime.LaunchedEffect(hanzi) {
-        runCatching { actions.define(hanzi, context, false).value }.onSuccess { def = it }.onFailure { error = "Failed to load definition. Please try again." }
-        existing = runCatching { actions.deckHolding(hanzi) }.getOrNull()
-    }
-    LabBottomSheet(onDismiss = actions.onDismiss, title = "Save Word to Flashcards") {
-        Column(Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            val d = def
-            when {
-                error != null -> InlineNotice(error!!, kind = NoticeKind.Error)
-                d == null -> CircularProgressIndicator(color = Lab.colors.accent)
-                else -> {
-                    val card = SuggestedCard(d.hanzi, d.pinyin, d.english, d.fun_facts)
-                    CardPreview(card)
-                    if (existing != null && bump != null) {
-                        // Already a card: "⚡ Study it today" first; the deck picker stays below for "Add anyway".
-                        bumped?.let { InlineNotice(it, kind = NoticeKind.Success) } ?: InlineNotice("Already in \"$existing\" — study it today instead?", kind = NoticeKind.Warning)
-                        androidx.compose.material3.Button(
-                            onClick = { scope.launch { bumping = true; bumped = runCatching { bump(listOf(d.hanzi), null) }.getOrElse { it.message }; bumping = false } },
-                            enabled = bumped == null && !bumping,
-                            colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = Lab.colors.accent),
-                            modifier = Modifier.fillMaxWidth().height(50.dp).testTag("bump-study-today"),
-                        ) { Text(if (bumped != null) "⚡ Bumped" else dev.jeromeswannack.chineselearning.lab.ui.bumps.STUDY_IT_TODAY, fontWeight = FontWeight.SemiBold) }
-                        Text("Or add it anyway:", style = MaterialTheme.typography.labelMedium, color = Lab.colors.muted, modifier = Modifier.fillMaxWidth())
-                    } else existing?.let { InlineNotice("Already in \"$it\"", kind = NoticeKind.Warning) }
-                    DeckPicker(ui, 1, actions) { deck, new -> actions.onSaveCards(listOf(card), deck, new) }
-                }
-            }
-            ui.modalNotice?.let { InlineNotice(it.text, kind = NoticeKind.Error) }
-            Spacer(Modifier.height(12.dp))
-        }
-    }
-}
-
-

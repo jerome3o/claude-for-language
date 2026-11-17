@@ -840,18 +840,6 @@ export interface CreateAIConversationRequest {
   voice_speed?: number;
 }
 
-export interface AIRespondRequest {
-  // Optional: override voice settings for this response
-  voice_id?: string;
-  voice_speed?: number;
-}
-
-export interface AIRespondResponse {
-  message: MessageWithSender;
-  audio_base64: string | null;
-  audio_content_type: string | null;
-}
-
 export interface ConversationTTSRequest {
   text: string;
   voice_id?: string;

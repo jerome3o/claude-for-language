@@ -14,7 +14,7 @@ import { runIdiomJob, type IdiomQueueMessage } from './services/idioms';
 import messageTranslateRoutes from './routes/message-translate';
 import { cors } from 'hono/cors';
 import Anthropic from '@anthropic-ai/sdk';
-import { Env, Rating, User, CardQueue, SentenceBriefExplanation, SentenceSetMessage, QuestGenerationMessage, PictureHuntJobMessage, TutorNotesJobMessage, CreateConversationRequest, CLAUDE_AI_USER_ID, AIRespondResponse, ConversationTTSRequest, ConversationTTSResponse, CheckMessageResponse, GenerateReaderRequest, DifficultyLevel, ImageGenerationMessage, CustomLessonImageMessage, StoryGenerationMessage, VocabularyItem } from './types';
+import { Env, Rating, User, CardQueue, SentenceBriefExplanation, SentenceSetMessage, QuestGenerationMessage, PictureHuntJobMessage, TutorNotesJobMessage, CreateConversationRequest, CLAUDE_AI_USER_ID, ConversationTTSRequest, ConversationTTSResponse, CheckMessageResponse, GenerateReaderRequest, DifficultyLevel, ImageGenerationMessage, CustomLessonImageMessage, StoryGenerationMessage, VocabularyItem } from './types';
 import * as db from './db/queries';
 import { reconcileCardSentencesForUser } from './db/card-sentence';
 import * as content from './services/content';
@@ -45,7 +45,7 @@ import {
   parseLearningSteps,
 } from './services/anki-scheduler';
 import { fakeGeneratedDeck } from './services/generate-deck-fake';
-import { generateDeck, suggestCards, generateAIConversationResponse, generateAIConversationOpener, checkUserMessage, generateIDontKnowOptions } from './services/ai';
+import { generateDeck, suggestCards, checkUserMessage, generateIDontKnowOptions } from './services/ai';
 import { ClaudeContextError, discussTurns, proposedFlashcards, runClaudeTurn } from './services/claude-agent';
 import { analyzeSentence } from './services/sentence';
 import { coachSentence } from './services/sentence-coach';
@@ -89,7 +89,7 @@ import readerQueueRoutes from './routes/reader-queue';
 import { placeNewReader, readerQueuePositions, withQueuePositions } from './services/reader-queue';
 import { isReaderQueuePlacement } from '@shared/reader/queue';
 import { loadMessageForMember, ChatMessageError } from './services/chat/messages';
-import { storeAudio, getAudio, deleteAudio, getRecordingKey, ownRecordingKey, generateTTS, generateConversationTTS, parseByteRange, resolveServedRange, classifyMp3, DEFAULT_TTS_SPEED, DEFAULT_MINIMAX_VOICE } from './services/audio';
+import { storeAudio, getAudio, deleteAudio, getRecordingKey, ownRecordingKey, generateTTS, parseByteRange, resolveServedRange, classifyMp3, DEFAULT_TTS_SPEED, DEFAULT_MINIMAX_VOICE } from './services/audio';
 import {
   getGoogleAuthUrl,
   exchangeCodeForTokens,
@@ -142,6 +142,7 @@ import { emailPublic, emailPrefs } from './routes/email-prefs';
 import { HOMEWORK_EMAIL_CRON, runAssignedEmail, runHomeworkEmailCron, type HomeworkEmailMessage } from './services/homework-emails';
 import linkPreview from './routes/link-preview';
 import chatLiveRoutes, { mountLiveSocket } from './routes/chat-live';
+import retiredPracticeChatRoutes from './routes/retired-practice-chat';
 import chatListeningRoutes from './routes/chat-listening';
 import chatMessagesRoutes from './routes/chat-messages';
 import chatLearningRoutes from './routes/chat-learning';
@@ -704,6 +705,8 @@ app.route('/api', emailPrefs);
 app.route('/api', linkPreview);
 // Chat: messages, read markers, inbox, native push tokens, live ticket (docs/CHAT.md)
 app.route('/api', chatLiveRoutes);
+// The old Claude practice chat's endpoints answer 410 (role-plays are Claude threads now).
+app.route('/api', retiredPracticeChatRoutes);
 app.route('/api', chatListeningRoutes);
 // Rich messages: photo / voice upload + serving, edit, delete, pin, reactions (docs/CHAT.md PR 2)
 app.route('/api', chatMessagesRoutes);
@@ -3958,142 +3961,6 @@ app.post('/api/conversations/:id/generate-response-options', async (c) => {
   }
 });
 
-// AI responds in conversation (Claude tutor)
-app.post('/api/conversations/:id/ai-respond', async (c) => {
-  const userId = c.get('user').id;
-  const convId = c.req.param('id');
-
-  if (!c.env.ANTHROPIC_API_KEY) {
-    return c.json({ error: 'AI is not configured' }, 500);
-  }
-
-  try {
-    // Get conversation details
-    const conv = await getConversationById(c.env.DB, convId, userId);
-    if (!conv) {
-      return c.json({ error: 'Conversation not found' }, 404);
-    }
-
-    if (!conv.is_ai_conversation) {
-      return c.json({ error: 'This is not an AI conversation' }, 400);
-    }
-
-    // Get chat context
-    const chatContext = await getChatContext(c.env.DB, convId, userId);
-    if (!chatContext || chatContext.trim() === '') {
-      return c.json({ error: 'No messages found' }, 400);
-    }
-
-    // Get the latest user message
-    const { messages } = await getMessages(c.env.DB, convId, userId);
-    const latestUserMessage = messages.filter(m => m.sender_id !== CLAUDE_AI_USER_ID).pop();
-    if (!latestUserMessage) {
-      return c.json({ error: 'No user message found' }, 400);
-    }
-
-    // Generate AI response
-    const aiResponse = await generateAIConversationResponse(
-      c.env.ANTHROPIC_API_KEY,
-      conv,
-      chatContext,
-      latestUserMessage.content
-    );
-
-    // Save AI message
-    const aiMessage = await sendMessage(c.env.DB, convId, CLAUDE_AI_USER_ID, aiResponse);
-
-    // Generate TTS audio
-    let audioBase64: string | null = null;
-    let audioContentType: string | null = null;
-
-    const ttsResult = await generateConversationTTS(c.env, aiResponse, {
-      voiceId: conv.voice_id || DEFAULT_MINIMAX_VOICE,
-      speed: conv.voice_speed ?? DEFAULT_TTS_SPEED,
-      // Played once with the reply, never kept (docs/AUDIO.md "Google fallback").
-      allowGoogleFallback: true,
-    });
-
-    if (ttsResult) {
-      audioBase64 = ttsResult.audioBase64;
-      audioContentType = ttsResult.contentType;
-    }
-
-    const response: AIRespondResponse = {
-      message: aiMessage,
-      audio_base64: audioBase64,
-      audio_content_type: audioContentType,
-    };
-
-    return c.json(response);
-  } catch (error) {
-    console.error('AI respond error:', error);
-    const message = error instanceof Error ? error.message : 'Failed to get AI response';
-    return c.json({ error: message }, 500);
-  }
-});
-
-// Generate Claude's opening message for a new AI conversation (e.g. from study card)
-app.post('/api/conversations/:id/ai-initiate', async (c) => {
-  const userId = c.get('user').id;
-  const convId = c.req.param('id');
-
-  if (!c.env.ANTHROPIC_API_KEY) {
-    return c.json({ error: 'AI is not configured' }, 500);
-  }
-
-  try {
-    const conv = await getConversationById(c.env.DB, convId, userId);
-    if (!conv) {
-      return c.json({ error: 'Conversation not found' }, 404);
-    }
-
-    if (!conv.is_ai_conversation) {
-      return c.json({ error: 'This is not an AI conversation' }, 400);
-    }
-
-    // Check conversation has no messages yet (this is for initiating only)
-    const { messages } = await getMessages(c.env.DB, convId, userId);
-    if (messages.length > 0) {
-      return c.json({ error: 'Conversation already has messages' }, 400);
-    }
-
-    // Generate Claude's opening message
-    const aiResponse = await generateAIConversationOpener(
-      c.env.ANTHROPIC_API_KEY,
-      conv,
-    );
-
-    // Save AI message
-    const aiMessage = await sendMessage(c.env.DB, convId, CLAUDE_AI_USER_ID, aiResponse);
-
-    // Generate TTS audio
-    let audioBase64: string | null = null;
-    let audioContentType: string | null = null;
-
-    const ttsResult = await generateConversationTTS(c.env, aiResponse, {
-      voiceId: conv.voice_id || DEFAULT_MINIMAX_VOICE,
-      speed: conv.voice_speed ?? DEFAULT_TTS_SPEED,
-      // Played once with the reply, never kept (docs/AUDIO.md "Google fallback").
-      allowGoogleFallback: true,
-    });
-
-    if (ttsResult) {
-      audioBase64 = ttsResult.audioBase64;
-      audioContentType = ttsResult.contentType;
-    }
-
-    return c.json({
-      message: aiMessage,
-      audio_base64: audioBase64,
-      audio_content_type: audioContentType,
-    });
-  } catch (error) {
-    console.error('AI initiate error:', error);
-    const message = error instanceof Error ? error.message : 'Failed to initiate AI conversation';
-    return c.json({ error: message }, 500);
-  }
-});
-
 // Generate TTS for conversation messages (on-demand, not stored)
 app.post('/api/conversations/:id/tts', async (c) => {
   const userId = c.get('user').id;
@@ -4405,180 +4272,6 @@ function extractJSON(text: string): string | null {
   }
   return null;
 }
-
-// Helper: fetch a character definition from Claude AI and cache it in D1
-async function fetchAndCacheDefinition(
-  db: D1Database,
-  hanzi: string,
-  context: string | undefined,
-  apiKey: string,
-): Promise<{ hanzi: string; pinyin: string; english: string; fun_facts?: string; example?: string }> {
-  const prompt = `You are a Mandarin Chinese language expert. Define this Chinese word/phrase: "${hanzi}"
-${context ? `\nContext sentence: "${context}"` : ''}
-
-IMPORTANT: Use tone marks for pinyin (nǐ hǎo) NOT tone numbers (ni3 hao3).
-
-Provide:
-1. Hanzi (the word/phrase itself)
-2. Pinyin with tone marks
-3. English definition
-4. A substantive learning note: explain grammar patterns, cultural context, common mistakes, or disambiguation from similar characters/words
-5. An example sentence using the word (if not provided in context)
-
-Respond with ONLY a JSON object in this exact format:
-{
-  "hanzi": "...",
-  "pinyin": "...",
-  "english": "...",
-  "fun_facts": "...",
-  "example": "..."
-}`;
-
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01'
-    },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-5-20250929',
-      max_tokens: 1024,
-      messages: [{ role: 'user', content: prompt }]
-    })
-  });
-
-  if (!response.ok) {
-    throw new Error(`Anthropic API error: ${response.statusText}`);
-  }
-
-  const data = await response.json<any>();
-  const text = data.content[0].text;
-  const jsonStr = extractJSON(text);
-  if (!jsonStr) {
-    throw new Error('Failed to parse AI response');
-  }
-
-  const result = JSON.parse(jsonStr);
-
-  // Cache in D1 (fire-and-forget, don't block response)
-  try {
-    await db.prepare(
-      `INSERT OR REPLACE INTO character_definitions (hanzi, pinyin, english, fun_facts, example, updated_at)
-       VALUES (?, ?, ?, ?, ?, datetime('now'))`
-    ).bind(result.hanzi, result.pinyin, result.english, result.fun_facts || null, result.example || null).run();
-  } catch (e) {
-    console.error('Failed to cache definition:', e);
-  }
-
-  return result;
-}
-
-// Define a vocabulary word with context
-app.post('/api/vocabulary/define', async (c) => {
-  const userId = c.get('user').id;
-  const { hanzi, context, skipCache } = await c.req.json<{ hanzi: string; context?: string; skipCache?: boolean }>();
-
-  if (!c.env.ANTHROPIC_API_KEY) {
-    return c.json({ error: 'AI is not configured' }, 500);
-  }
-
-  if (!hanzi || hanzi.trim() === '') {
-    return c.json({ error: 'Hanzi is required' }, 400);
-  }
-
-  try {
-    // Check global D1 cache first (unless skipCache is set for refresh)
-    if (!skipCache) {
-      const cached = await c.env.DB.prepare(
-        'SELECT hanzi, pinyin, english, fun_facts, example FROM character_definitions WHERE hanzi = ?'
-      ).bind(hanzi.trim()).first<{ hanzi: string; pinyin: string; english: string; fun_facts: string | null; example: string | null }>();
-
-      if (cached) {
-        return c.json({ ...cached, cached: true });
-      }
-    }
-
-    const result = await fetchAndCacheDefinition(c.env.DB, hanzi.trim(), context, c.env.ANTHROPIC_API_KEY);
-    return c.json(result);
-  } catch (error) {
-    console.error('Define vocabulary error:', error);
-    const errMsg = error instanceof Error ? error.message : 'Failed to define word';
-    return c.json({ error: errMsg }, 500);
-  }
-});
-
-// Pre-populate character definitions for a user's learned vocabulary
-app.post('/api/vocabulary/populate', async (c) => {
-  const userId = c.get('user').id;
-
-  if (!c.env.ANTHROPIC_API_KEY) {
-    return c.json({ error: 'AI is not configured' }, 500);
-  }
-
-  try {
-    // Get all unique hanzi from the user's notes
-    const notes = await c.env.DB.prepare(
-      `SELECT DISTINCT n.hanzi FROM notes n
-       JOIN decks d ON n.deck_id = d.id
-       WHERE d.user_id = ? AND n.hanzi IS NOT NULL AND n.hanzi != ''`
-    ).bind(userId).all<{ hanzi: string }>();
-
-    if (!notes.results || notes.results.length === 0) {
-      return c.json({ message: 'No vocabulary to populate', populated: 0, skipped: 0 });
-    }
-
-    // Extract individual characters from all hanzi phrases
-    const allChars = new Set<string>();
-    for (const note of notes.results) {
-      for (const ch of note.hanzi) {
-        if (/[\u4e00-\u9fff\u3400-\u4dbf]/.test(ch)) {
-          allChars.add(ch);
-        }
-      }
-    }
-
-    // Check which ones are already cached
-    const charArray = Array.from(allChars);
-    const placeholders = charArray.map(() => '?').join(',');
-    const existing = await c.env.DB.prepare(
-      `SELECT hanzi FROM character_definitions WHERE hanzi IN (${placeholders})`
-    ).bind(...charArray).all<{ hanzi: string }>();
-
-    const existingSet = new Set((existing.results || []).map(r => r.hanzi));
-    const uncached = charArray.filter(ch => !existingSet.has(ch));
-
-    if (uncached.length === 0) {
-      return c.json({ message: 'All characters already cached', populated: 0, skipped: charArray.length });
-    }
-
-    // Populate in batches of 10 (to avoid timeout)
-    const batchSize = 10;
-    const batch = uncached.slice(0, batchSize);
-    let populated = 0;
-
-    for (const ch of batch) {
-      try {
-        await fetchAndCacheDefinition(c.env.DB, ch, undefined, c.env.ANTHROPIC_API_KEY);
-        populated++;
-      } catch (e) {
-        console.error(`Failed to populate definition for ${ch}:`, e);
-      }
-    }
-
-    return c.json({
-      message: `Populated ${populated} definitions`,
-      populated,
-      skipped: existingSet.size,
-      remaining: uncached.length - populated,
-      total: charArray.length,
-    });
-  } catch (error) {
-    console.error('Populate vocabulary error:', error);
-    const errMsg = error instanceof Error ? error.message : 'Failed to populate vocabulary';
-    return c.json({ error: errMsg }, 500);
-  }
-});
 
 // Convert arbitrary text into a flashcard (for Ask Claude messages)
 app.post('/api/text-to-flashcard', async (c) => {

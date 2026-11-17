@@ -1340,11 +1340,22 @@ parity-tested by `parity/fixtures/claude-practice.ts`).
   (`voice_id`); ▶ / 🎧 read Claude's lines in it at `PRACTICE_VOICE_SPEED` (0.7). After a Chinese reply the clip is
   made in the background (waitUntil, the R2 `tts-cache/` key `/api/practice/tts` serves) — never awaited.
 - **Old practice chats** (`conversations.is_ai_conversation`) stay as they were copied: read-only `pc-<id>` threads.
-  The old `ai-initiate` / `ai-respond` endpoints remain for old builds only. `GET /api/me/chats?exclude_ai=1` (both
-  apps' Chats tab) leaves out the old chats already copied into the threads (a not-yet-copied one still comes).
+  `GET /api/me/chats?exclude_ai=1` (both apps' Chats tab) leaves out the old chats already copied into the threads
+  (a not-yet-copied one still comes). **The old practice-chat path is retired** (Nov 2026): opening one by its old
+  link (`/connections/:relId/chat/:convId` — a bookmark, a notification, an MCP link, the Claude relationship's list)
+  opens its thread `/chats/claude/pc-<id>` instead (`practiceChatRedirect` / `legacyPracticeThreadPath` in
+  `shared/claude/practice.ts`; web `pages/ChatRoute.tsx`, Lab `ChatNav` `ResolvedChatRoute` from the phone's list +
+  `ChatUi.movedToThread` from the server's, core `ClaudePractice.chatRedirect`, parity-tested). The server copies it
+  on demand when the lazy backfill hasn't (`ensureLegacyPracticeThread`, `GET /api/claude/threads/pc-<id>`); one it
+  can't (deleted, not the caller's) says so in the thread view. The chat page has no AI branches any more (no
+  word-by-word / word popup, voice settings, scenario banner); `POST /api/conversations/:id/ai-respond`,
+  `…/ai-initiate`, `POST /api/vocabulary/define` and `…/populate` answer **410 Gone** `{ error, moved_to_thread }`
+  for older builds (`routes/retired-practice-chat.ts`; the thread id where there is one, copied again first so a
+  message an old build just sent is in it) — they show it as their usual "Claude couldn't reply" notice.
 - Analytics: `claude.practice_start { source: chats | card | claude_page | chat_link, preset, level }`.
 - Tests: `services/claude-agent/__tests__/practice.test.ts`, `routes/__tests__/claude-threads.test.ts` (a role-play),
-  `routes/__tests__/chat-list.test.ts` (`exclude_ai`), `shared/claude/practice.test.ts`,
+  `routes/__tests__/chat-list.test.ts` (`exclude_ai`), `routes/__tests__/retired-practice-chat.test.ts` (the 410s, the
+  copy on demand), `pages/ChatRoute.test.tsx`, `e2e/tests/old-practice-chat.spec.ts`, `shared/claude/practice.test.ts`,
   `components/claude/PracticeSituationSheet.test.tsx`, `e2e/tests/claude-practice-discuss.spec.ts`, Lab
   `ClaudePracticeParityTest`, `ui/claude/PracticeDiscussTest.kt` (+ Roborazzi).
 

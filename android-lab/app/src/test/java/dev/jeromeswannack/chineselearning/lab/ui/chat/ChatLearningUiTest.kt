@@ -73,10 +73,9 @@ class ChatLearningUiTest {
         val mine = msg("m2", "me", "我很好")
         assertTrue(MessageMenu.CHECK in student.ids(mine))
         assertTrue(MessageMenu.VIEW_CORRECTIONS in student.copy(checkStatuses = mapOf("m2" to "needs_improvement")).ids(mine))
-        // The Claude practice chat: Word by word, no pin / edit / delete.
-        val ai = student.copy(conversation = dev.jeromeswannack.chineselearning.lab.data.api.ChatConversationDto("c1", "rel1", "Practice", is_ai_conversation = true))
-        assertTrue(MessageMenu.WORD_BY_WORD in ai.ids(m))
-        assertFalse(MessageMenu.PIN in ai.ids(mine))
+        // Old Claude practice chats open their Claude thread now: a chat here never offers Word by word.
+        assertFalse(MessageMenu.WORD_BY_WORD in student.ids(m))
+
         // Voice: the tools work on the transcript.
         val voice = msg("v1", "t1", "").copy(attachment = ChatAttachmentDto("voice", transcript_status = "done", transcript = "我昨天去了。"))
         assertEquals("我昨天去了。", student.menuText(voice))

@@ -386,7 +386,8 @@ fun MessageBubbleRow(m: ChatMessageDto, layout: ChatBubbles.Layout, ui: ChatUi, 
             m.correction?.takeIf { !m.isDeleted }?.let { cor ->
                 CorrectionCard(
                     m, cor,
-                    tutorView = !mine && ui.viewerRole == "tutor" && !ui.isAi && !selecting,
+                    tutorView = !mine && ui.viewerRole == "tutor" && !selecting,
+
                     learnerView = false,
                     by = ui.otherName.ifEmpty { "Your tutor" },
                     onEdit = { actions.onOpenSheet(ChatSheet.Correct(m)) },
@@ -518,26 +519,21 @@ private fun TextContent(m: ChatMessageDto, mine: Boolean, fg: Color, meta: Annot
     val query = ui.search?.query?.takeIf { it.isNotBlank() && ui.highlightId == m.id }
     val preview = link?.let { ui.linkPreviews[it] }
     val translation = ui.translationOf(m)?.takeIf { ui.aids.translation(m.id) && ui.selection == null }
-    val seg = ui.segmentations[m.id]
-    val wordByWord = !mine && m.id in ui.wordByWord && seg != null
     // The meta sits at the end of the last line of text, unless a card / link ends the bubble.
-    val inline = preview == null && invite == null && !wordByWord
+    val inline = preview == null && invite == null
     val reserve = if (inline) rememberMetaWidth(meta) else 0.dp
     Box {
         Column(Modifier.padding(start = 12.dp, end = 12.dp, top = 7.dp, bottom = 7.dp)) {
             m.reply_to?.let { r -> ReplyQuote(r, mine, ui) { actions.onJumpTo(r.id) } }
-            if (wordByWord) WordByWord(m, seg!!, ui, actions)
-            else {
-                val shown = invite?.first ?: m.content
-                ChineseText(
-                    m, shown, if (invite == null && query == null) ui.words(m) else null, mine, fg, ui,
-                    onChip = { i -> actions.onChip(m, i) },
-                    reserve = if (translation == null) reserve else 0.dp,
-                    onLongPress = openMenu,
-                    plain = { r -> ReservedText(highlight(shown, query), r, color = fg, fontSize = 17.sp, lineHeight = 24.sp) },
-                )
-                translation?.let { TranslationLine(it, mine, reserve) }
-            }
+            val shown = invite?.first ?: m.content
+            ChineseText(
+                m, shown, if (invite == null && query == null) ui.words(m) else null, mine, fg, ui,
+                onChip = { i -> actions.onChip(m, i) },
+                reserve = if (translation == null) reserve else 0.dp,
+                onLongPress = openMenu,
+                plain = { r -> ReservedText(highlight(shown, query), r, color = fg, fontSize = 17.sp, lineHeight = 24.sp) },
+            )
+            translation?.let { TranslationLine(it, mine, reserve) }
             if (preview != null) LinkPreviewCard(link, preview, mine, actions)
             invite?.let { (_, callId) ->
                 Text(
@@ -551,22 +547,6 @@ private fun TextContent(m: ChatMessageDto, mine: Boolean, fg: Color, meta: Annot
     }
 }
 
-/** The Claude practice chat's "Word by word": tappable chunks + the translation. */
-@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
-@Composable
-private fun WordByWord(m: ChatMessageDto, seg: dev.jeromeswannack.chineselearning.lab.data.api.SegmentedDto, ui: ChatUi, actions: ChatActions) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            seg.segmentation.chunks.forEach { chunk ->
-                Text(
-                    chunk.hanzi, fontSize = 18.sp, color = Lab.colors.ink,
-                    modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(Lab.colors.card.copy(alpha = 0.7f)).clickable { actions.onWord(chunk.hanzi, m.content) }.padding(horizontal = 5.dp, vertical = 2.dp),
-                )
-            }
-        }
-        Text(m.translation ?: seg.translation.ifEmpty { seg.segmentation.english }, style = MaterialTheme.typography.bodyMedium, color = Lab.colors.ink.copy(alpha = 0.65f))
-    }
-}
 
 /** The search query marked in the text (case-insensitive). */
 fun highlight(text: String, query: String?): AnnotatedString = buildAnnotatedString {

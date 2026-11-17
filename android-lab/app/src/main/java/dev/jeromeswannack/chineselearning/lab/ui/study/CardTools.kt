@@ -27,7 +27,6 @@ import dev.jeromeswannack.chineselearning.lab.data.api.SentenceClueOptions
 import dev.jeromeswannack.chineselearning.lab.data.api.SentenceDto
 import dev.jeromeswannack.chineselearning.lab.data.api.SentenceExplanation
 import dev.jeromeswannack.chineselearning.lab.data.api.StudyNoteDto
-import dev.jeromeswannack.chineselearning.lab.data.api.VocabularyDefinition
 import dev.jeromeswannack.chineselearning.lab.data.api.askAboutNote
 import dev.jeromeswannack.chineselearning.lab.data.api.noteQuestion
 import dev.jeromeswannack.chineselearning.lab.data.api.noteQuestionWords
@@ -35,7 +34,6 @@ import dev.jeromeswannack.chineselearning.lab.data.api.setAskClaudeLanguage
 import dev.jeromeswannack.chineselearning.lab.data.api.setAskClaudeListening
 import dev.jeromeswannack.chineselearning.lab.data.api.translateNoteQuestion
 import dev.jeromeswannack.chineselearning.lab.data.api.createNote
-import dev.jeromeswannack.chineselearning.lab.data.api.defineVocabulary
 import dev.jeromeswannack.chineselearning.lab.data.api.deleteNote
 import dev.jeromeswannack.chineselearning.lab.data.api.deleteSentenceSet
 import dev.jeromeswannack.chineselearning.lab.data.api.explainSentence
@@ -332,22 +330,6 @@ class CardTools(private val app: LabApp) {
         deckIds.map { names[it] ?: "a deck" }
     }
 
-    /** "Already in <deck>" for the definition popup. */
-    suspend fun deckHolding(hanzi: String): String? = withContext(Dispatchers.IO) {
-        val note = repo.dao.allNotes().firstOrNull { it.hanzi == hanzi } ?: return@withContext null
-        repo.dao.decks().firstOrNull { it.id == note.deckId }?.name ?: "a deck"
-    }
-
-    data class Definition(val value: VocabularyDefinition, val fromCache: Boolean)
-
-    /** WordDefinitionPopup: the device cache first (works offline), else `/api/vocabulary/define`. */
-    suspend fun define(hanzi: String, context: String?, refresh: Boolean = false): Definition {
-        val key = "study/define/$hanzi"
-        if (!refresh) cache.get<VocabularyDefinition>(key)?.let { return Definition(it, fromCache = true) }
-        val fresh = api.defineVocabulary(hanzi, context, skipCache = refresh)
-        cache.put(key, TutorNotes.KIND, fresh)
-        return Definition(fresh, fromCache = false)
-    }
 
     // ---------------- flag for tutor ----------------
 

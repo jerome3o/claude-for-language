@@ -109,11 +109,6 @@ class ChatRound3ComposeTest {
         compose.onNodeWithTag("chat-select-forward").assertIsNotEnabled()
     }
 
-    @Test fun noForwardInTheClaudePracticeChat() {
-        show(S.student.copy(selection = SelectionUi(setOf("m1")), conversation = S.student.conversation!!.copy(is_ai_conversation = true)))
-        compose.onAllNodesWithTag("chat-select-forward").assertCountEquals(0)
-        compose.onNodeWithTag("chat-select-copy").assertExists()
-    }
 
     @Test fun theAttachSheetOffersPhotosVideoAndFile() {
         val picked = mutableListOf<String>()

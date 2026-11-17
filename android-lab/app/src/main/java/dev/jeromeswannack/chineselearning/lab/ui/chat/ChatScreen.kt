@@ -138,7 +138,7 @@ class ChatActions(
     val onOpenCoach: (ChatMessageDto, source: String) -> Unit = { _, _ -> },
     val onReact: (ChatMessageDto, String) -> Unit = { _, _ -> },
     val onViewCheck: (ChatMessageDto) -> Unit = {},
-    val onWord: (hanzi: String, context: String) -> Unit = { _, _ -> },
+
     val onDismissNotice: () -> Unit = {},
     /** "Change" on a "✓ Added to From chats" notice (null = none: previews). */
     val moveAdded: dev.jeromeswannack.chineselearning.lab.ui.kit.SourceDeckActions? = null,
@@ -262,7 +262,7 @@ fun ChatScreen(ui: ChatUi, actions: ChatActions, callBanner: (@Composable () -> 
             AnimatedVisibility(pinned.isNotEmpty() && ui.search == null && ui.selection == null, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
                 pinned.firstOrNull()?.let { PinnedBar(it, pinned.size, actions) }
             }
-            if (ui.isAi && !ui.conversation?.scenario.isNullOrBlank()) ScenarioBanner(ui)
+
             // Package J: "📹 王老师 is calling — Join" while a call is live in this relationship.
             if (callBanner != null) Box(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) { callBanner() }
             Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -309,27 +309,22 @@ private fun ChatHeader(ui: ChatUi, actions: ChatActions) {
                 .heightIn(min = 48.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Avatar(ui.otherName, null, size = 36.dp, isClaude = ui.isAi || ui.otherIsClaude)
+            Avatar(ui.otherName, null, size = 36.dp, isClaude = ui.otherIsClaude)
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(ui.otherName.ifEmpty { "Chat" }, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = Lab.colors.ink, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                    if (ui.isAi) {
-                        Spacer(Modifier.width(6.dp))
-                        Text("AI", style = MaterialTheme.typography.labelSmall, color = Lab.colors.accent, modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(Lab.colors.accentSoft).padding(horizontal = 6.dp, vertical = 1.dp))
-                    }
                 }
                 // "typing…" takes the subtitle's place, like a messenger; then my sends waiting in the outbox.
                 val queue = ui.queueLabel
                 if (ui.typing) Text("typing…", style = MaterialTheme.typography.bodySmall, color = Lab.colors.accent, maxLines = 1)
                 else if (ui.listeningAvailable && ui.listening.setting.on) Text("🎧 Listening mode", style = MaterialTheme.typography.bodySmall, color = Lab.colors.accent, maxLines = 1, modifier = Modifier.testTag("chat-listening-subtitle"))
                 else if (queue != null) Text(queue, style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.testTag("chat-queue-status"))
-                // A chat with a person has no title (one chat per pair); a Claude practice chat shows its own.
-                else if (ui.isAi) ui.conversation?.title?.takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+
                 if (ui.proposingCards) Text("Claude is picking cards…", style = MaterialTheme.typography.bodySmall, color = Lab.colors.accent, maxLines = 1)
             }
         }
-        if (!ui.isAi && !ui.otherIsClaude) {
+        if (!ui.otherIsClaude) {
             Box(
                 Modifier.size(48.dp).clip(CircleShape).clickable(enabled = !ui.callBusy, onClickLabel = "Video call", onClick = actions.onVideoCall).testTag("chat-video-call"),
                 contentAlignment = Alignment.Center,
@@ -388,19 +383,6 @@ private fun PinnedBar(m: ChatMessageDto, count: Int, actions: ChatActions) {
 
 fun previewOf(m: ChatMessageDto): String = ChatRich.preview(m.content, m.attachment?.kind, m.deleted_at, max = 90, fileName = m.attachment?.name)
 
-@Composable
-private fun ScenarioBanner(ui: ChatUi) {
-    val c = ui.conversation ?: return
-    Text(
-        buildString {
-            append("Scenario: ${c.scenario}")
-            c.user_role?.takeIf { it.isNotBlank() }?.let { append(" | You: $it") }
-            c.ai_role?.takeIf { it.isNotBlank() }?.let { append(" | AI: $it") }
-        },
-        style = MaterialTheme.typography.bodySmall, color = Lab.colors.ink,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).clip(RoundedCornerShape(12.dp)).background(Lab.colors.accentSoft).padding(10.dp),
-    )
-}
 
 private fun LazyListState.isAtEnd(): Boolean {
     val info = layoutInfo
@@ -413,7 +395,7 @@ private fun LazyListState.isAtEnd(): Boolean {
 private fun MessageList(ui: ChatUi, actions: ChatActions, onView: (ViewerTarget) -> Unit) {
     val rows = remember(ui.messages, ui.pending, ui.unreadId, ui.otherReadAt, ui.myId) { ui.rows() }
     val lead = (if (ui.offlineHistory) 1 else 0) + (if (ui.messages.isEmpty() && ui.pending.isEmpty()) 1 else 0)
-    val tail = (if (ui.waitingForAi) 1 else 0) + (if (ui.typing) 1 else 0)
+    val tail = if (ui.typing) 1 else 0
     val total = lead + rows.size + tail
     fun indexOf(id: String): Int = if (id == ChatViewModel.END) total - 1 else rows.indexOfFirst {
         it.key == id || (it is ChatRow.Pending && it.bubble.clientId == id) ||
@@ -453,7 +435,8 @@ private fun MessageList(ui: ChatUi, actions: ChatActions, onView: (ViewerTarget)
         LazyColumn(Modifier.fillMaxSize().testTag("chat-messages"), state = state, contentPadding = PaddingValues(start = 10.dp, end = 10.dp, top = 4.dp, bottom = 12.dp)) {
             if (ui.offlineHistory) item(key = "offline") { OfflineNotice() }
             if (ui.messages.isEmpty() && ui.pending.isEmpty()) {
-                item(key = "empty") { EmptyState(if (ui.isAi) "🤖" else "💬", if (ui.isAi) "Start practicing Chinese!" else "Start the conversation!") }
+                item(key = "empty") { EmptyState("💬", "Start the conversation!") }
+
             }
             items(rows, key = { it.key }) { row ->
                 when (row) {
@@ -465,7 +448,7 @@ private fun MessageList(ui: ChatUi, actions: ChatActions, onView: (ViewerTarget)
                     is ChatRow.System -> SystemMessageRow(row.message, ui, actions)
                 }
             }
-            if (ui.waitingForAi) item(key = "typing-ai") { TypingBubble() }
+
             if (ui.typing) item(key = "typing") { TypingBubble() }
         }
         androidx.compose.animation.AnimatedVisibility(

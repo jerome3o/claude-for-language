@@ -49,6 +49,7 @@ import { DeckCheckSheet } from '../components/cardCheck/DeckCheckSheet';
 import { SharedReadersSection } from '../components/tutor/SharedReadersSection';
 import { Toast, useToast } from '../components/Toast';
 import { removalMenuLabel } from '@shared/homework';
+import { legacyPracticeThreadPath } from '@shared/claude/practice';
 import { Avatar } from '../components/tutor/StudentCard';
 import { dayLabel, minutes, percent, plural, relativeDay, shortDate, shortDateTime } from '../components/tutor/format';
 import '../components/tutor/tutor-dashboard.css';
@@ -89,7 +90,7 @@ function ConversationsList({ relId, conversations, isLoading, onStart }: { relId
         return (
           <Link
             key={conv.id}
-            to={`/connections/${relId}/chat/${conv.id}`}
+            to={conv.is_ai_conversation ? legacyPracticeThreadPath(conv.id) : `/connections/${relId}/chat/${conv.id}`}
             className={`conversation-item${unread > 0 ? ' has-unread' : ''}`}
             data-testid="conversation-item"
           >

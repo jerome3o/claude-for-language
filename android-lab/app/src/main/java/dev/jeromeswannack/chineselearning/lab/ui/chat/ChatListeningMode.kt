@@ -230,7 +230,7 @@ class ChatListeningMode(
         scope.launch { ChatListeningStore.setConversation(app, convId, true, since) }
     }
 
-    fun available(s: ChatUi = ui.value) = !s.isAi && !s.otherIsClaude
+    fun available(s: ChatUi = ui.value) = !s.otherIsClaude
 
     fun prefetch(messages: List<ChatMessageDto>) {
         val me = ui.value.myId ?: return

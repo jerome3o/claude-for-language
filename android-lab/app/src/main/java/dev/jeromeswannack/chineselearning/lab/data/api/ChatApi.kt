@@ -4,7 +4,7 @@ import dev.jeromeswannack.chineselearning.lab.data.Api
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.serializer
 
-// The tutor-student / Claude chat (package E; web: pages/ChatPage.tsx, InteractiveMessage,
+// The tutor-student / Claude chat (package E; web: pages/ChatPage.tsx,
 // MessageDiscussionModal, api/client.ts). Sending needs a connection — like the web, nothing is queued.
 
 @Serializable
@@ -119,10 +119,6 @@ data class SendMessageBody(val content: String, val reply_to_message_id: String?
 suspend fun Api.sendChatMessage(conversationId: String, content: String, replyTo: String?, clientId: String? = null): ChatMessageDto =
     post("/api/conversations/${enc(conversationId)}/messages", SendMessageBody(content, replyTo, clientId))
 
-@Serializable
-data class AIRespondDto(val message: ChatMessageDto, val audio_base64: String? = null, val audio_content_type: String? = null)
-
-suspend fun Api.aiRespond(conversationId: String): AIRespondDto = exchange("POST", "/api/conversations/${enc(conversationId)}/ai-respond", "{}", AIRespondDto.serializer())
 
 @Serializable
 data class ConversationTtsBody(val text: String, val voice_id: String? = null, val voice_speed: Double? = null, val message_id: String? = null)
@@ -163,10 +159,6 @@ data class SegmentChunk(val hanzi: String, val pinyin: String = "", val english:
 @Serializable
 data class ChatBreakdownDto(val hanzi: String = "", val pinyin: String = "", val english: String = "", val chunks: List<SegmentChunk> = emptyList())
 
-@Serializable
-data class SegmentedDto(val translation: String = "", val segmentation: ChatBreakdownDto)
-
-suspend fun Api.translateSegmented(messageId: String): SegmentedDto = post("/api/messages/${enc(messageId)}/translate-segmented")
 
 @Serializable
 data class TranslationDto(val translation: String = "")
@@ -191,16 +183,6 @@ data class ReactionAnswer(val added: Boolean = false)
 
 suspend fun Api.toggleReaction(messageId: String, emoji: String): ReactionAnswer = post("/api/messages/${enc(messageId)}/reactions", ReactionBody(emoji))
 
-@Serializable
-data class TitleBody(val title: String)
-
-suspend fun Api.renameConversation(conversationId: String, title: String): ChatConversationDto = patch("/api/conversations/${enc(conversationId)}", TitleBody(title))
-
-@Serializable
-data class VoiceSettingsBody(val voice_id: String? = null, val voice_speed: Double? = null)
-
-suspend fun Api.setVoiceSettings(conversationId: String, voiceId: String?, speed: Double?): ChatConversationDto =
-    patch("/api/conversations/${enc(conversationId)}/voice-settings", VoiceSettingsBody(voiceId, speed))
 
 // Discuss with Claude is a Claude thread now (ui/claude/DiscussClaudeSheet.kt, context chat_message);
 // the old `/api/messages/:id/discuss|discussion` stay on the server for older builds only.

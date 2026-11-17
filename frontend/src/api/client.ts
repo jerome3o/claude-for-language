@@ -33,7 +33,7 @@ import {
   DayCardsDetail,
   CardReviewsDetail,
   MyDailyProgress,
-  AIRespondResponse,
+
   ConversationTTSResponse,
   CheckMessageResponse,
   GeneratedNoteWithContext,
@@ -1202,23 +1202,10 @@ export async function generateResponseOptions(
   );
 }
 
-// ============ AI Conversation ============
-
-export async function getAIResponse(conversationId: string): Promise<AIRespondResponse> {
-  return fetchJSON<AIRespondResponse>(`/conversations/${conversationId}/ai-respond`, {
-    method: 'POST',
-    body: JSON.stringify({}),
-  });
-}
-
-export async function initiateAIConversation(conversationId: string): Promise<AIRespondResponse> {
-  return fetchJSON<AIRespondResponse>(`/conversations/${conversationId}/ai-initiate`, {
-    method: 'POST',
-    body: JSON.stringify({}),
-  });
-}
+// ============ Chat: read aloud (old path), check ============
 
 export async function generateConversationTTS(
+
   conversationId: string,
   text: string,
   voiceId?: string,
@@ -1289,13 +1276,6 @@ export async function translateMessageFlashcard(
   );
 }
 
-export interface VocabularyDefinition {
-  hanzi: string;
-  pinyin: string;
-  english: string;
-  fun_facts?: string;
-  example?: string;
-}
 
 /**
  * Translate one chat message (the message menu's Translate): one short reply, cached
@@ -1313,14 +1293,6 @@ export async function translateMessage(messageId: string): Promise<{ translation
   }
 }
 
-export async function translateMessageSegmented(
-  messageId: string
-): Promise<{ translation: string; segmentation: SentenceBreakdown }> {
-  return fetchJSON<{ translation: string; segmentation: SentenceBreakdown }>(
-    `/messages/${messageId}/translate-segmented`,
-    { method: 'POST' }
-  );
-}
 
 // ============ Character dictionary (routes/chars.ts) ============
 
@@ -1349,16 +1321,6 @@ export async function fetchCharExplanation(char: string): Promise<{ char: string
   return fetchJSON(`/chars/${encodeURIComponent(char)}/explain`, { method: 'POST' });
 }
 
-export async function defineVocabulary(
-  hanzi: string,
-  context?: string,
-  skipCache?: boolean
-): Promise<VocabularyDefinition> {
-  return fetchJSON<VocabularyDefinition>(`/vocabulary/define`, {
-    method: 'POST',
-    body: JSON.stringify({ hanzi, context, skipCache }),
-  });
-}
 
 export async function textToFlashcard(
   text: string
@@ -1374,16 +1336,6 @@ export async function getConversation(conversationId: string): Promise<Conversat
   return fetchJSON<Conversation & { merged_from?: string | null }>(`/conversations/${conversationId}`);
 }
 
-export async function updateConversationVoiceSettings(
-  conversationId: string,
-  voiceId?: string,
-  voiceSpeed?: number
-): Promise<Conversation> {
-  return fetchJSON<Conversation>(`/conversations/${conversationId}/voice-settings`, {
-    method: 'PATCH',
-    body: JSON.stringify({ voice_id: voiceId, voice_speed: voiceSpeed }),
-  });
-}
 
 // ============ Deck Sharing ============
 
