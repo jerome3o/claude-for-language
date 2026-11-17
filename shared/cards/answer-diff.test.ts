@@ -11,7 +11,9 @@ const summary = (said: string, expected: string) => answerDiffSummary(answerDiff
 describe('answerDiff', () => {
   it('lines his answer up with the expected one, character by character', () => {
     expect(shown('我去成读', '我去成都')).toBe('我去成[tone:读]');
-    expect(shown('我明天去北京了', '我明天去北京。')).toBe('我明天去北京。[extra:了]');
+    expect(shown('我明天去北京了', '我明天去北京。')).toBe('我明天去北京[extra:了]。');
+    // What he added goes before the answer's own end punctuation (never "开始？营业").
+    expect(shown('银行几点开始营业', '银行几点开门？')).toBe('银行几点开[wrong:始][extra:营业]？');
     expect(shown('我明天去北', '我明天去北京。')).toBe('我明天去北[missing:京]。');
     expect(shown('他的书', '我的书呢')).toBe('[wrong:他]的书[missing:呢]');
   });

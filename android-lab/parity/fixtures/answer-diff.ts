@@ -48,6 +48,9 @@ const PAIRS: [string, string][] = [
   ['因为这个问题，我睡不着觉', '我因为这个问题睡不着觉'],
   ['這是我的書', '这是我的书'],
   ['我喜欢喝茶和咖啡', '我喜欢喝咖啡'],
+  ['银行几点开始营业', '银行几点开门？'],
+  ['你好啊我是小明', '你好，我是小明。'],
+  ['我去北京了吗', '我去北京。'],
 ];
 const HEADLINES = [null, '', 'A different sentence. Use 去 for going.', 'Almost — the 即使…也 is right, but make it a command and keep it short so it reads naturally in Chinese conversation every day.'];
 

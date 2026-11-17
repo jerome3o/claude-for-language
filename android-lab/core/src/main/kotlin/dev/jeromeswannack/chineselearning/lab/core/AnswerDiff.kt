@@ -50,9 +50,13 @@ object AnswerDiff {
     private fun ofJudged(r: ReadAloud.Result, said: String, expected: String, reading: Boolean): Diff {
         val parts = ArrayList<Part>()
         fun push(p: Part) {
-            val last = parts.lastOrNull()
-            if (p.kind == "extra" && last != null && last.kind == "extra") parts[parts.size - 1] = last.copy(text = last.text + p.text)
-            else parts.add(p)
+            if (p.kind != "extra") { parts.add(p); return }
+            // What he added goes before the expected answer's punctuation that ends the stretch so far.
+            var at = parts.size
+            while (at > 0 && parts[at - 1].kind == "plain") at--
+            val before = parts.getOrNull(at - 1)
+            if (before != null && before.kind == "extra") parts[at - 1] = before.copy(text = before.text + p.text)
+            else parts.add(at, p)
         }
         var wrong = 0
         var tone = 0

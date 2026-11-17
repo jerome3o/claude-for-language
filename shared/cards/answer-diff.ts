@@ -66,10 +66,14 @@ export function answerDiff(said: string, expected: string): AnswerDiff {
 function diffOfJudged(r: ReadAloudResult, said: string, expected: string, reading: boolean): AnswerDiff {
   const parts: AnswerDiffPart[] = [];
   const push = (p: AnswerDiffPart) => {
-    // A run of the same kind stays one part only for extras (a word he added); every other part is one unit.
-    const last = parts[parts.length - 1];
-    if (p.kind === 'extra' && last && last.kind === 'extra') last.text += p.text;
-    else parts.push(p);
+    if (p.kind !== 'extra') { parts.push(p); return; }
+    // What he added goes BEFORE the expected answer's punctuation that ends the stretch so far ("开始营业？", never
+    // "开始？营业"), and a run of extras stays one part (a word he added); every other part is one unit.
+    let at = parts.length;
+    while (at > 0 && parts[at - 1].kind === 'plain') at--;
+    const before = parts[at - 1];
+    if (before && before.kind === 'extra') before.text += p.text;
+    else parts.splice(at, 0, p);
   };
   const count = { wrong: 0, tone: 0, missing: 0, extra: 0, sound: 0 };
   const chars = r.chars;
