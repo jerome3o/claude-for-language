@@ -4,6 +4,11 @@ import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.testTag
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -53,10 +58,13 @@ fun Routes.claudeThreadNew(
     conversationId: String? = null,
     label: String? = null,
     hasSentence: Boolean = false,
+    /** "Open in Coach" from a chat message: its stored check is the analysis (no Claude call). */
+    fromMessage: String? = null,
 ): String {
     val q = listOf(
         "context" to context, "note_id" to noteId, "message_id" to messageId, "conversation_id" to conversationId, "label" to label,
         "text" to text, "intent" to intent, "draft" to draft, "source" to source, "has_sentence" to (if (hasSentence) "1" else null),
+        "from_message" to fromMessage,
     ).filter { !it.second.isNullOrEmpty() }.joinToString("&") { "${it.first}=${Uri.encode(it.second)}" }
     return "/chats/claude/${ClaudeThreadViewModel.NEW}" + (if (q.isEmpty()) "" else "?$q")
 }
@@ -69,7 +77,7 @@ fun newThreadContext(context: String?, noteId: String?, messageId: String?, conv
     else -> ClaudeContextDto(ClaudeChats.GENERAL)
 }
 
-private val QUERY = listOf("context", "note_id", "message_id", "conversation_id", "label", "text", "intent", "draft", "source", "has_sentence")
+private val QUERY = listOf("context", "note_id", "message_id", "conversation_id", "label", "text", "intent", "draft", "source", "has_sentence", "from_message")
 
 /**
  * `/chats/claude/{id}` (+ the fresh-thread query) and `/chats/claude/{id}/recap` — docs/CHAT.md
@@ -96,6 +104,7 @@ fun NavGraphBuilder.claudeThreadGraph(nav: LabNav) {
             id = id,
             newContext = if (isNew) newThreadContext(a?.getString("context"), a?.getString("note_id"), a?.getString("message_id"), a?.getString("conversation_id"), a?.getString("label")) else null,
             autoSend = if (isNew && text != null && intent != null) text to intent else null,
+            fromMessage = a?.getString("from_message")?.takeIf { it.isNotEmpty() },
             draft = a?.getString("draft"),
             source = a?.getString("source") ?: if (isNew) "coach" else "link",
             hasSentence = a?.getString("has_sentence") == "1",
@@ -143,6 +152,8 @@ fun ClaudeThreadRoute(
     id: String,
     newContext: ClaudeContextDto? = null,
     autoSend: Pair<String, String>? = null,
+    /** With [autoSend]: "Open in Coach" from this chat message. */
+    fromMessage: String? = null,
     draft: String? = null,
     source: String = "link",
     hasSentence: Boolean = false,
@@ -153,14 +164,35 @@ fun ClaudeThreadRoute(
     val app = nav.app
     val vm: ClaudeThreadViewModel = viewModel(key = "claude-thread-$id-${newContext?.kind}-${newContext?.note_id}-${newContext?.message_id}", factory = ClaudeThreadViewModel.Factory(app, id, newContext, source, hasSentence))
     LaunchedEffect(vm) { vm.pollWhilePending() }
+    // Opened from a study card (⋯ → Sentence coach, ✎ Check on "You said"): "← Back to your card" — the card
+    // is under this screen in the back stack, kept as it was (the web's ClaudeThreadPage `source=study_card`).
+    val fromCard = source == SOURCE_STUDY_CARD
     // A fresh thread exists now: the screen moves to its route (the web's onThreadCreated).
     val started: (String) -> Unit = { newId ->
         nav.back()
-        nav.open(Routes.claudeThread(newId))
+        nav.open(Routes.claudeThread(newId) + if (fromCard) "?source=$SOURCE_STUDY_CARD" else "")
     }
-    LaunchedEffect(autoSend) { autoSend?.let { (text, intent) -> vm.autoSend(text, intent, started) } }
+    LaunchedEffect(autoSend) { autoSend?.let { (text, intent) -> vm.autoSend(text, intent, started, chatMessageId = fromMessage) } }
     LaunchedEffect(draft) { if (!draft.isNullOrBlank()) vm.claimDraft(draft) }
-    ClaudeThreadContent(app, vm, open = { path -> nav.open(path) }, back = nav::back, started = started, autoListen = autoListen, showBack = showBack, onAutoListen = onAutoListen)
+    ClaudeThreadContent(
+        app, vm, open = { path -> nav.open(path) }, back = nav::back, started = started, autoListen = autoListen, showBack = showBack, onAutoListen = onAutoListen,
+        headerExtra = if (fromCard) ({ BackToCardButton(nav::back) }) else null,
+    )
+}
+
+/** A thread opened from a study card (`source=study_card`). */
+const val SOURCE_STUDY_CARD = "study_card"
+
+/** Test tag of "← Back to your card". */
+const val BACK_TO_CARD_TAG = "coach-back-to-card"
+
+/** "← Back to your card" under the header of a thread opened from a study card. */
+@Composable
+fun BackToCardButton(onClick: () -> Unit) {
+    dev.jeromeswannack.chineselearning.lab.ui.kit.SecondaryPill(
+        "← Back to your card",
+        Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth().heightIn(min = 48.dp).testTag(BACK_TO_CARD_TAG),
+    ) { onClick() }
 }
 
 /**

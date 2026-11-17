@@ -139,6 +139,11 @@ data class ClaudeCreateBody(
     val language: String? = null,
     /** A suggestion chip (the app wrote it): not checked. */
     val quick: Boolean? = null,
+    /**
+     * "Open in Coach" from a chat message (a check / explain in a new chat): my message's stored auto-check is
+     * the analysis at once (no Claude call) and opening it again reuses the chat (docs/CHAT.md "Chat ↔ Coach").
+     */
+    val chat_message_id: String? = null,
 )
 
 /**

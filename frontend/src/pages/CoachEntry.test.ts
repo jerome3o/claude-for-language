@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { coachEntryTarget } from './CoachEntry';
 
-const go = (qs: string, returnTo: string | null = null) => coachEntryTarget(new URLSearchParams(qs), returnTo);
+const go = (qs: string) => coachEntryTarget(new URLSearchParams(qs));
 
 describe('/coach → the Chats tab', () => {
   it('no params (and the widget\'s ?focus=1) → the Chats box', () => {
@@ -20,10 +20,8 @@ describe('/coach → the Chats tab', () => {
     expect(go('draft=银行')).toEqual({ kind: 'redirect', to: '/chats?compose=1&text=%E9%93%B6%E8%A1%8C' });
   });
 
-  it('the two exceptions keep the Coach page: Open in Coach from a chat message, and a study card', () => {
-    expect(go('text=我去了&action=check&from_message=m1')).toEqual({ kind: 'coach' });
-    expect(go('text=我去了&action=check', '/study?autostart=true')).toEqual({ kind: 'coach' });
-    expect(go('draft=银行&focus=1', '/study?autostart=true')).toEqual({ kind: 'coach' });
-    expect(go('c=abc', '/study?autostart=true')).toEqual({ kind: 'coach' });
+  it('no Coach page any more: Open in Coach from a chat message is a thread started from that message', () => {
+    expect(go('text=我去了&action=check&from_message=m1')).toEqual({ kind: 'redirect', to: '/chats/claude/new?text=%E6%88%91%E5%8E%BB%E4%BA%86&intent=check&source=chat_message&from_message=m1' });
+    expect(go('text=我去了&action=explain&from_message=m2')).toEqual({ kind: 'redirect', to: '/chats/claude/new?text=%E6%88%91%E5%8E%BB%E4%BA%86&intent=explain&source=chat_message&from_message=m2' });
   });
 });

@@ -59,8 +59,9 @@ class ChatCoachTest {
     }
 
     @Test fun deepLinkPathIsReadableByTheRouter() {
-        assertEquals("/coach?text=%E6%88%91%20%E5%A5%BD&action=check&from_message=m1", coachOpenPath("我 好", "check", "m1"))
-        assertEquals("/coach?text=hi&action=explain", coachOpenPath("hi", "explain", null))
+        // A Claude thread started from the message (no Coach page): its stored check is the analysis.
+        assertEquals("/chats/claude/new?text=%E6%88%91%20%E5%A5%BD&intent=check&source=chat_message&from_message=m1", coachOpenPath("我 好", "check", "m1"))
+        assertEquals("/chats/claude/new?text=hi&intent=explain&source=coach_link", coachOpenPath("hi", "explain", null))
     }
 
     @Test fun chipOpensTheCoach() {

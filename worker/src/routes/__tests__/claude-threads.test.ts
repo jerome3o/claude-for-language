@@ -191,6 +191,37 @@ describe('/api/claude/threads', () => {
     expect(db.rows('SELECT action, kind FROM coach_conversations WHERE id = ?', [res.body.thread.id])).toEqual([{ action: 'check', kind: null }]);
   });
 
+  it('"Open in Coach" from a chat message: my stored auto-check IS the analysis (no Claude call), the same open reuses the chat', async () => {
+    const SENTENCE = '我昨天去了商店买东西了';
+    db.raw.run("INSERT INTO tutor_relationships (id, requester_id, recipient_id, requester_role, status) VALUES ('rel-1', 'x1', 'u1', 'tutor', 'active')");
+    db.raw.run("INSERT INTO conversations (id, relationship_id, title) VALUES ('conv-1', 'rel-1', 'Chat')");
+    const autoCheck = {
+      text: SENTENCE, status: 'improvable', corrected: '我昨天去商店买东西了', corrected_pinyin: 'Wǒ zuótiān qù shāngdiàn mǎi dōngxi le', corrected_english: 'I went shopping yesterday',
+      mistakes: [{ quote: '去了', fix: '去', why: 'One 了 at the end is enough.' }], alternative: null, severity: 'minor', card: null, checked_at: '2026-11-17T10:00:00.000Z',
+    };
+    db.raw.run("INSERT INTO messages (id, conversation_id, sender_id, content, auto_check) VALUES ('m1', 'conv-1', 'u1', ?, ?)", [SENTENCE, JSON.stringify(autoCheck)]);
+    db.raw.run("INSERT INTO messages (id, conversation_id, sender_id, content, auto_check) VALUES ('m2', 'conv-1', 'x1', ?, ?)", [SENTENCE, JSON.stringify(autoCheck)]);
+
+    const res = await w.call<ThreadBody>('POST', '/api/claude/threads', { client_id: 'c-m1', context: { kind: 'general' }, intent: 'check', text: SENTENCE, chat_message_id: 'm1' });
+    expect(res.status).toBe(201);
+    expect(res.body.messages.map((m) => [m.role, m.content_type, m.status])).toEqual([['user', 'text', null], ['assistant', 'analysis', null]]);
+    expect(JSON.parse(res.body.messages[1].content)).toMatchObject({ kind: 'chinese', coach: { corrected: { hanzi: '我昨天去商店买东西了' } } });
+    expect(w.sent).toEqual([]);
+    expect(db.rows('SELECT source_message_id, action FROM coach_conversations WHERE id = ?', [res.body.thread.id])).toEqual([{ source_message_id: 'm1', action: 'check' }]);
+
+    // Opened again (another client id): the same chat.
+    const again = await w.call<ThreadBody>('POST', '/api/claude/threads', { client_id: 'c-m1-b', context: { kind: 'general' }, intent: 'check', text: SENTENCE, chat_message_id: 'm1' });
+    expect(again.status).toBe(200);
+    expect(again.body.thread.id).toBe(res.body.thread.id);
+
+    // Someone else's message: no seed — the reply is written on the Coach's queue as usual.
+    const theirs = await w.call<ThreadBody>('POST', '/api/claude/threads', { context: { kind: 'general' }, intent: 'check', text: SENTENCE, chat_message_id: 'm2' });
+    expect(theirs.status).toBe(202);
+    expect(theirs.body.messages[1]).toMatchObject({ status: 'pending' });
+    // Only with a check / explain / translate of a new general chat.
+    expect((await w.call('POST', '/api/claude/threads', { context: { kind: 'general' }, text: SENTENCE, chat_message_id: 'm1' })).status).toBe(400);
+  });
+
   it('follow-ups: 409 while a reply is pending, idempotent by client id, refused on read-only chats', async () => {
     const t = (await w.call<ThreadBody>('POST', '/api/claude/threads', { context: { kind: 'general' }, text: '你好', language: 'zh' })).body.thread;
     const next = await w.call<ThreadBody>('POST', `/api/claude/threads/${t.id}/messages`, { client_id: 'f-1', text: '再说一遍' });

@@ -14,6 +14,7 @@ test.beforeEach(async ({ context }) => skipFirstCardExplainer(context));
  */
 
 const API = process.env.E2E_API_URL || 'http://localhost:8787';
+const SHOTS = process.env.RETIRE_COACH_SHOTS;
 
 async function api<T = unknown>(
   request: APIRequestContext,
@@ -65,13 +66,23 @@ test('leaving Study keeps the card; the coach and back; celebrate today once', a
   await expect(page.getByTestId('study-card-back')).toBeVisible({ timeout: 30000 });
   await expect(page.getByTestId('study-card-back')).toContainText('to plan; to intend');
 
-  // ⋯ → Sentence coach: the card's word in the box, not sent; "Back to your card" returns to it.
+  if (SHOTS) await page.setViewportSize({ width: 412, height: 915 });
+  // ⋯ → Sentence coach: a Claude thread with the card's word waiting on ✏️ Check / 🔍 Explain, not sent;
+  // Check it there, then "← Back to your card" returns to the same card, still revealed.
   await page.getByRole('button', { name: 'More actions' }).click();
   await page.getByRole('menuitem', { name: /Sentence coach/ }).click();
-  await expect(page).toHaveURL(/\/coach/);
-  await expect(page.locator('textarea').first()).toHaveValue('打算');
+  await expect(page).toHaveURL(/\/chats\/claude\/new\?.*source=study_card/);
+  await expect(page.getByTestId('claude-chat-voice-text')).toHaveValue('打算');
+  await expect(page.getByTestId('coach-back-to-card')).toBeVisible();
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/web-01-card-coach-draft.png` });
+  await page.getByTestId('claude-composer-check').click();
+  await expect(page).toHaveURL(/\/chats\/claude\/(?!new)[^/?]+\?source=study_card/, { timeout: 15000 });
+  await expect(page.getByText('(E2E) Looks fine.')).toBeVisible({ timeout: 20000 });
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/web-02-card-coach-checked.png` });
   await page.getByTestId('coach-back-to-card').click();
+  await expect(page).toHaveURL(/\/study/);
   await expect(page.getByTestId('study-card-back')).toBeVisible({ timeout: 30000 });
+  await expect(page.getByTestId('study-card-back')).toContainText('to plan; to intend');
 
   // Easy → today's queue is empty: celebrated, with today's numbers where the recap was.
   // (force: the feedback button floats over the rating row at phone width)

@@ -297,6 +297,14 @@ fun ClaudeThreadScreen(
         if (listening) voiceActions.say()
         onAutoListen(listening)
     }
+    // A draft handed to a fresh thread (a study card's ⋯ → Sentence coach): shown in the box, ready to Check /
+    // Explain or edit (the web's ClaudeThreadView `initialDraft`) — once.
+    var draftShown by remember { mutableStateOf(false) }
+    LaunchedEffect(ui.isNew, ui.draft.isNotBlank()) {
+        if (draftShown || !ui.isNew || ui.draft.isBlank()) return@LaunchedEffect
+        draftShown = true
+        if (voice.ui.value.state.mode == VoiceDictation.VOICE && voice.ui.value.phase == "idle") voice.type()
+    }
     // A spoken message that failed to send: into the box (typing) so it can be fixed or sent again.
     LaunchedEffect(ui.sendError) {
         if (ui.sendError != null && ui.draft.isNotBlank() && liveVoice.state.mode == VoiceDictation.VOICE && liveVoice.phase == "idle") voice.type()

@@ -26,7 +26,7 @@ import dev.jeromeswannack.chineselearning.lab.data.platform.Loadable
 import dev.jeromeswannack.chineselearning.lab.testing.LabScreenshotTest
 import dev.jeromeswannack.chineselearning.lab.testing.Samples
 import dev.jeromeswannack.chineselearning.lab.ui.coach.CoachChatActions
-import dev.jeromeswannack.chineselearning.lab.ui.coach.CoachChatScreen
+import dev.jeromeswannack.chineselearning.lab.ui.coach.CoachConversationPreview
 import dev.jeromeswannack.chineselearning.lab.ui.coach.CoachChatUi
 import dev.jeromeswannack.chineselearning.lab.ui.coach.CoachSamples
 import dev.jeromeswannack.chineselearning.lab.ui.home.DeckSummary
@@ -69,7 +69,7 @@ class BumpScreenshots : LabScreenshotTest() {
 
     /** The Coach: 商店 is already a card → "⚡ Study it today" first, "Add anyway" second. */
     @Test fun coachDuplicate() = shoot("bump-01-coach") {
-        sheet({ CoachChatScreen(coachUi, CoachChatActions()) }) {
+        sheet({ CoachConversationPreview(coachUi, CoachChatActions()) }) {
             AddChunkBody(
                 Chunk("商店", "shāngdiàn", "shop; store"), "d1",
                 SentenceActions(decks = { decks }, deckHas = { _, _ -> true }), onDismiss = {}, bump = fakeBump,

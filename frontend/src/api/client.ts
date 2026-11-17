@@ -1,5 +1,4 @@
 import type { NewCardOrderInfo, NewCardOrderUpdate, StudyBudget, StudyBudgetInfo, StudyBudgetUpdate } from '@shared/decks';
-import type { CoachAction } from '@shared/coach';
 import type { AskLanguage } from '@shared/study/askClaude';
 import {
   Deck,
@@ -40,9 +39,7 @@ import {
   SentenceCoachResult,
   SentenceExplanation,
   CoachConversation,
-  CoachConversationListItem,
   CoachMessage,
-  CoachToolResult,
   ProposedChatCard,
   CreateRelationshipResult,
   GradedReader,
@@ -1480,49 +1477,11 @@ export async function explainSentence(sentence: string): Promise<SentenceExplana
 
 // ============ Sentence Coach Conversations ============
 
-/**
- * Start a coach conversation with the button the learner pressed (shared/coach):
- * check / explain / translate. Explain may send the breakdown this device already
- * has cached, which the server stores instead of asking Claude again.
- */
-export async function startCoachConversation(
-  text: string,
-  action?: CoachAction,
-  explanation?: SentenceBriefExplanation | null,
-  opts: { chatMessageId?: string | null } = {},
-): Promise<{
-  conversation: CoachConversation;
-  messages: CoachMessage[];
-  reused?: boolean;
-}> {
-  // background: the reply is written by the server's queue (a pending message comes back at
-  // once and the page polls), so leaving the page never cancels it (docs/CHAT.md "Chat ↔ Coach").
-  return fetchJSON('/coach/conversations', {
-    method: 'POST',
-    body: JSON.stringify({ text, action, explanation: explanation ?? undefined, background: true, chat_message_id: opts.chatMessageId ?? undefined }),
-  });
-}
-
-export async function getCoachConversations(): Promise<CoachConversationListItem[]> {
-  return fetchJSON('/coach/conversations');
-}
-
 export async function getCoachConversation(id: string): Promise<{
   conversation: CoachConversation;
   messages: CoachMessage[];
 }> {
   return fetchJSON(`/coach/conversations/${id}`);
-}
-
-/** A follow-up: 202 with my message and the pending reply (written in the background). `language` = an Ask Claude chat's 中文 | EN. */
-export async function sendCoachMessage(id: string, message: string, opts: { language?: 'zh' | 'en' } = {}): Promise<{
-  messages: CoachMessage[];
-  toolResults: CoachToolResult[];
-}> {
-  return fetchJSON(`/coach/conversations/${id}/messages`, {
-    method: 'POST',
-    body: JSON.stringify({ message, background: true, ...(opts.language ? { language: opts.language } : {}) }),
-  });
 }
 
 /** The English of one Chinese message of a coach conversation (kept on the server). */

@@ -1796,9 +1796,9 @@ export function StudyCard({
     setSayAgainHint(false);
     spoken.startPractice();
   };
-  // ✎ (Check in Coach) on the yellow "You said" box (a sentence said around the answer): that sentence in the
-  // Sentence Coach's ✏️ Check my sentence, then "Back to your card" — the same resume path as
-  // ⋯ → Sentence coach (resume point + in-memory extras keep the card revealed with its "You said").
+  // ✎ (Check in Coach) on the yellow "You said" box (a sentence said around the answer): that sentence checked
+  // in a Claude thread (✏️ Check), then "← Back to your card" — the same resume path as ⋯ → Sentence coach
+  // (resume point + in-memory extras keep the card revealed with its "You said").
   const openYouSaidInCoach = (sentence: string, source: 'read' | 'spoken' | 'practice') => {
     const text = sentence.trim();
     if (!text) return;
@@ -1807,7 +1807,7 @@ export function StudyCard({
     track('study.you_said_coach', { card_type: card.card_type, source, ...(where ? { where } : {}) });
     if (scope) setCoachReturn(`/study?autostart=true${scope !== 'all' ? `&deck=${encodeURIComponent(scope)}` : ''}`);
     else if (pass?.coachReturn) setCoachReturn(pass.coachReturn);
-    navigate(`/coach?text=${encodeURIComponent(text)}&action=check`);
+    navigate(`/chats/claude/new?${new URLSearchParams({ text, intent: 'check', source: 'study_card' }).toString()}`, { state: { fromCard: true } });
   };
   const practiceVerdict = practiceSaid
     ? checkSpokenAnswer(practiceSaid, card.note.hanzi, card.note.alternatives ? (() => { try { return JSON.parse(card.note.alternatives!) as string[]; } catch { return []; } })() : [], card.note.pinyin)
@@ -2629,14 +2629,14 @@ export function StudyCard({
       { key: 'new-voice', label: 'New voice', icon: '🗣️', hint: needsInternet, disabled: !aiAvailable, busy: isGeneratingStudyAudio, onSelect: generateStudyAudio },
       { key: 'roleplay', label: 'Roleplay this word', icon: '🎭', hint: roleplayError ?? needsInternet, disabled: !aiAvailable, busy: isInitiatingConversation, onSelect: handleUseInConversation },
       {
-        // To the coach and back: this card stays as it is (resume point) and the coach's
-        // "Back to your card" returns here. Prefilled with the card's sentence, not sent.
+        // To a Claude thread and back: this card stays as it is (resume point) and the thread's
+        // "← Back to your card" returns here. The card's sentence waits in the box on ✏️ Check / 🔍 Explain, not sent.
         key: 'coach', label: 'Sentence coach', icon: '✏️', hint: needsInternet, onSelect: () => {
           savePointRef.current();
           track('study.sentence_coach');
           if (scope) setCoachReturn(`/study?autostart=true${scope !== 'all' ? `&deck=${encodeURIComponent(scope)}` : ''}`);
           else if (pass?.coachReturn) setCoachReturn(pass.coachReturn);
-          navigate(`/coach?draft=${encodeURIComponent(card.note.sentence_clue || card.note.hanzi)}&focus=1`);
+          navigate(`/chats/claude/new?${new URLSearchParams({ draft: card.note.sentence_clue || card.note.hanzi, source: 'study_card' }).toString()}`, { state: { fromCard: true } });
         },
       },
       ...(canWriteHanzi(card.note.hanzi)

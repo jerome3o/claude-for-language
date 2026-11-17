@@ -19,9 +19,6 @@ import dev.jeromeswannack.chineselearning.lab.data.api.AskAnswer
 import dev.jeromeswannack.chineselearning.lab.data.platform.Loadable
 import dev.jeromeswannack.chineselearning.lab.testing.LabScreenshotTest
 import dev.jeromeswannack.chineselearning.lab.testing.Samples
-import dev.jeromeswannack.chineselearning.lab.ui.coach.CoachHomeActions
-import dev.jeromeswannack.chineselearning.lab.ui.coach.CoachHomeScreen
-import dev.jeromeswannack.chineselearning.lab.ui.coach.CoachHomeUi
 import dev.jeromeswannack.chineselearning.lab.ui.coach.CoachSamples
 import dev.jeromeswannack.chineselearning.lab.ui.coach.coachActionTag
 import dev.jeromeswannack.chineselearning.lab.core.CoachAction
@@ -68,34 +65,6 @@ class VoiceFirstSurfacesTest : LabScreenshotTest() {
     }
 
     @Test fun chatTyping() = shoot("voice-first-04-chat-typing") { ChatScreen(ChatScreenshots.base.copy(voicePreview = VoiceDictationUi(mode = "type")), ChatActions()) }
-
-
-
-    @Test fun coachIdle() = shoot("voice-first-06-coach-idle") {
-        CoachHomeScreen(CoachHomeUi(conversations = Loadable(CoachSamples.conversations)), CoachHomeActions(onBack = {}), voicePreview = VoiceDictationUi())
-    }
-
-    @Test fun coachListening() = shoot("voice-first-07-coach-listening", settleMs = 600) {
-        CoachHomeScreen(CoachHomeUi(conversations = Loadable(CoachSamples.conversations)), CoachHomeActions(onBack = {}), voicePreview = VoiceDictationUi(phase = "listening", finalText = "我昨天去了", partialText = "商店"))
-    }
-
-    @Test fun coachReview() {
-        shoot("voice-first-08-coach-review") {
-            CoachHomeScreen(CoachHomeUi(conversations = Loadable(CoachSamples.conversations)), CoachHomeActions(onBack = {}), voicePreview = VoiceDictationUi(phase = "review", finalText = "我昨天去了商店买苹果"))
-        }
-        // Chinese said → Check my sentence + Explain act on it.
-        compose.onNodeWithTag(coachActionTag(CoachAction.CHECK)).assertExists()
-        compose.onNodeWithTag(coachActionTag(CoachAction.EXPLAIN)).assertExists()
-    }
-
-    @Test fun coachReviewEnglish() {
-        shoot("voice-first-09-coach-review-english") {
-            CoachHomeScreen(CoachHomeUi(conversations = Loadable(CoachSamples.conversations)), CoachHomeActions(onBack = {}), voicePreview = VoiceDictationUi(phase = "review", finalText = "How do I say I'm running late?"))
-        }
-        // English said → Translate.
-        compose.onNodeWithTag(coachActionTag(CoachAction.TRANSLATE)).assertExists()
-        compose.onAllNodesWithTag(coachActionTag(CoachAction.CHECK)).assertCountEquals(0)
-    }
 
     private val note = Samples.note.copy(hanzi = "银行", pinyin = "yínháng", english = "bank", sentenceClue = "我去银行取钱。")
     private val view = CardView(

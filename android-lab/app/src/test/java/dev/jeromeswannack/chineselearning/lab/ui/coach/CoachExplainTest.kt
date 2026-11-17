@@ -28,65 +28,17 @@ import org.robolectric.annotation.Config
 class CoachExplainTest : LabScreenshotTest() {
     private val explain = CoachAnalysisDto.parse(CoachSamples.ANALYSIS_EXPLAIN)!!.breakdown!!
 
-    @Test fun buttonsChinese() = shoot("coach-09-buttons-chinese") {
-        CoachHomeScreen(CoachHomeUi(draft = "这场比赛我们不能输。", conversations = Loadable(CoachSamples.conversationsWithExplain)), CoachHomeActions(onBack = {}))
-    }
-
-    @Test fun buttonsEnglish() = shoot("coach-10-buttons-english") {
-        CoachHomeScreen(CoachHomeUi(draft = "How do I say I'm running late?", conversations = Loadable(CoachSamples.conversationsWithExplain)), CoachHomeActions(onBack = {}))
-    }
-
-    /** The widget's ✏️ (?focus=1): an empty box on the two buttons, disabled, nothing sent. */
-    @Test fun buttonsEmpty() = shoot("coach-11-buttons-empty") {
-        CoachHomeScreen(CoachHomeUi(conversations = Loadable(CoachSamples.conversationsWithExplain)), CoachHomeActions(onBack = {}))
-    }
-
-    @Test fun explaining() = shoot("coach-12-explaining", settleMs = 600) {
-        CoachHomeScreen(CoachHomeUi(draft = "这场比赛我们不能输。", starting = true, pendingAction = CoachAction.EXPLAIN), CoachHomeActions(onBack = {}))
-    }
-
     @Test fun explainResult() = shoot("coach-13-explain-result") {
-        CoachChatScreen(CoachChatUi(thread = Loadable(CoachSamples.explainThread)), CoachChatActions())
+        CoachConversationPreview(CoachChatUi(thread = Loadable(CoachSamples.explainThread)), CoachChatActions())
     }
 
     @Test fun explainResultDark() = shoot("coach-14-explain-result-dark", dark = true) {
-        CoachChatScreen(CoachChatUi(thread = Loadable(CoachSamples.explainThread)), CoachChatActions())
+        CoachConversationPreview(CoachChatUi(thread = Loadable(CoachSamples.explainThread)), CoachChatActions())
     }
 
     @Config(qualifiers = UNFOLDED)
     @Test fun explainResultUnfolded() = shoot("coach-15-explain-unfolded") {
-        CoachChatScreen(CoachChatUi(thread = Loadable(CoachSamples.explainThread)), CoachChatActions())
-    }
-
-    /** Offline: Explain answers from the breakdown saved on the device. */
-    @Test fun explainSavedOffline() = shoot("coach-16-explain-saved-offline") {
-        CoachHomeScreen(
-            CoachHomeUi(draft = "这场比赛我们不能输。", savedBreakdown = explain, online = false, startError = "You're offline — the coach needs a connection. Your text is kept; try again when you're back online."),
-            CoachHomeActions(onBack = {}),
-        )
-    }
-
-    @Test fun chineseHasCheckAndExplainEnglishOnlyTranslate() {
-        var draft by mutableDraft("我昨天去了商店买苹果")
-        val pressed = mutableListOf<CoachAction>()
-        compose.setContent {
-            LabTheme { CoachHomeScreen(CoachHomeUi(draft = draft), CoachHomeActions(onAction = { pressed += it })) }
-        }
-        compose.onNodeWithTag(coachActionTag(CoachAction.CHECK)).assertIsEnabled()
-        compose.onNodeWithTag(coachActionTag(CoachAction.EXPLAIN)).assertIsEnabled().performClick()
-        assertEquals(listOf(CoachAction.EXPLAIN), pressed)
-        assertEquals(0, compose.onAllNodesWithTag(coachActionTag(CoachAction.TRANSLATE)).fetchSemanticsNodes().size)
-
-        draft = "How do I say I'm running late?"
-        compose.waitForIdle()
-        compose.onNodeWithTag(coachActionTag(CoachAction.TRANSLATE)).assertIsEnabled().performClick()
-        assertEquals(listOf(CoachAction.EXPLAIN, CoachAction.TRANSLATE), pressed)
-        assertEquals(0, compose.onAllNodesWithTag(coachActionTag(CoachAction.EXPLAIN)).fetchSemanticsNodes().size)
-
-        draft = "  "
-        compose.waitForIdle()
-        compose.onNodeWithTag(coachActionTag(CoachAction.CHECK)).assertIsNotEnabled()
-        compose.onNodeWithTag(coachActionTag(CoachAction.EXPLAIN)).assertIsNotEnabled()
+        CoachConversationPreview(CoachChatUi(thread = Loadable(CoachSamples.explainThread)), CoachChatActions())
     }
 
     @Test fun wordRowsAndTheWholeSentenceBecomeCards() {

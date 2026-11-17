@@ -43,8 +43,6 @@ import { resolveCoachAction, conversationAction, coachMistakeLessonOffered, pars
 import { sanitizeAttemptData } from '@shared/lesson';
 import { insertLessonAttempt } from '../db/lesson-attempt-queries';
 import { createCustomLessonFromSpec } from '../services/custom-lesson';
-import { autoCheckText, parseAutoCheck } from '@shared/chats/autoCheck';
-import { parseStoredAttachment } from '../services/chat/media';
 import { parseClientBriefExplanation, toCoachBreakdown } from '../services/sentence-explain-brief';
 import { StructuredCallError } from '../services/structured-call';
 import { trackServer } from '../services/analytics/server-events';
@@ -54,7 +52,7 @@ import { askSettings } from '../services/ask-claude';
 import { fakeCoachTranslate, proposeCoachAskFlashcards } from '../services/claude-chat';
 import {
   buildCoachHistory,
-  coachAnalysisFromAutoCheck,
+  chatMessageCheckSeed,
   coachAvailable,
   deckListFor,
   defaultAnalyse,
@@ -133,17 +131,7 @@ coach.post('/coach/conversations', async (c) => {
       const messages = await db.getCoachMessages(c.env.DB, existing.id);
       return c.json({ conversation: existing, messages: messages.map(publicCoachMessage), reused: true }, 200);
     }
-    if (action === 'check') {
-      const row = await c.env.DB
-        .prepare('SELECT sender_id, content, attachment, auto_check, deleted_at FROM messages WHERE id = ?')
-        .bind(chatMessageId)
-        .first<{ sender_id: string; content: string; attachment: string | null; auto_check: string | null; deleted_at: string | null }>();
-      if (row && row.sender_id === userId && !row.deleted_at) {
-        const checkedText = autoCheckText({ content: row.content, attachment: parseStoredAttachment(row.attachment) });
-        const stored = parseAutoCheck(row.auto_check, checkedText);
-        if (stored && checkedText.trim() === input) seeded = coachAnalysisFromAutoCheck(stored);
-      }
-    }
+    seeded = await chatMessageCheckSeed(c.env.DB, userId, chatMessageId, action, input);
   }
 
   const cached = action === 'explain' ? parseClientBriefExplanation(clientExplanation) : null;

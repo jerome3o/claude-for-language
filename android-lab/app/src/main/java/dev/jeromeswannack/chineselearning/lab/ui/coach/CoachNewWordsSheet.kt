@@ -56,7 +56,7 @@ import dev.jeromeswannack.chineselearning.lab.ui.theme.Palette
  * by default); a word that turns out to be in a deck already gets "⚡ Study it today" instead.
  */
 
-/** The picker's state (owned by [CoachChatViewModel]). */
+/** The picker's state (owned by its screen: the podcast episode). */
 data class NewWordsSheetUi(
     val words: List<CoachBreakdownWord>,
     /** In study-queue order: the first is the default. */

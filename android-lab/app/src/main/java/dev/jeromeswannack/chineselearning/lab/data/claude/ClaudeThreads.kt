@@ -60,7 +60,7 @@ data class CachedClaudeThread(
 )
 
 @Serializable
-data class PendingCreate(val message_client_id: String, val context: ClaudeContextDto, val intent: String, val text: String, val language: String? = null, val quick: Boolean? = null)
+data class PendingCreate(val message_client_id: String, val context: ClaudeContextDto, val intent: String, val text: String, val language: String? = null, val quick: Boolean? = null, val chat_message_id: String? = null)
 
 /**
  * Claude threads on the phone (docs/CHAT.md "Claude thread view"; port of the web's
@@ -255,10 +255,10 @@ class ClaudeThreads(
      * offline (or the request didn't get through): the thread and my bubble are kept here under client
      * ids and the create waits in the outbox. A refusal (4xx) is thrown — the caller says why.
      */
-    suspend fun start(context: ClaudeContextDto, text: String, intent: String, language: String?, online: Boolean, quick: Boolean = false): SendResult {
+    suspend fun start(context: ClaudeContextDto, text: String, intent: String, language: String?, online: Boolean, quick: Boolean = false, chatMessageId: String? = null): SendResult {
         val threadClientId = newId()
         val messageClientId = newId()
-        val body = ClaudeCreateBody(threadClientId, messageClientId, context.descriptor(), intent, text, language, quick.takeIf { it })
+        val body = ClaudeCreateBody(threadClientId, messageClientId, context.descriptor(), intent, text, language, quick.takeIf { it }, chatMessageId)
         if (online) {
             try {
                 val res = api.createClaudeThread(body)
@@ -278,7 +278,7 @@ class ClaudeThreads(
                     localThread(threadClientId, context, text, intent, language),
                     listOf(localUserMessage(threadClientId, messageClientId, text, intent, held = false, language = language)),
                     local = true,
-                    create = PendingCreate(messageClientId, context.descriptor(), intent, text, language, quick.takeIf { it }),
+                    create = PendingCreate(messageClientId, context.descriptor(), intent, text, language, quick.takeIf { it }, chatMessageId),
                 ),
             )
         }
@@ -353,7 +353,7 @@ class ClaudeThreads(
             val create = l.create ?: continue
             if (create.message_client_id in inOutbox) continue
             val res = try {
-                api.createClaudeThread(ClaudeCreateBody(l.thread.id, create.message_client_id, create.context, create.intent, create.text, create.language, create.quick))
+                api.createClaudeThread(ClaudeCreateBody(l.thread.id, create.message_client_id, create.context, create.intent, create.text, create.language, create.quick, create.chat_message_id))
             } catch (e: UnauthorizedException) {
                 throw e
             } catch (_: Exception) {

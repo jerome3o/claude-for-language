@@ -54,12 +54,12 @@ import {
   type ClaudeThreadContext,
 } from '@shared/claude/context';
 import { practiceReplyLanguage, practiceSnapshot, practiceVoiceFor } from '@shared/claude/practice';
-import { resolveCoachAction } from '@shared/coach';
+import { conversationAction, resolveCoachAction } from '@shared/coach';
 import { COACH_ASK_MAX_CHARS } from '@shared/coach/askChat';
 import { parseAskLanguage, turnLanguage, type AskLanguage } from '@shared/study/askClaude';
 import { askCheckContext, askSettings, checkAskQuestion } from '../services/ask-claude';
 import { fakeAskChecker } from '../services/claude-agent/check-fake';
-import { coachAvailable, enqueueCoachReply, retryCoachReply, sweepStaleCoachReplies } from '../services/coach-replies';
+import { chatMessageCheckSeed, coachAvailable, enqueueCoachReply, retryCoachReply, sweepStaleCoachReplies } from '../services/coach-replies';
 import { loadDiscussedMessage } from '../services/claude-agent/contexts/chat_message';
 import { exerciseAt } from '../services/claude-agent/contexts/exercise';
 import { exerciseTypeInfo } from '@shared/lesson/registry';
@@ -261,6 +261,9 @@ threads.post('/claude/threads', async (c) => {
   }
   const clientId = clientIdOf(body.client_id);
   const messageClientId = clientIdOf(body.message_client_id);
+  // "Open in Coach" from a chat message (docs/CHAT.md "Chat ↔ Coach"): a check / explain of it in a new chat.
+  const chatMessageId = typeof body.chat_message_id === 'string' && body.chat_message_id.trim() ? body.chat_message_id.trim().slice(0, 100) : null;
+  if (chatMessageId && (context.kind !== 'general' || intent === 'ask')) return badRequest(c, 'chat_message_id goes with a check, explain or translate in a new chat');
 
   if (clientId) {
     const existing = await store.getThreadByClientId(c.env.DB, userId, clientId);
@@ -269,7 +272,23 @@ threads.post('/claude/threads', async (c) => {
       return c.json({ thread: await store.getThreadSummary(c.env.DB, userId, existing.id), messages: messages.map(store.toThreadMessage), existing: true }, 200);
     }
   }
-  if (!coachAvailable(c.env)) return c.json({ error: 'AI is not configured', retryable: false }, 503);
+  const general = context.kind === 'general';
+  const requestedTitle = typeof body.title === 'string' && body.title.trim() ? body.title.trim().slice(0, CLAUDE_TITLE_MAX) : null;
+  // A role-play is named after its situation ("Practice: 在饭店点菜"), not its first line.
+  const titleContext = context;
+  const titleOf = (snap: ClaudeContextSnapshot) => requestedTitle ?? titleFor({ ...titleContext, ...snap }, titleContext.kind === 'practice' ? '' : text);
+  // The same message opened in the same way again: its chat, not a second one (the old Coach page did the same).
+  if (chatMessageId) {
+    const existing = await db.getCoachConversationBySource(c.env.DB, userId, chatMessageId);
+    if (existing && conversationAction(existing) === intent && (existing.title === titleOf({}) || existing.title === text.slice(0, 120))) {
+      await sweepStaleCoachReplies(c.env.DB, userId, existing.id);
+      const messages = await store.getThreadMessages(c.env.DB, existing.id);
+      return c.json({ thread: await store.getThreadSummary(c.env.DB, userId, existing.id), messages: messages.map(store.toThreadMessage), existing: true }, 200);
+    }
+  }
+  // My own message's stored auto-check IS the ✏️ Check analysis: shown at once, no Claude call.
+  const seeded = chatMessageId && intent !== 'ask' ? await chatMessageCheckSeed(c.env.DB, userId, chatMessageId, intent, text) : null;
+  if (!seeded && !coachAvailable(c.env)) return c.json({ error: 'AI is not configured', retryable: false }, 503);
 
   let snapshot: ClaudeContextSnapshot;
   try {
@@ -288,15 +307,13 @@ threads.post('/claude/threads', async (c) => {
         ? await askTurnLanguage(c.env.DB, userId, body.language, null, text)
         : null;
   const threadLanguage = parseAskLanguage(body.language);
-  const requestedTitle = typeof body.title === 'string' && body.title.trim() ? body.title.trim().slice(0, CLAUDE_TITLE_MAX) : null;
-  const general = context.kind === 'general';
   const { thread, created } = await store.createThread(c.env.DB, {
     userId,
     clientId,
     context,
     snapshot,
-    // A role-play is named after its situation ("Practice: 在饭店点菜"), not its first line.
-    title: requestedTitle ?? titleFor({ ...context, ...snapshot }, context.kind === 'practice' ? '' : text),
+    title: titleOf(snapshot),
+    sourceMessageId: chatMessageId,
     // Older apps list general chats on the Coach page by action / kind.
     action: general ? intent : null,
     kind: general && intent === 'ask' ? 'ask' : null,
@@ -319,10 +336,12 @@ threads.post('/claude/threads', async (c) => {
     { threadId: thread.id, clientId: messageClientId, role: 'user', content: text, intent },
     { contentType: intent === 'ask' ? 'text' : 'analysis', answerLang: language },
   );
-  if (turn.reply) await startReply(c, turn.reply);
+  if (turn.reply && seeded && turn.created) await store.finishTurn(c.env.DB, turn.reply.id, thread.id, JSON.stringify(seeded), null, null);
+  else if (turn.reply) await startReply(c, turn.reply);
   if (context.kind === 'card' && intent === 'ask' && body.quick !== true) await checkCardQuestion(c, userId, context.note_id, thread.id, turn.user);
-  const messages = [turn.user, turn.reply].filter((m): m is store.MessageRow => !!m).map(store.toThreadMessage);
-  return c.json({ thread: await store.getThreadSummary(c.env.DB, userId, thread.id), messages }, 202);
+  const rows = seeded && turn.created ? await store.getThreadMessages(c.env.DB, thread.id) : [turn.user, turn.reply].filter((m): m is store.MessageRow => !!m);
+  const messages = rows.map(store.toThreadMessage);
+  return c.json({ thread: await store.getThreadSummary(c.env.DB, userId, thread.id), messages }, seeded ? 201 : 202);
 });
 
 /** The reply starts: a structured Coach reply on its queue, an ask turn inline (+ the watchdog). */
