@@ -12,9 +12,11 @@
  *
  * Live replies (`claude_turn` over the ChatHub socket) patch the pending reply's text here too
  * (`applyTurnEvent`); a poll's older text never overwrites a longer streamed one (`mergeMessage`).
+ * The merge rules themselves are pure and shared with the Lab app: shared/claude/threadCache.ts.
  */
 import type { ClaudeThreadMessage, ClaudeThreadSummary, ClaudeTurnEvent } from '@shared/claude/api';
 import { contextBadge, previewOf, titleFor, type ClaudeContextSnapshot, type ClaudeIntent, type ClaudeThreadContext } from '@shared/claude/context';
+import { applyTurnFrame, mergeMessage, mergeThreadMessages, sortMessages } from '@shared/claude/threadCache';
 import { db } from '../db/database';
 import {
   createClaudeThread,
@@ -97,23 +99,9 @@ export async function getLocalMessages(threadId: string): Promise<LocalClaudeMes
   return sortMessages(rows);
 }
 
-export function sortMessages<T extends Pick<ClaudeThreadMessage, 'created_at' | 'role'>>(rows: T[]): T[] {
-  return [...rows].sort((a, b) => (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : a.role === b.role ? 0 : a.role === 'user' ? -1 : 1));
-}
+export { mergeMessage, sortMessages };
 
 // ---------- Writing the cache ----------
-
-/**
- * A server row over what the device has: a reply still being written keeps the longer text this
- * device already streamed (the row is written ≤ every 400 ms, the socket ≤ every 120 ms); anything
- * finished, failed or newer wins.
- */
-export function mergeMessage(local: LocalClaudeMessage | undefined, server: ClaudeThreadMessage): LocalClaudeMessage {
-  if (local && server.status === 'pending' && local.status === 'pending' && local.content.length > server.content.length && local.content.startsWith(server.content)) {
-    return { ...server, content: local.content, streaming: true, _seq: local._seq };
-  }
-  return { ...server, ...(local?._seq !== undefined ? { _seq: local._seq } : {}) };
-}
 
 /** A thread / messages response into the cache (my optimistic rows replaced by their server rows). */
 export async function cacheThreadResponse(res: ThreadWithMessages, opts: { full?: boolean } = {}): Promise<void> {
@@ -133,20 +121,10 @@ export async function cacheThreadResponse(res: ThreadWithMessages, opts: { full?
       }
     }
     await db.claudeThreads.put({ ...thread, local: false, _cursor: res.server_time ?? prev?._cursor ?? null });
-    if (opts.full) {
-      // The server's whole list: anything else but my still-queued messages is gone.
-      const keep = new Set(res.messages.map((m) => m.id));
-      const old = await db.claudeMessages.where('thread_id').equals(thread.id).toArray();
-      for (const m of old) if (!keep.has(m.id) && !m.queued) await db.claudeMessages.delete(m.id);
-    }
-    for (const m of res.messages) {
-      if (m.client_id) {
-        const optimistic = await db.claudeMessages.where('client_id').equals(m.client_id).toArray();
-        for (const o of optimistic) if (o.id !== m.id && o.thread_id === thread.id) await db.claudeMessages.delete(o.id);
-      }
-      const local = await db.claudeMessages.get(m.id);
-      await db.claudeMessages.put(mergeMessage(local, m));
-    }
+    const rows = await db.claudeMessages.where('thread_id').equals(thread.id).toArray();
+    const { messages, removed } = mergeThreadMessages<LocalClaudeMessage>(rows, res.messages, opts);
+    if (removed.length) await db.claudeMessages.bulkDelete(removed);
+    await db.claudeMessages.bulkPut(messages);
   });
 }
 
@@ -166,18 +144,8 @@ export async function refreshClaudeThread(id: string, opts: { full?: boolean } =
 export async function applyTurnEvent(e: ClaudeTurnEvent): Promise<boolean> {
   const row = await db.claudeMessages.get(e.message_id);
   if (!row || row.thread_id !== e.thread_id) return false;
-  if (row._seq !== undefined && e.seq <= row._seq) return false;
-  if (row.status !== 'pending' && e.status !== 'failed') return false;
-  const next: LocalClaudeMessage = { ...row, _seq: e.seq };
-  if (typeof e.text === 'string' && e.text.length >= row.content.length) {
-    next.content = e.text;
-    next.streaming = e.text.length > 0;
-  }
-  if (e.status === 'failed') {
-    next.status = 'failed';
-    next.streaming = false;
-    next.error = e.error ?? row.error;
-  }
+  const next = applyTurnFrame(row, e);
+  if (!next) return false;
   await db.claudeMessages.put(next);
   return true;
 }
