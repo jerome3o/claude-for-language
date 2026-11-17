@@ -154,17 +154,6 @@ jobs:
           path: android-lab/app/build/reports/tests
           retention-days: 7
 
-      - name: TEMP record PR screenshots
-        run: ./gradlew :app:recordRoborazziDebug --tests '*ResultLinksTest*' --no-daemon
-        working-directory: android-lab
-
-      - name: TEMP upload PR screenshots
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: lab-pr-shots
-          path: android-lab/app/screenshots/claude-result-*.png
-          retention-days: 1
-
   # ---- Debug build (PRs / branches) ----
   debug-apk:
     if: github.ref != 'refs/heads/main' || github.event_name == 'pull_request'
