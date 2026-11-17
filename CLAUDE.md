@@ -247,7 +247,7 @@ Jerome wants it at **full feature parity with the web app, to the same standard*
   that PR, update its row in `android-lab/PARITY.md` (⬜/🟡 + what's missing).
 - Logic that must match (FSRS, budget, queue, answer checking) lives in `android-lab/core` and is
   **parity-tested against the TypeScript**: `./gradlew :core:test` regenerates golden vectors by
-  running `shared/scheduler`, `shared/decks/budget.ts` and `frontend/src/utils/numberHanzi.ts`.
+  running `shared/scheduler`, `shared/decks/budget.ts` and `shared/text/numberHanzi.ts`.
   Changing those TS files without the matching Kotlin change turns the Lab build red.
 - **Crashes are reported**: `data/CrashLog.kt` writes an uncaught exception's stack trace before the
   process dies, records caught background failures (`LabApp.scope`'s handler, `app.safely { }`) and

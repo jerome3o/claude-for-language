@@ -1,7 +1,7 @@
 package dev.jeromeswannack.chineselearning.lab.core
 
 /**
- * Port of frontend/src/utils/numberHanzi.ts and the typed-answer comparison in
+ * Port of shared/text/numberHanzi.ts and the typed-answer comparison in
  * StudyPage's AnswerDiff. JavaScript regex classes are ASCII (`\b`, `\d`, `\w`)
  * while Android's ICU regex treats 个 as a word character, so the boundaries
  * are spelled out explicitly here — "7个" must still become 七个.

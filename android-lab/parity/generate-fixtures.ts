@@ -1,7 +1,7 @@
 /**
  * Golden vectors for the Kotlin port (android-lab/core), produced by running the
  * web app's own TypeScript: shared/scheduler (FSRS via ts-fsrs), shared/decks/budget
- * and frontend/src/utils/numberHanzi. The Kotlin ParityTest must reproduce every
+ * and shared/text/numberHanzi. The Kotlin ParityTest must reproduce every
  * value exactly. Regenerate with `android-lab/parity/generate.sh`; CI regenerates
  * and fails if the committed fixtures are stale, so a change to the web logic
  * without the matching Kotlin change turns the Lab build red.
@@ -23,7 +23,7 @@ import {
   type ComputedCardState,
 } from '../../shared/scheduler/compute-state';
 import { allocateNewCards, sortDecksForQueue, daysToIntroduce, type DeckNewPool } from '../../shared/decks/budget';
-import { normalizeNumbersToHanzi, hanziAnswerKey, stripAnswerPunctuation, intToHanzi } from '../../frontend/src/utils/numberHanzi';
+import { normalizeNumbersToHanzi, hanziAnswerKey, stripAnswerPunctuation, intToHanzi } from '../../shared/text/numberHanzi';
 
 const OUT = process.argv[2];
 if (!OUT) throw new Error('usage: generate-fixtures <out-dir>');

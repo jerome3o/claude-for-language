@@ -65,7 +65,6 @@ data class CoachStartBody(
     val chat_message_id: String? = null,
 )
 @Serializable data class CoachMessageBody(val message: String, val background: Boolean? = null, val language: String? = null)
-@Serializable data class CoachAskBody(val message: String, val language: String? = null)
 @Serializable data class CoachTranslationRes(val translation: String = "", val cached: Boolean = false)
 @Serializable data class CoachProposeBody(val words: List<String> = emptyList())
 
@@ -163,8 +162,6 @@ suspend fun Api.startCoachConversation(text: String, action: String? = null, exp
 /** A follow-up: 202 with my message and the pending reply (written in the background); 409 while one is pending. */
 suspend fun Api.sendCoachMessage(id: String, message: String, language: String? = null): CoachReplyDto =
     post("/api/coach/conversations/${enc(id)}/messages", CoachMessageBody(message, background = true, language = language))
-/** "💬 Ask Claude": a new chat → 202 my message + Claude's pending reply (polled). */
-suspend fun Api.startCoachAsk(message: String, language: String?): CoachThreadDto = post("/api/coach/ask", CoachAskBody(message, language))
 /** The English of one Chinese message (kept on the server). */
 suspend fun Api.translateCoachMessage(id: String, messageId: String): CoachTranslationRes =
     post("/api/coach/conversations/${enc(id)}/messages/${enc(messageId)}/translate")

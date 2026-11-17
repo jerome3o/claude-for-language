@@ -1,5 +1,6 @@
 package dev.jeromeswannack.chineselearning.lab.data.api
 
+import dev.jeromeswannack.chineselearning.lab.core.QuestionRowLike
 import dev.jeromeswannack.chineselearning.lab.data.Api
 import kotlinx.serialization.Serializable
 import java.time.LocalDate
@@ -482,16 +483,16 @@ suspend fun Api.reopenCardFlag(flagId: String) = post<Unit>("/api/card-flags/${e
 
 @Serializable
 data class ClaudeQuestionDto(
-    val id: String,
-    val note_id: String,
+    override val id: String,
+    override val note_id: String,
     val question: String = "",
     val answer: String = "",
-    val asked_at: String = "",
+    override val asked_at: String = "",
     val hanzi: String = "",
     val pinyin: String = "",
     val english: String = "",
     val deck_name: String = "",
-)
+) : QuestionRowLike
 
 @Serializable
 data class ClaudeChatsDto(val questions: List<ClaudeQuestionDto> = emptyList(), val next_cursor: String? = null, val total: Int = 0)

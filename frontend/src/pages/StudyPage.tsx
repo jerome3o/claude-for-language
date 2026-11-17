@@ -3,7 +3,6 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, type ReactNode } from 'react';
 import {
-  startSession,
   API_BASE,
   updateNote as updateNoteOnServer,
   getMyRelationships,
@@ -3756,7 +3755,6 @@ export function StudyPage() {
 
   const deckId = searchParams.get('deck') || undefined;
   const autostart = searchParams.get('autostart') === 'true';
-  const [sessionId, setSessionId] = useState<string | null>(null);
   const [studyStarted, setStudyStarted] = useState(autostart);
 
   // In-SPA navigation to /study?autostart=true (e.g. from the Android widget
@@ -3871,16 +3869,6 @@ export function StudyPage() {
     })();
     return () => { cancelled = true; };
   }, [isAllDone, flushWrites]);
-
-  // Auto-start session creation when autostart param is present. Best-effort and kept only for
-  // older servers / clients (POST /api/study/sessions); nothing reads it for time any more.
-  useEffect(() => {
-    if (autostart && studyStarted && !sessionId && isOnline) {
-      startSession(deckId)
-        .then(session => setSessionId(session.id))
-        .catch(() => {});
-    }
-  }, [autostart, studyStarted, sessionId, isOnline, deckId]);
 
   // Analytics: one study.session_start when the queue has loaded with something to do, one
   // study.session_end when Study is left (or the queue empties).

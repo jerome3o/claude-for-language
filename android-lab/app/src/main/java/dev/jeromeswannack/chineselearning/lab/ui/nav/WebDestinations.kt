@@ -19,7 +19,6 @@ data class WebDestination(
 object WebDestinations {
     val ALL: List<WebDestination> = listOf(
         // A / B — study
-        WebDestination("/study/review/:id", "Session review", "🧾", "Every card of a past session with your answers.", 'D'),
         WebDestination("/study", "Study", "🃏", "Today's cards, lessons and story.", 'A'),
         WebDestination("/homework/:id", "Homework pass", "✅", "Go through one piece of homework once, by its due date.", 'E'),
         WebDestination("/homework", "Homework", "✅", "One-off practice from your tutor, with due dates.", 'E'),
