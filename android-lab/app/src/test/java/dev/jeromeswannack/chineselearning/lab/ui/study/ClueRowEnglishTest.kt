@@ -84,7 +84,7 @@ class ClueRowEnglishTest : LabScreenshotTest() {
 
     @Test fun revealsHanziThenPinyinThenFetchedEnglish() {
         studyBack(online = true)
-        // The badge tab from the start, the row otherwise blank (listen first).
+        // The small "From the card" label from the start (in the line under the sentence), the row otherwise blank.
         assertEquals(1, tagged(SENTENCE_CARD_BADGE_TAG).size)
         tapClueRow(2)
         // Two taps: hanzi + the device's pinyin, no English yet and not open (no tools).
@@ -98,7 +98,7 @@ class ClueRowEnglishTest : LabScreenshotTest() {
         val badge = tagged(SENTENCE_CARD_BADGE_TAG).single()
         val hanzi = node(clue)
         val en = node(english)
-        assertTrue("badge above the sentence", badge.bottom() <= hanzi.top())
+        assertTrue("badge in the line under the sentence", hanzi.bottom() <= badge.top())
         assertTrue("English under the sentence", hanzi.bottom() < en.top())
         assertEquals("fetched once", 1, translateCalls)
         // Fully open: the tools line like every row (+ Add as card now that it has an English).

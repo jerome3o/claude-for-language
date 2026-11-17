@@ -29,11 +29,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -106,6 +109,8 @@ fun ReportTake(phase: String, ownBack: Boolean = false, stop: () -> Unit) {
 object TakeLockTags {
     const val STOP = "take-lock-stop"
     const val MUTED = "take-lock-muted"
+    /** A row held while a pinned stop bar has the stop ([TakeLockedActions]). */
+    const val HELD = "take-locked-held"
     /** The app-wide lock's footer ([TakeLockedActions]) and its default stop tag. */
     const val FOOTER = "take-lock-footer"
     const val APP_STOP = "take-stop"
@@ -161,6 +166,7 @@ object TakeLocks {
     data class Entry(val phase: String, val stop: () -> Unit, val ownBack: Boolean = false)
 
     private val entries = mutableStateMapOf<String, Entry>()
+    private val pinnedBars = mutableStateMapOf<String, Boolean>()
 
     /** All takes on screen combined: idle | recording | checking (snapshot state — composables recompose on it). */
     val phase: String get() = TakeLock.combine(entries.values.map { it.phase })
@@ -168,6 +174,14 @@ object TakeLocks {
     val backPhase: String get() = TakeLock.combine(entries.values.filter { !it.ownBack }.map { it.phase })
     val locked: Boolean get() = !TakeLock.mayProceed(phase)
     val recording: Boolean get() = phase == TakeLock.RECORDING
+    /** A pinned "■ Stop recording" bar is on screen ([PinnedStopBar]): rows of buttons are then held, not a second stop. */
+    val pinned: Boolean get() = pinnedBars.isNotEmpty()
+    /** What a row of advancing buttons shows (core TakeLock.row): proceed | stop | checking | held. */
+    val row: String get() = TakeLock.row(phase, pinned)
+
+    fun setPinned(id: String, shown: Boolean) {
+        if (shown) pinnedBars[id] = true else pinnedBars.remove(id)
+    }
 
     fun set(id: String, entry: Entry?) {
         if (entry == null) entries.remove(id) else entries[id] = entry
@@ -196,7 +210,10 @@ object TakeLocks {
     fun guard(action: () -> Unit): () -> Unit = { if (tap() == "run") action() }
 
     /** Tests / previews: forget every take. */
-    fun reset() = entries.clear()
+    fun reset() {
+        entries.clear()
+        pinnedBars.clear()
+    }
 }
 
 /** Report a take to the app-wide lock ([TakeLock] phase); removed when it leaves composition. */
@@ -213,16 +230,36 @@ fun RegisterTake(phase: String, ownBack: Boolean = false, stop: () -> Unit) {
     }
 }
 
+/** A pinned "■ Stop recording" bar reports itself while [shown] (the study sentence rows' SentenceStopBar). */
+@Composable
+fun PinnedStopBar(shown: Boolean) {
+    val id = remember { java.util.UUID.randomUUID().toString() }
+    DisposableEffect(id, shown) {
+        TakeLocks.setPinned(id, shown)
+        onDispose { TakeLocks.setPinned(id, false) }
+    }
+}
+
 /**
  * [content] (a row of advancing buttons: Next, Continue, the ratings, Got it, Cancel …) — or, while a take is
  * under way, ONE red "■ Stop recording" in their place (a thumb aimed at Next stops the take), then a held
- * "Checking what you said…" (the reader's / sentence rows' footer look).
+ * "Checking what you said…" (the reader's / sentence rows' footer look). When the screen already pins its own stop
+ * bar for the take ([PinnedStopBar]), the row is HELD instead: greyed and untappable where it is — one stop on screen.
  */
 @Composable
 fun TakeLockedActions(modifier: Modifier = Modifier, stopTag: String = TakeLockTags.APP_STOP, content: @Composable () -> Unit) {
-    val footer = TakeLock.footer(TakeLocks.phase)
+    val footer = TakeLocks.row
     if (footer == "proceed") {
         content()
+        return
+    }
+    if (footer == "held") {
+        Box(
+            modifier.fillMaxWidth().alpha(0.4f).testTag(TakeLockTags.HELD)
+                // Swallows every touch: nothing in a held row can advance while the pinned bar has the stop.
+                .pointerInput(Unit) { awaitPointerEventScope { while (true) { awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial).changes.forEach { it.consume() } } } }
+                .semantics(mergeDescendants = true) { disabled() },
+        ) { content() }
         return
     }
     Box(modifier.fillMaxWidth()) {

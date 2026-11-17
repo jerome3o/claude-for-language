@@ -35,6 +35,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
@@ -433,8 +434,8 @@ fun SentenceRoundPage(
     Box(modifier.fillMaxSize().testTag(SentenceRoundTags.ROUND)) {
         Column(Modifier.fillMaxSize()) {
             Column(
-                Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 4.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 Text(
                     question,
@@ -654,7 +655,8 @@ private fun RoundExerciseCard(
     val showEnglish = SentenceRound.englishShown(ex.mode, status, answered, englishToggled)
     val readEnglishMissing = ex.mode == SentencePractise.READ && showEnglish && englishText.isNullOrBlank()
     LaunchedEffect(readEnglishMissing) { if (readEnglishMissing) onNeedEnglish() }
-    val shape = RoundedCornerShape(16.dp)
+    // Not a box (Jerome, Nov 2026): no outline — the state colours the small number mark; a hairline separates exercises.
+    val divider = Lab.colors.cardBorder
     val border = when (status) {
         "right" -> Palette.Good
         "close" -> Palette.Gold
@@ -662,19 +664,18 @@ private fun RoundExerciseCard(
         else -> if (busy) Palette.Again else Lab.colors.cardBorder
     }
     Column(
-        Modifier.fillMaxWidth().clip(shape)
-            .background(if (status == "right") Palette.Good.copy(alpha = 0.08f) else Lab.colors.card)
-            .border(if (status == null) 1.dp else 2.dp, border, shape)
+        Modifier.fillMaxWidth()
             .pointerInput(ex.id) { detectTapGestures(onLongPress = { onMore() }) }
-            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .drawBehind { drawLine(divider, androidx.compose.ui.geometry.Offset(0f, size.height), androidx.compose.ui.geometry.Offset(size.width, size.height), 0.5.dp.toPx()) }
+            .padding(vertical = 8.dp)
             .animateContentSize()
             .testTag("${SentenceRoundTags.EXERCISE}-$index-${ex.mode}-${status ?: "open"}${if (held) "-held" else ""}"),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Box(
-                Modifier.size(24.dp).clip(CircleShape).background(if (status == "right") Palette.Good else Lab.colors.faint),
+                Modifier.size(24.dp).clip(CircleShape).background(if (border == Lab.colors.cardBorder) Lab.colors.faint else border),
                 contentAlignment = Alignment.Center,
-            ) { Text(if (status == "right") "✓" else "${index + 1}", color = if (status == "right") Color.White else Lab.colors.ink, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+            ) { Text(if (status == "right") "✓" else "${index + 1}", color = if (border == Lab.colors.cardBorder) Lab.colors.ink else Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
             Text(SentenceRound.PROMPT[ex.mode].orEmpty(), Modifier.weight(1f), color = Lab.colors.muted, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
             status?.let { Text(SentenceRound.RESULT[it].orEmpty(), color = Lab.colors.ink, fontSize = 13.sp, fontWeight = FontWeight.Bold) }
             Box(
@@ -712,8 +713,7 @@ private fun RoundExerciseCard(
                 ) {
                     Box(
                         Modifier.size(34.dp).clip(CircleShape)
-                            .background(if (showEnglish) Lab.colors.accentSoft else Lab.colors.card)
-                            .border(1.dp, if (showEnglish) Lab.colors.accent else Lab.colors.cardBorder, CircleShape),
+                            .background(if (showEnglish) Lab.colors.accentSoft else Color.Transparent),
                         contentAlignment = Alignment.Center,
                     ) { Text(SentenceRound.ENGLISH_CHIP, color = if (showEnglish) Lab.colors.accent else Lab.colors.muted, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
                 }
@@ -729,9 +729,9 @@ private fun RoundExerciseCard(
                     contentAlignment = Alignment.Center,
                 ) {
                     Box(
-                        Modifier.size(40.dp).clip(CircleShape).background(if (playing) Lab.colors.accent else Lab.colors.faint),
+                        Modifier.size(40.dp).clip(CircleShape).background(if (playing) Lab.colors.accent else Color.Transparent),
                         contentAlignment = Alignment.Center,
-                    ) { Text("▶", color = if (playing) Lab.colors.onAccent else Lab.colors.ink, fontSize = 14.sp) }
+                    ) { Text("▶", color = if (playing) Lab.colors.onAccent else Lab.colors.accent, fontSize = 16.sp) }
                 }
             }
         }

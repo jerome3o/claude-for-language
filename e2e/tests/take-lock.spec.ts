@@ -143,9 +143,11 @@ test('study card: ✕ / back / a tap where Good was stop the take — nothing le
   const goodBox = (await good.boundingBox())!;
   const reviewsBefore = await count(page, 'reviewEvents');
   await startSentenceTake(page);
-  // The footer's action row + ratings gave way to ■ Stop recording.
-  await expect(good).toHaveCount(0);
-  await expect(page.getByTestId('study-footer-stop')).toBeVisible();
+  // ONE ■ Stop recording — the sentence rows' pinned bar; the footer's action row + ratings are HELD (greyed,
+  // untappable, where they were), never a second stop.
+  await expect(page.locator('[data-testid="take-locked-held"] [data-testid="rating-good"]')).toHaveCount(1);
+  await expect(page.getByTestId('study-footer-stop')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /Stop recording/ })).toHaveCount(1);
   await shot(page, '02-sentence-take-footer-stop');
   await page.mouse.click(goodBox.x + goodBox.width / 2, goodBox.y + goodBox.height / 2);
   await expect(page.getByTestId('sentence-stop-bar')).toHaveCount(0, { timeout: 15000 });
@@ -207,7 +209,8 @@ test('homework pass: a tap where Got it was during a take stops it — no answer
   const box = (await gotIt.boundingBox())!;
   const eventsBefore = await count(page, 'homeworkEvents');
   await startSentenceTake(page);
-  await expect(gotIt).toHaveCount(0);
+  await expect(page.locator('[data-testid="take-locked-held"] [data-testid="hw-gotit"]')).toHaveCount(1);
+  await expect(page.getByRole('button', { name: /Stop recording/ })).toHaveCount(1);
   await shot(page, '03-pass-take-footer-stop');
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
   await expect(page.getByTestId('sentence-stop-bar')).toHaveCount(0, { timeout: 15000 });

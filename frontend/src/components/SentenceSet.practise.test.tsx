@@ -123,8 +123,10 @@ describe('SentenceSet 🎤', () => {
     act(() => (rows()[0].querySelector('.sentence-set-hidden') as HTMLElement).click());
     const mic = inRow(0, 'sentence-practise-mic')!;
     expect(mic.dataset.mode).toBe('read');
-    // 🎤 sits left of ▶.
-    expect(mic.nextElementSibling?.classList.contains('sentence-set-play')).toBe(true);
+    // 🎤 sits in the quiet line under the sentence (after EN), not in a side column; ▶ ends the sentence's first line.
+    expect(mic.parentElement?.classList.contains('sentence-set-actionline')).toBe(true);
+    expect(mic.previousElementSibling?.classList.contains('sentence-set-en')).toBe(true);
+    expect(rows()[0].querySelector('.sentence-set-line > .sentence-set-play')).not.toBeNull();
   });
 
   it('judges a read take like the Coach: right counts, a tone slip does not', async () => {
