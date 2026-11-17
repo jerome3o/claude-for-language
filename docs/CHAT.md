@@ -985,15 +985,17 @@ thread). This part is worker + shared types only; the screens come later.
   text cleared — the next `?since=` list reports it in `deleted_ids`). The Coach page lists only general threads.
 - **The older chats, copied in lazily** (`claude-agent/backfill.ts`): on a user's first `GET /api/claude/threads`
   (stamped in `users.claude_threads_backfilled_at`), note_questions → `card` threads grouped like the apps
-  always showed them (`groupQuestionThreads`: one card's questions ≤ 30 min apart; `nq-<first id>`), the
+  always showed them (`groupQuestions`: one card's questions ≤ 30 min apart; `nq-<first id>`), the
   practice chats → `practice` threads (`pc-<conversation id>`, read-only), message_discussions → `chat_message`
   threads (`md-<id>`). Fixed ids + `INSERT OR IGNORE` + `legacy_id`: a re-run (admin
   `POST /api/admin/claude-threads/backfill`) never duplicates, never brings back a deleted thread. The old tables
-  stay as they are. Dual-writes keep both sides complete while old apps exist: `POST /api/notes/:id/ask` appends
-  its Q&A to the card's thread (same 30-minute rule), `PUT /api/messages/:id/discussion` adds the new messages to
-  its thread, and a card turn through the new API also writes `note_questions` (so the note history, the learner's
-  card hub and `/api/me/claude-chats` — which read `note_questions` — see it). The TUTOR's views read the threads
-  (see "What your tutor sees" below).
+  stay as they are, and **`note_questions` is frozen** (Nov 2026): nothing writes it — a card's questions live only
+  in its threads. Older apps keep working: the legacy `POST /api/notes/:id/ask` writes its Q&A straight into the
+  card's thread (same 30-minute rule; the id it returns is the messages' `legacy_id`), `PUT /api/messages/:id/discussion`
+  adds the new messages to its thread, and every row-shaped read — `/api/me/claude-chats`, the card hub's `questions`,
+  `/api/notes/:id/questions`, `/api/note-questions/:id[/words|/translate]` — is served from the card threads
+  (`claude-agent/card-questions.ts`). The apps list the threads themselves (card hub, History modal, Claude
+  conversations) and regroup nothing. The TUTOR's views read the threads (see "What your tutor sees" below).
 - **A reply is never lost** (`claude-agent/thread-turn.ts`): the POST stores my message + a pending reply in one
   batch and answers 202; in the same request a watchdog `{ kind: 'claude_turn', messageId }` goes on
   `coach-reply-queue` (45 s) and the reply starts inline (waitUntil — no queue hop). The runner claims the row with a
@@ -1087,8 +1089,9 @@ rule in SQL, `tutorVisibleSql`), routes `routes/claude-tutor-view.ts`.
   (finished text / analysis messages only: no client ids, leases, meta, the check of his own Chinese, unread counts;
   the context without chat / message ids or the persona's voice). A private, deleted or missing chat is the same 404.
 - **Older apps**: the tutor's `GET /api/relationships/:relId/claude-chats` and her card hub's `questions` are served
-  from the VISIBLE card threads in the old row shape (`tutorCardQuestions`: each question + the reply after it, the old
-  `note_questions` id where it came from there) — a hidden chat never reaches an old build either.
+  from the VISIBLE card threads in the old row shape (`tutorCardQuestions` in `card-questions.ts`: each question + the
+  reply after it, the old `note_questions` id where it came from there) — a hidden chat never reaches an old build
+  either. Her card hub (web + Lab) lists the card's visible threads (`…/claude-threads?note_id=`).
 - **Tutor UI** (web + Lab): the student page's **✦ Asked Claude** (web `components/tutor/ClaudeChatsSection.tsx` +
   `StudentClaudeThreads.tsx`, Lab `ui/teaching/StudentClaudeThreads.kt`): the four newest visible chats — title, last
   line, when · N messages, "👁 shared with you" — with the context chip (📇 card → her card hub view of the note; 🎭 practice,

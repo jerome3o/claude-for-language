@@ -3096,7 +3096,7 @@ the device, "Earlier about 银行"), `shared/study/askClaude.ts` + `askClaudeMen
   of ≤ 150 hanzi of started notes goes into the prompt — no pinyin / English, plain text: meaning, each
   character, usage, one or two examples). An explicit "in English please" / 用英文 (`asksForEnglish`) answers
   that turn in English. A Chinese answer is stored as plain text (`plainAnswerText` strips stray Markdown) with
-  `note_questions.answer_lang = 'zh'`; English answers stay Markdown. The quick chips ask in Chinese in 中文
+  the reply's `answer_lang = 'zh'`; English answers stay Markdown. The quick chips ask in Chinese in 中文
   mode (`cardChips`) and are not checked (`quick: true`). Tools (edit card, add cards, ⚡ bump, delete,
   mini lesson) work in both.
 - **Bubbles.** The tutor chat's bubbles (`chat-signal.css`): mine blue on the right, Claude's grey on the left.
