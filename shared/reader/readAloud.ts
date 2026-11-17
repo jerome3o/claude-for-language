@@ -182,6 +182,14 @@ function transcriptKeys(transcript: string): Keys {
 }
 
 /**
+ * A text's comparison keys, one per letter / digit (numbers as hanzi, lower case, 两 → 二, simplified) —
+ * the same keys the judge compares (shared/cards/answer-diff.ts reads them to spot a reordering).
+ */
+export function readAloudKeys(text: string): string[] {
+  return transcriptKeys(text).keys;
+}
+
+/**
  * Each key's syllable in context (null for a non-Han key): the automatic pinyin + 一 / 不 over each
  * unbroken run of Han keys. A run whose pinyin doesn't line up with its characters gets nulls.
  */
