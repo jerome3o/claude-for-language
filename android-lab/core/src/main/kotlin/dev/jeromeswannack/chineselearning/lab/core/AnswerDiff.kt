@@ -7,7 +7,7 @@ package dev.jeromeswannack.chineselearning.lab.core
  * ONE short sentence that says what differs ([summary]), and the line a surface shows ([line]).
  *
  * Kinds: ok · sound (a homophone, counts as right) · tone (same syllable, other tone) · wrong · extra (he added it)
- * · missing (the expected character, drawn in a muted dashed slot) · plain (punctuation).
+ * · missing (the expected character, drawn in grey — the marks are colour only) · plain (punctuation).
  */
 object AnswerDiff {
     data class Part(

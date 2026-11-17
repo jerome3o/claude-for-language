@@ -11,17 +11,18 @@
  * the sentence a screen reader reads for the whole row. Pure; Lab port
  * `core/…/SpokenAnswerResult.kt`, parity-tested (parity/fixtures/spoken-answer.ts).
  *
- * Marks (never colour alone — each has a shape too, see the apps' styles):
+ * Marks (colour only in the apps since Nov 2026 — the slim answer diff's tokens; the chip says it in words and
+ * `spokenResultLabel` names every marked character):
  * - `right`: a character the answer has too (lined up by longest common subsequence);
  * - `differs`: "Sounded right" — said right but written with other characters (由 heard as 油):
- *   YELLOW (the partial token) with a dotted underline, the chip still ✓;
- * - `wrong`: close / didn't match — a character not in the answer: red, solid underline;
+ *   counts as right, so no mark; the chip still ✓ "Sounded right — written differently";
+ * - `wrong`: close / didn't match — a character not in the answer: rose;
  * - `plain`: punctuation and spaces, and in "Contains the answer" the words around the answer.
  *
  * Close / didn't match (docs/STUDY_SESSION.md "Answer feedback: one line and a diff"): the row is the slim
- * answer diff (shared/cards/answer-diff.ts) — his characters lined up with the answer: `wrong` red + solid,
- * `tone` (same syllable, other tone) a wavy lemon underline, `extra` (he added it) yellow in a solid box,
- * `missing` (the answer's character he left out) muted in a dashed slot — and the chip is the diff's ONE short
+ * answer diff (shared/cards/answer-diff.ts) — his characters lined up with the answer, colour only: `wrong` rose,
+ * `tone` (same syllable, other tone) amber, `extra` (he added it) violet, `missing` (the answer's character he left
+ * out) in grey — and the chip is the diff's ONE short
  * sentence ("Tone off on 狼", "Extra 了 at the end", "2 wrong characters, 1 missing").
  */
 import type { AnswerVerdict } from './answer';

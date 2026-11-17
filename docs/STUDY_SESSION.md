@@ -1014,8 +1014,8 @@ Claude; and the answer screen should let him practise the right sentence before 
    (`claude_right`, only when the device hadn't already celebrated — one celebration per answer), a practice take
    right (`say_again_right`: the lighter `round_right`). Wrong moments stay silent.
 2. **No loading states** — on submit the model answer (big) and the device's own diff show at once: his answer
-   with the characters the model doesn't have wavy-underlined, the model answer with the characters he missed
-   highlighted (`diffHanzi`). Claude's check (the answer check, sentence feedback, the speaking check) runs behind a
+   with the characters the model doesn't have in the wrong mark's rose, the model answer with the characters he missed
+   in rose too — colour only, no underline or fill (`diffHanzi`; "Answer feedback: one line and a diff"). Claude's check (the answer check, sentence feedback, the speaking check) runs behind a
    slim **"Claude is checking…"** row placed LAST — below the buttons — so when the verdict lands it grows there
    and nothing he is reading moves (a test pins the positions). Sentence making no longer shows a disabled
    "Claude is checking…" button: its result screen opens at once with the self-assessment, which becomes one
@@ -1475,19 +1475,22 @@ Readers list, Today's story):
   extras; a take that paired nothing at all keeps every character missed. The line says so: "✓ 96% — 1 to
   check · stopped early", "✓ 100% — right so far · stopped early"; never confetti for it. The unread rest
   never joins the reader word recap.
-- **Feedback, compact** (no second copy of the text): the page's OWN Chinese is marked in place, the
-  characters always in the body ink (Jerome, Nov 2026, dark mode: "the highlighting is pretty scuffed and
-  hard to read" — and he is red / green colour-blind). Read right (ok, a homophone) = NO mark, so a page
-  read well reads clean; tone off = a wavy lemon underline (never orange) on a faint lemon tint; wrong =
-  a solid thick rose underline on a soft rose tint; missed = a dashed rose underline on the same tint; a
-  small rose ‸ where extra words were said. The shape tells them apart, not the colour; the word chips drop
-  their fill (and the known-word underline) while a result is shown. Tokens: web `--ra-*` in
-  `components/reader/ReadAloud.css` (light + `data-theme="dark"`), Lab `LabColors.mark*`; each mark ≥ 3:1
-  on the page card, the ink on a tint ≥ 4.5:1 (web `theme/readAloudMarks.test.ts`, Lab `ThemeContrastTest`).
-  Every marked word's accessible name says it: "徐 — tone off (heard 许)". Under the audio row ONE small,
+- **Feedback, compact** (no second copy of the text): the page's OWN Chinese is marked in place, in the
+  answer diff's language — COLOUR ONLY since Nov 2026 (Jerome: "the circling and the underlining as well as
+  the color is a bit too much … just make it the color and then also make the colors a little bit more
+  subtle"; earlier, on the shapes' first version: "the highlighting is pretty scuffed and hard to read"). Read
+  right (ok, a homophone) = NO mark, so a page read well reads clean; a marked character is drawn in its
+  mark's colour and nothing else — no tint, no underline: tone off = amber, wrong = rose, missed = grey (the
+  answer diff's "missing"); a small violet ‸ where extra words were said. Tone off is in the "close" yellow
+  family, never orange (he is red / green colour-blind; each colour also differs in lightness, and the line says
+  it in words). The word chips drop their fill (and the known-word underline) while a result is shown. Tokens:
+  web `--mark-*` in `index.css` (light + `data-theme="dark"`; `--ra-*` in `components/reader/ReadAloud.css` point
+  at them), Lab `LabColors.mark*`; each ≥ 4.5:1 on the card and a result surface (web `theme/answerMarks.test.ts`,
+  Lab `ThemeContrastTest`), colour only by test (the same file + `ResultColorsGuardTest`). Every marked word's
+  accessible name says it: "徐 — tone off (heard 许)"; each marked character has a title. Under the audio row ONE small,
   muted line: "✓ 92% — 2 to check" (≈ under 90 %, ✕ under 60 %; "✓ 100% — all read right"), a tiny
-  legend of the marks this page shows (`readAloudLegend`: sample + "tone off · wrong · missed · extra
-  words"), and **You said ▸** opens the transcript small. Tapping a word still opens the explorer; a **long press** on
+  legend of the marks this page shows (`readAloudLegend`: a sample 字 in each colour + "tone off · wrong ·
+  missed · extra words"), and **You said ▸** opens the transcript small. Tapping a word still opens the explorer; a **long press** on
   a word that needs a look says it (practice TTS at the reader's speed). 🎤 then reads **Say it again** and
   a new take replaces the result; a page turn starts afresh. Pinyin / translation reveals are untouched.
 - **Practice only**: no review event, nothing stored, the take is not queued — offline 🎤 says "Needs a
@@ -1522,7 +1525,8 @@ Readers list, Today's story):
   opens the language explorer with its sentence, and what was heard (when Chinese) opens too (`explorer.open`
   source `read_aloud`). A tap on a marked word ON THE PAGE opens the explorer like any word chip (Nov 2026 —
   before, it lit its row; Jerome wanted the explorer back). **You said ▾** shows the transcript (as checked: numbers as hanzi) with
-  the same marks (tone off wavy, another / extra word solid; a homophone unmarked) — `result.heard`. ▶ of his own
+  the same marks, colour only (tone off amber, another word rose, a word he added violet; a homophone unmarked) —
+  `result.heard`. ▶ of his own
   take at that span is not built: the transcript has no timings. Analytics `reader.read_aloud_diff { action:
   play | open_page_word | open_heard_word, kind }` (`tap_page` before Nov 2026). Web `ReadAloudDifferences` in `ReadAloud.tsx`; Lab `ReadAloudDifferences` in
   `ReadAloudViews.kt`.
@@ -2243,17 +2247,27 @@ typed or spoken — differs from the expected one is now the same two things, an
    it never relies on colour: ✓ right · ≈ only tones / only the order · ✕ the rest (`answerDiffTone`).
 2. **His answer lined up with the expected one, character by character** (`answerDiff`: the reader's read-aloud judge
    — numbers as hanzi, so a 3 IS 三; 两 = 二; simplified; each character's syllable in context), drawn in the reader's
-   mark language, a SHAPE per kind as well as a colour (Jerome is red / green colour-blind):
-   - **wrong** (another character): rose ink on a rose tint, a thick SOLID underline;
-   - **extra** (he added it): a yellow highlight in a solid amber box ("take this out") — never a strike: a line through 了 reads as 子;
-   - **missing** (the answer has it, he left it out): the expected character, muted, in a DASHED box — its slot;
-   - **tone off** (the right syllable, another tone — 都 dū said dù): the character in body ink over a lemon tint, a
-     WAVY lemon underline (quiet: it's nearly right);
-   - **a homophone** (other characters, the same toned syllable — 由 for 油): counts as RIGHT; at most a faint dotted
-     underline and "written 由" in the line;
-   - right characters in normal ink. Right in other words: every difference only a quiet dotted underline, never red.
-   Screen readers hear the whole thing as one sentence (`answerDiffLabel`: "Your answer: 他的书. 1 wrong character,
-   1 missing. 他 — wrong, the answer has 我; missing 呢.").
+   mark language, COLOUR ONLY (Jerome, Nov 2026, on the first version's boxes, tints and wavy / dashed underlines: "the
+   circling and the underlining as well as the color is a bit too much. So can we just make it the color and then also
+   make the colors a little bit more subtle as well. Not too subtle"): the character itself in its mark's colour — no
+   box, no tint, no underline:
+   - **wrong** (another character): rose;
+   - **extra** (he added it): violet ("take this out");
+   - **missing** (the answer has it, he left it out): the expected character in a cool grey, in its place — a faint
+     stand-in, so the gap reads without a dashed slot;
+   - **tone off** (the right syllable, another tone — 都 dū said dù): amber (the "close" yellow family, never orange);
+   - **a homophone** (other characters, the same toned syllable — 由 for 油): counts as RIGHT, no mark; "written 由" in
+     the line;
+   - right characters in normal ink. Right in other words: every difference in normal ink, never red.
+   The colours are tokens — web `--mark-wrong / -tone / -extra / -missing` in `index.css` (light: #a82540 · #8c6700 ·
+   #6b4fc4 · #62666f; dark: #e98594 · #dcc16e · #ac9dea · #9a978f), Lab `LabColors.markWrong / markTone / markExtra /
+   markMissing` — toned down from the old fluorescent rose / lemon, each ≥ 4.5:1 on the card and on a result surface's
+   tint, apart from the body ink and from each other by hue AND lightness (web `theme/answerMarks.test.ts`, Lab
+   `ThemeContrastTest`); no mark draws a decoration (the same web test, Lab `ResultColorsGuardTest`). Colour is never
+   the only signal: the line says what differs, screen readers hear the whole thing as one sentence (`answerDiffLabel`:
+   "Your answer: 他的书. 1 wrong character, 1 missing. 他 — wrong, the answer has 我; missing 呢."), each marked
+   character has its own title (web) / the text its content description (Lab), and the "You said" row's sentence names
+   them ("… Close. Tone off on 狼. Tone off: 朗.", `spokenResultLabel`).
 3. The **expected answer once**, clearly (hanzi, pinyin, ▶ where it already had one) — where it isn't already on screen
    (the read card's hanzi is the question; a Sentence round row shows its sentence).
 
@@ -2310,9 +2324,9 @@ answer that is **accepted but not the model / expected answer** never goes on by
 - **What it shows** (since Nov 2026 the slim answer feedback — "Answer feedback: one line and a diff" above): ONE line
   ("✓ Right — worded differently", "✓ Sounded right — written 由"; in the round the title "✓ Right — said differently
   from the model" is that line), the model answer once (**The card** on the question) with ▶, and his answer lined up
-  with it, the differences only quietly dotted (it counts as right). No tips, no fix, no "Also natural". In the round
+  with it, the differences in normal ink (it counts as right). No tips, no fix, no "Also natural". In the round
   the comparison carries the model sentence (it isn't shown twice); a ≈ Almost / ✗ Wrong translate take shows the same
-  diff with Claude's chip on the line (his wrong characters red, extra in a solid amber box, missing in a dashed slot) and
+  diff with Claude's chip on the line (his wrong characters rose, extra violet, missing grey — colour only) and
   keeps 🔁 Try again.
 - **Holding**: the round finished by such a take stays on it — "Have a look at the difference, then go on." and
   **Continue →** (the cheer and confetti still come; Good / Easy, or Got it, are unlocked: it counts as right); the
@@ -3157,13 +3171,13 @@ The typing cards (meaning → hanzi, audio → hanzi) have a **🎤** beside the
   (`contains`), **≈ Close — tones off** (`close`, wrong), **✕ Didn't match** (`wrong`); green, yellow
   (the partial token) or red. Each character of the transcript is marked (lined up with the answer by
   longest common subsequence, so words around it never push everything red): **written differently**
-  (`sound`: 友 said for 有) = YELLOW highlight + dotted underline; **not in the answer** (close / didn't
-  match: 朗 for 狼) = red + solid underline; in `contains` the answer's characters stay ink and the
+  (`sound`: 友 said for 有) = no mark since Nov 2026 (it counts as right; the chip says "written differently");
+  **not in the answer** (close / didn't match: 朗 for 狼) = rose, colour only; in `contains` the answer's characters stay ink and the
   words around it quiet; punctuation is never marked. A screen reader hears the whole row as one
   sentence: "You said 朗 (lǎng). Close — the tones are off. Not in the answer: 朗." (Since Nov 2026 — "Answer
-  feedback: one line and a diff" — close / didn't match are the slim diff: 朗 marked tone off (wavy), wrong red,
-  extra in a solid amber box, missing in a dashed slot, and the chip is the one line: "≈ Tone off on 狼", "✕ 2 wrong
-  characters, 1 extra", "✓ Sounded right — written 友"; the sentence "You said 朗 (lǎng). Close. Tone off on 狼.") Space: Jerome's
+  feedback: one line and a diff" — close / didn't match are the slim diff, colour only: 朗 marked tone off (amber),
+  wrong rose, extra violet, missing grey, and the chip is the one line: "≈ Tone off on 狼", "✕ 2 wrong
+  characters, 1 extra", "✓ Sounded right — written 友"; the sentence "You said 朗 (lǎng). Close. Tone off on 狼. Tone off: 朗." — each marked character named) Space: Jerome's
   狼 / 朗 card's answer block went from 499 to 305 px above the Play row on the web (412 px wide) and
   from 552 to 384 dp in the Lab app. Typed answers keep the character diff (`AnswerDiff`), minus its
   own pinyin line under an exact answer — the card's pinyin follows right under it, so it was shown
@@ -3430,12 +3444,13 @@ both apps clean every row when they read cached options (`parseMcOptions`, Lab
 `MultipleChoice.parse` → `core/McOptions.kt`, parity-tested by `parity/fixtures/multiple-choice.ts`),
 so notes generated before the fix are clean on the device too.
 
-**Marks that read without colour.** On the answer side of a typed or multiple-choice answer,
-every wrong character (or extra one past the end) is red AND has a solid underline; a character
-not typed / a row left blank is a muted "?" with a dashed underline; correct characters stay green
-with no underline (`utils/answerDiff.ts` `typedAnswerDiff`, `DiffCellView` in StudyPage; Lab:
-`ui/study/AnswerMarks.kt`). The underline sits in the character's own bottom padding, so it never
-touches the glyph or the pinyin line below.
+**Marks: colour only.** On the answer side of a typed or multiple-choice answer, every wrong
+character (or extra one past the end) is in the wrong mark's rose; a character not typed / a row left
+blank is a "?" in the missing grey; correct characters are in the "right" ink — no fills, boxes or
+underlines since Nov 2026 (the slim answer diff's language, "Answer feedback: one line and a diff").
+The one line above says what differs in words and each wrong / missing cell has an accessible label
+(`utils/answerDiff.ts` `typedAnswerDiff`, `DiffCellView` in StudyPage, `.diff-*` in index.css; Lab:
+`ui/study/AnswerMarks.kt`).
 
 ## Tutor notes on recordings
 
