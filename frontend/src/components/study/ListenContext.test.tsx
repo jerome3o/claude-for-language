@@ -86,7 +86,7 @@ function noteOf(clue: { hanzi: string; translation?: string; audio_url?: string 
   return { id: 'n1', sentence_clue: clue?.hanzi ?? null, sentence_clue_translation: clue?.translation ?? null, sentence_clue_audio_url: clue?.audio_url ?? null };
 }
 /** The showing's order with the pinned seed and nothing heard. */
-const order = (clue: { hanzi: string } | null = CLUE) => pickListenRows(listenContextRows(withCardSentence(noteOf(clue), SET)), new Map(), { seed: 'seed-1', word: '银行' }).rows.map((r) => r.key);
+const order = (clue: { hanzi: string } | null = CLUE) => pickListenRows(listenContextRows(withCardSentence(noteOf(clue), SET.map((s) => ({ focus: null, focus_note: null, explanation: null, ...s })))), new Map(), { seed: 'seed-1', word: '银行' }).rows.map((r) => r.key);
 const rowOf = (key: string) => container.querySelector(`[data-testid="listen-row"][data-key="${key}"]`) as HTMLElement;
 const inRow = (key: string, id: string) => rowOf(key).querySelector(`[data-testid="${id}"]`) as HTMLElement;
 
