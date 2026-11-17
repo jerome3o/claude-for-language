@@ -36,6 +36,15 @@ const EVENTS: ReviewEvent[] = [
 function setup(opts: { orphan?: boolean; forgetStatus?: number } = {}) {
   const calls: Array<{ method: string; path: string; body?: unknown }> = [];
   const api = {
+    get: async (path: string, query?: Record<string, unknown>) => {
+      calls.push({ method: 'GET', path, body: query });
+      if (path !== '/api/me/study-queue') throw new Error(`unexpected ${path}`);
+      return {
+        day_key: '2026-11-17', due_today: 7, reviews_due: 3, new_today: 4, new_cards_paused: false,
+        counts: { new: 3, extra_new: 1, learning: 1, review: 2 },
+        ...(query?.limit ? { cards: [{ id: 'c2', note_id: 'n2', deck_id: 'd1', card_type: 'audio_to_hanzi', queue: 0 }, { id: 'c1', note_id: 'n1', deck_id: 'd1', card_type: 'hanzi_to_meaning', queue: 2 }] } : {}),
+      };
+    },
     post: async (path: string, body: { events?: Array<{ id: string }>; note_ids?: string[] }) => {
       calls.push({ method: 'POST', path, body });
       if (path === '/api/reviews') {
@@ -52,7 +61,7 @@ function setup(opts: { orphan?: boolean; forgetStatus?: number } = {}) {
   const { db, statements } = fakeDb((sql) => {
     if (sql.includes('FROM users')) return { time_zone: 'Europe/London', day_rollover_hour: 4 };
     if (sql.includes('FROM decks WHERE id')) return { id: 'd1', name: 'HSK 2' };
-    if (sql.includes('LIMIT 50')) {
+    if (sql.includes('c.id IN (')) {
       return [
         { id: 'c1', card_type: 'hanzi_to_meaning', note_id: 'n1', hanzi: '银行', pinyin: 'yínháng', english: 'bank', audio_url: 'generated/n1.mp3', fun_facts: null },
         { id: 'c2', card_type: 'audio_to_hanzi', note_id: 'n2', hanzi: '苹果', pinyin: 'píngguǒ', english: 'apple', audio_url: null, fun_facts: null },
@@ -60,7 +69,6 @@ function setup(opts: { orphan?: boolean; forgetStatus?: number } = {}) {
     }
     if (sql.includes('FROM review_events')) return EVENTS;
     if (sql.includes('FROM card_forgets')) return [];
-    if (sql.includes('new_count')) return { new_count: 4, learning_count: 1, review_count: 2 };
     if (sql.includes('SELECT n.deck_id')) return { deck_id: 'd1' };
     return null;
   });
@@ -83,12 +91,12 @@ describe('study tools — one scheduler', () => {
     const { tools, calls, statements } = setup();
     const out = await tools.get('submit_review')!({ card_id: 'c1', rating: 2, time_spent_ms: 4200.4, user_answer: '银行' });
     expect(out.isError).toBeFalsy();
-    expect(calls).toHaveLength(1);
-    expect(calls[0].path).toBe('/api/reviews');
+    expect(calls.map((c) => c.path)).toEqual(['/api/reviews', '/api/me/study-queue']);
     const ev = (calls[0].body as { events: Array<Record<string, unknown>> }).events[0];
     expect(ev).toMatchObject({ card_id: 'c1', rating: 2, time_spent_ms: 4200, user_answer: '银行' });
     expect(typeof ev.id).toBe('string');
     expect(new Date(ev.reviewed_at as string).toISOString()).toBe(ev.reviewed_at);
+    // The study UI's numbers = the deck's session today from the API's study queue (blue + purple new).
     expect(out.structuredContent).toEqual({ counts: { new: 4, learning: 1, review: 2 } });
     for (const sql of statements) expect(sql).not.toMatch(/\b(UPDATE|INSERT|DELETE)\b/i);
   });
@@ -104,8 +112,9 @@ describe('study tools — one scheduler', () => {
     const { tools } = setup();
     const out = await tools.get('study')!({ deck_id: 'd1' });
     const data = out.structuredContent as { cards: Array<{ id: string; queue: number; previews: Record<number, { intervalText: string; queue: number }>; note: { audio_url: string | null } }> };
-    expect(data.cards).toHaveLength(2);
-    const [c1] = data.cards;
+    // The deck's session today, in the API study queue's order.
+    expect(data.cards.map((c) => c.id)).toEqual(['c2', 'c1']);
+    const c1 = data.cards[1];
     const state = computeCardState(EVENTS, DEFAULT_DECK_SETTINGS);
     expect(c1.queue).toBe(state.queue);
     // The shared scheduler's previews (the web's rating buttons): long intervals are fuzzed, so compare the
@@ -117,7 +126,7 @@ describe('study tools — one scheduler', () => {
       expect(c1.previews[r].intervalText).toMatch(/^[\d.]+(m|h|d|w|mo|y)$/);
     }
     expect(c1.note.audio_url).toBe('https://chinese-learning-api.jeromeswannack.workers.dev/api/audio/generated/n1.mp3');
-    expect(data.cards[1].note.audio_url).toBeNull();
+    expect(data.cards[0].note.audio_url).toBeNull();
   });
 
   it('familiarity "new" is a forget event; every other level is refused', async () => {

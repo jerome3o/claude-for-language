@@ -13,6 +13,7 @@ import type {
   InviteRef,
 } from '../services/tutor-dashboard';
 import { listDeckQueue, type DeckQueueRow } from './queries';
+import { MASTERED_CARD_SQL } from '@shared/progress/cardSql';
 
 // ---------- Student row ----------
 
@@ -111,7 +112,7 @@ export async function fetchHomeworkDecks(db: D1Database, relationshipId: string)
               tgt.name AS target_deck_name,
               (SELECT COUNT(*) FROM cards c JOIN notes n ON n.id = c.note_id WHERE n.deck_id = sd.target_deck_id) AS cards_total,
               (SELECT COUNT(*) FROM cards c JOIN notes n ON n.id = c.note_id WHERE n.deck_id = sd.target_deck_id AND COALESCE(c.queue, 0) != 0) AS cards_started,
-              (SELECT COUNT(*) FROM cards c JOIN notes n ON n.id = c.note_id WHERE n.deck_id = sd.target_deck_id AND COALESCE(c.stability, 0) > 21) AS cards_mastered,
+              (SELECT COUNT(*) FROM cards c JOIN notes n ON n.id = c.note_id WHERE n.deck_id = sd.target_deck_id AND ${MASTERED_CARD_SQL}) AS cards_mastered,
               (SELECT COUNT(*) FROM notes n WHERE n.deck_id = sd.target_deck_id) AS notes_total,
               (SELECT COUNT(*) FROM notes n WHERE n.deck_id = sd.target_deck_id
                  AND EXISTS (SELECT 1 FROM cards c WHERE c.note_id = n.id AND COALESCE(c.queue, 0) != 0)) AS notes_introduced,

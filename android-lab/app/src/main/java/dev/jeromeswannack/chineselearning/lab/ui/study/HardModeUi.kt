@@ -319,6 +319,7 @@ fun HardModeFeedbackPanel(
                 difference.said, difference.model, difference.modelPinyin, accepted = true,
                 modelLabel = dev.jeromeswannack.chineselearning.lab.core.AnswerDifference.CARD,
                 verdict = check?.let { AnswerDiff.verdict(it.verdict) },
+                check = dev.jeromeswannack.chineselearning.lab.core.AnswerWhy.of(check),
                 modifier = Modifier.testTag(DifferenceTags.HELD),
             ) else {
                 Text(HardMode.RESULT.getValue(result), color = ink, fontSize = 22.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
@@ -327,6 +328,7 @@ fun HardModeFeedbackPanel(
             else -> if (said != null && answer != null && (diffOnQuestion || check != null)) AnswerDiffView(
                 said, answer.first, Modifier.testTag(if (check != null) HardModeTags.SENTENCE_CHECK else HardModeTags.SAID_DIFF),
                 showExpected = false, headline = check?.headline,
+                check = dev.jeromeswannack.chineselearning.lab.core.AnswerWhy.of(check), whySurface = "hard_mode",
                 verdict = check?.let { AnswerDiff.verdict(it.verdict) } ?: AnswerDiff.verdict(result),
                 saidLabel = if (spoken) AnswerDiff.YOU_SAID else AnswerDiff.YOUR_ANSWER,
             ) else {
@@ -466,6 +468,7 @@ private fun SentenceAnswerFirst(
                 accepted = view.accepted || (check == null && result == "right" && difference != null),
                 modelLabel = SentenceAnswerCheck.ANSWER, onPlayModel = onPlayAnswer, answerFirst = true, answerFirstEnglish = answer.third,
                 headline = check?.headline,
+                check = dev.jeromeswannack.chineselearning.lab.core.AnswerWhy.of(check),
                 verdict = if (view.checking) null else check?.let { AnswerDiff.verdict(it.verdict) } ?: AnswerDiff.verdict(result),
             ) {
                 // Right under "You said", so the verdict landing below never moves it.

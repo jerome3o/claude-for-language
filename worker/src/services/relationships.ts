@@ -2,6 +2,8 @@ import { insertNoteCopy } from '../db/queries';
 import { getKnownCounts } from './known-counts';
 import { sqliteDayModifier } from '../../../shared/study/studyDay';
 import { getStudyDayUser, userProgressShiftMinutes } from './study-day';
+import { computeStudyQueue, loadStudyQueueInputs, perDeckDue } from './study-queue';
+import { MASTERED_CARD_SQL } from '../../../shared/progress/cardSql';
 import {
   TutorRelationship,
   TutorRelationshipWithUsers,
@@ -1116,7 +1118,9 @@ export async function getStudentProgress(
   }
 
   // Get student stats using review_events
-  const [totalCards, cardsDue, studiedToday, studiedThisWeek, avgAccuracy] = await Promise.all([
+  // "Due" = the student's study queue today (services/study-queue.ts — their budget, holds, bumps,
+  // Up next, their study day): what their Home shows, never "every NEW card".
+  const [totalCards, queueInputs, studiedToday, studiedThisWeek, avgAccuracy] = await Promise.all([
     db.prepare(`
       SELECT COUNT(*) as count FROM cards c
       JOIN notes n ON c.note_id = n.id
@@ -1124,12 +1128,7 @@ export async function getStudentProgress(
       WHERE d.user_id = ?
     `).bind(studentId).first<{ count: number }>(),
 
-    db.prepare(`
-      SELECT COUNT(*) as count FROM cards c
-      JOIN notes n ON c.note_id = n.id
-      JOIN decks d ON n.deck_id = d.id
-      WHERE d.user_id = ? AND (c.next_review_at IS NULL OR c.next_review_at <= datetime('now'))
-    `).bind(studentId).first<{ count: number }>(),
+    loadStudyQueueInputs(db, studentId, { fallbackTzOffset: tzOffset }),
 
     db.prepare(`
       SELECT COUNT(*) as count FROM review_events re
@@ -1154,9 +1153,7 @@ export async function getStudentProgress(
       d.name,
       (SELECT COUNT(*) FROM notes WHERE deck_id = d.id) as total_notes,
       (SELECT COUNT(*) FROM cards c JOIN notes n ON c.note_id = n.id
-       WHERE n.deck_id = d.id AND (c.next_review_at IS NULL OR c.next_review_at <= datetime('now'))) as cards_due,
-      (SELECT COUNT(*) FROM cards c JOIN notes n ON c.note_id = n.id
-       WHERE n.deck_id = d.id AND c.interval > 21) as cards_mastered
+       WHERE n.deck_id = d.id AND ${MASTERED_CARD_SQL}) as cards_mastered
     FROM decks d
     WHERE d.user_id = ?
     ORDER BY d.updated_at DESC
@@ -1164,20 +1161,29 @@ export async function getStudentProgress(
     id: string;
     name: string;
     total_notes: number;
-    cards_due: number;
     cards_mastered: number;
   }>();
+
+  const queue = computeStudyQueue(queueInputs);
+  const perDeck = perDeckDue(queueInputs, decksResult.results.map((d) => d.id));
 
   return {
     user: student,
     stats: {
       total_cards: totalCards?.count || 0,
-      cards_due_today: cardsDue?.count || 0,
+      cards_due_today: queue.due_today,
+      due_today: queue.due_today,
+      reviews_due: queue.reviews_due,
       cards_studied_today: studiedToday?.count || 0,
       cards_studied_this_week: studiedThisWeek?.count || 0,
       average_accuracy: avgAccuracy?.avg ? Math.round(avgAccuracy.avg * 100) : 0,
     },
-    decks: decksResult.results,
+    decks: decksResult.results.map((d) => ({
+      ...d,
+      // This deck's own session today (reviews due + the new cards the budget gives it).
+      cards_due: perDeck.get(d.id)?.due_today ?? 0,
+      reviews_due: perDeck.get(d.id)?.reviews_due ?? 0,
+    })),
   };
 }
 
