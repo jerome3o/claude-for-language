@@ -2559,9 +2559,7 @@ https://chinese-learning-mcp.jeromeswannack.workers.dev/callback
 | `update_note` | Update an existing note |
 | `delete_note` | Delete a note |
 | `get_note_cards` | Get all cards for a note with their SRS state |
-| `set_card_familiarity` | Set familiarity level (new/seen/familiar/well_known/mastered) |
-| `update_card_settings` | Fine-grained control over card scheduling |
-| `batch_set_familiarity` | Set familiarity for multiple notes at once |
+| `set_card_familiarity` / `batch_set_familiarity` | Only `familiarity: "new"` does anything: a FORGET event (`POST /api/me/card-forgets`, back to New, history kept, Undo-able in the apps). "seen" / "familiar" / "well_known" / "mastered" are refused with an explanation — card state comes from review events (FSRS replays them), so a written state would be undone by the next replay; use `bump_cards` / `suspend_cards` / a real review instead (`tools/study.ts`). `update_card_settings` was removed for the same reason (Nov 2026) |
 | `get_note_history` | Get review history and Q&A for a note |
 | `backfill_word_tags` | AI word tags of the signed-in user's notes: progress + cost so far, and (unless `status_only`) queue up to `limit` untagged notes now (`POST /api/notes/word-tags/backfill`); the sync fills ≤ 200 an hour by itself |
 | `check_deck_for_errors` | Word check of a whole deck (yours, or a student's copy with `relationship_id` + `shared_deck_id`): waits for the run, returns proposals (current → proposed + reason) and the cost; changes nothing |
@@ -2767,8 +2765,9 @@ The `study` tool is special - it renders an interactive flashcard UI directly in
 1. Call `list_decks` to get available deck IDs
 2. Call `study(deck_id: "...")` to open the study interface
 3. The UI displays cards, handles flipping, and rating
-4. Audio is played via browser speech synthesis (Chinese TTS)
-5. Reviews are submitted automatically via the `submit_review` tool (hidden from model)
+4. Audio is the word's own clip (`/api/audio/<key>`, the resource's CSP allows the API origin), else browser speech synthesis
+5. Each card carries its own FSRS interval previews (`getIntervalPreviews` over the card's replayed events + forgets — the web's rating buttons)
+6. Reviews are submitted automatically via the `submit_review` tool (hidden from model), which POSTs the review EVENT to `/api/reviews` as the user — the API stores it and recomputes the card's state. **No MCP tool writes `cards` / `review_events` itself** (`tools/study.ts`; a guard test in `study.test.ts` greps the MCP source and fails on `UPDATE cards` / `INSERT INTO review_events`)
 
 The UI bundle is built with Vite and embedded in the worker. To rebuild:
 ```bash
