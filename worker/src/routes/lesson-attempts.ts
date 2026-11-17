@@ -2,7 +2,8 @@
  * Lesson attempts (per-exercise answers + time) and the practice-exercise
  * helpers that need the server. Mounted under /api after the auth middleware.
  *
- *   POST /lessons/sentence-feedback                      Claude checks a sentence_making answer (503 retryable / 502)
+ *   POST /lessons/sentence-feedback                      Claude grades a sentence_making answer: right / needs_work / wrong (cached; 503 retryable / 502)
+ *   POST /lessons/sentence-fix                           ✨ Show a fixed version: his sentence minimally fixed (cached; on tap only)
  *   POST /lessons/answer-check                           Claude checks a self-assessed answer (translate / listen_translate; cached; the model answer itself → no call)
  *                                                        and a free-speaking transcript (oral_expression / speak; never short-circuited)
  *   POST /lessons/answer-check/ask                       💬 Ask about this: a short follow-up about that answer
@@ -27,7 +28,10 @@ import type { LessonAttemptData, CustomLessonSpec } from '@shared/lesson';
 import type { Env } from '../types';
 import * as q from '../db/lesson-attempt-queries';
 import { storeAudio } from '../services/audio';
-import { checkMadeSentence } from '../services/sentence-making';
+import { checkMadeSentence, fixMadeSentence, type SentenceMakingInput } from '../services/sentence-making';
+import { fakeSentenceMakingClient } from '../services/sentence-making-fake';
+import { pickSentenceCheckInput } from '@shared/lesson/sentenceCheck';
+import { spokenCheckAnswer } from '@shared/cards/answer';
 import { checkLessonAnswer, askAboutAnswer, type AskTurn } from '../services/answer-check';
 import { fakeAnswerCheckClient } from '../services/answer-check-fake';
 import { exactAnswerCheck, pickAnswerCheckInput, parseAnswerCheck, answerCheckApplies, isSpeakingCheckType, type AnswerCheckInput } from '@shared/lesson/answerCheck';
@@ -44,25 +48,51 @@ const MAX_RECORDING_BYTES = 16 * 1024 * 1024;
 
 // ============ Sentence making: Claude's check ============
 
+/** E2E_TEST_MODE answers with the stand-in (services/sentence-making-fake.ts) whatever key is set. */
+function sentenceMakingDeps(env: Env) {
+  if (env.E2E_TEST_MODE === 'true') return { apiKey: 'e2e', client: fakeSentenceMakingClient() };
+  return env.ANTHROPIC_API_KEY ? { apiKey: env.ANTHROPIC_API_KEY } : null;
+}
+
+/** The body → the input (a SPOKEN sentence scrubbed of the recogniser's punctuation), or the problems. */
+async function sentenceInput(c: Context<AppEnv>): Promise<{ input: SentenceMakingInput } | { problems: string[] }> {
+  const body = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
+  const picked = pickSentenceCheckInput(body);
+  if ('problems' in picked) return picked;
+  const input = body.input === 'spoken' || body.input === 'edited' || body.input === 'typed' ? body.input : undefined;
+  const sentence = spokenCheckAnswer(picked.input.sentence, input);
+  if (!sentence) return { problems: ['sentence is required'] };
+  return { input: { ...picked.input, sentence, ...(input ? { input } : {}) } };
+}
+
 lessonAttempts.post('/lessons/sentence-feedback', async (c) => {
-  if (!c.env.ANTHROPIC_API_KEY) {
+  const deps = sentenceMakingDeps(c.env);
+  if (!deps) {
     return c.json({ error: 'Claude isn’t set up on this server — check it yourself against the example.', retryable: false }, 503);
   }
-  const body = await c.req.json<{ words?: unknown; task?: unknown; sentence?: unknown }>().catch(() => ({} as Record<string, unknown>));
-  const words = Array.isArray(body.words) ? body.words.filter((w): w is string => typeof w === 'string' && w.trim().length > 0).slice(0, 6) : [];
-  const sentence = typeof body.sentence === 'string' ? body.sentence.trim().slice(0, 300) : '';
-  const task = typeof body.task === 'string' ? body.task.slice(0, 300) : undefined;
-  if (words.length === 0 || !sentence) return c.json({ error: 'words and sentence are required' }, 400);
+  const picked = await sentenceInput(c);
+  if ('problems' in picked) return c.json({ error: picked.problems.join('; '), problems: picked.problems }, 400);
+  const started = Date.now();
   try {
-    const feedback = await checkMadeSentence(c.env.ANTHROPIC_API_KEY, { words, task, sentence });
-    return c.json({ feedback });
+    const { feedback, cached } = await checkMadeSentence(c.env.DB, picked.input, deps);
+    return c.json({ feedback, cached, sentence: picked.input.sentence, ms: Date.now() - started });
   } catch (error) {
-    console.error('[lesson] sentence feedback failed:', error);
-    const retryable = !(error instanceof StructuredCallError) || error.retryable;
-    return c.json(
-      { error: retryable ? 'Claude is busy right now — try again in a moment.' : 'Claude couldn’t check this one.', retryable },
-      retryable ? 503 : 502,
-    );
+    return structuredFailure(c, error, 'sentence feedback');
+  }
+});
+
+/** ✨ Show a fixed version: his sentence with the smallest edits that fix it (cached per exercise + sentence). */
+lessonAttempts.post('/lessons/sentence-fix', async (c) => {
+  const deps = sentenceMakingDeps(c.env);
+  if (!deps) return c.json({ error: 'Claude isn’t set up on this server.', retryable: false }, 503);
+  const picked = await sentenceInput(c);
+  if ('problems' in picked) return c.json({ error: picked.problems.join('; '), problems: picked.problems }, 400);
+  const started = Date.now();
+  try {
+    const { fix, cached } = await fixMadeSentence(c.env.DB, picked.input, deps);
+    return c.json({ fix, cached, ms: Date.now() - started });
+  } catch (error) {
+    return structuredFailure(c, error, 'sentence fix');
   }
 });
 

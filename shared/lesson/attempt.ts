@@ -9,6 +9,7 @@
  * by media key (see exerciseMediaKey) once the attempt is on the server.
  */
 
+import type { SentenceFeedback } from './sentenceCheck';
 import type { LessonSentence } from './types';
 import { parseAnswerCheck, type AnswerCheck, type AnswerTry } from './answerCheck';
 
@@ -56,16 +57,8 @@ export interface HandwritingAnswer {
   engine?: string;
 }
 
-/** Claude's feedback on a sentence the learner made. */
-export interface SentenceFeedback {
-  verdict: 'correct' | 'minor' | 'incorrect';
-  /** Did the sentence use every target word? */
-  uses_all_words: boolean;
-  /** The corrected sentence (absent when already correct). */
-  corrected?: LessonSentence;
-  /** 1-3 sentences in English. */
-  comment: string;
-}
+/** Claude's feedback on a sentence the learner made (shared/lesson/sentenceCheck.ts). */
+export type { SentenceFeedback } from './sentenceCheck';
 
 export interface ExerciseAnswer {
   /** Typed text (translate, writing, dictation, sentence making, listen & translate). */
