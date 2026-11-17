@@ -120,11 +120,11 @@ class SpokenAnswerParityTest {
             assertResult(o, r, verdict.name)
             assertEquals(o["label"]!!.jsonPrimitive.content, SpokenAnswerResult.label(r, "狼 ", " lǎng "), "label ${verdict.name}")
         }
-        // Jerome's card: 狼 said 朗 — ≈ Close — tones off, 朗 marked.
+        // Jerome's card: 狼 said 朗 — ≈ the one line "Tone off on 狼", 朗 marked tone off (the slim answer diff).
         val close = SpokenAnswerResult.of("朗", "狼", AnswerKey.checkSpoken("朗", "狼"))
         assertEquals(SpokenAnswerResult.State.CLOSE, close.state)
-        assertEquals("Close — tones off", close.chip)
-        assertEquals(listOf(SpokenAnswerResult.Cell("朗", SpokenAnswerResult.Mark.WRONG)), close.chars)
+        assertEquals("Tone off on 狼", close.chip)
+        assertEquals(listOf(SpokenAnswerResult.Cell("朗", SpokenAnswerResult.Mark.TONE)), close.chars)
     }
 
     private fun assertResult(want: JsonObject, r: SpokenAnswerResult.Result, what: String) {
