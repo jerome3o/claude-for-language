@@ -9,6 +9,7 @@
 import { primeSeenCharacters } from '../services/newCharacters';
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useMutation } from '@tanstack/react-query';
+import { liveQuery } from 'dexie';
 import {
   db,
   LocalCard,
@@ -17,6 +18,8 @@ import {
   getStudyQueue,
   loadHeldCardIds,
   getStudyCutoff,
+  bumpTimeMs,
+  queueInput,
   createLocalReviewEvent,
   getCardReplayEvents,
   storePendingRecording,
@@ -43,7 +46,7 @@ import { markDailyActivity, getLocalDateString } from '../api/client';
 import { resumeCardId, studyScope, countSessionCards, type StudyResumePoint } from '@shared/study';
 import { publishSessionCounts } from '../services/sessionCounts';
 import { studyToday } from '../services/studyDay';
-import { isLeadCard, mixBumpedCard, EAR_LEAD_CARD_TYPE, type LeadCardsArg } from '@shared/decks';
+import { bumpedCardsForNote, isLeadCard, mixBumpedCard, pickNextUpCard, sessionBumpPlan, BUMP_SIBLING_GAP, EAR_LEAD_CARD_TYPE, type LeadCardsArg } from '@shared/decks';
 import { clearResumePoint, loadResumePoint, loadUndoSnapshot, saveUndoSnapshot } from '../services/studyResume';
 import { syncService } from '../services/sync';
 import { Rating, CardQueue, CardWithNote, Note, IntervalPreview, QueueCounts, Deck } from '../types';
@@ -172,8 +175,17 @@ export function selectNextItem(
   newWordsByEar = false,
   /** The random source of the ⚡ / new / review draws (tests inject a seeded one). */
   random: () => number = Math.random,
+  /**
+   * New words bumped DURING this session (shared/decks/bump-next.ts): their lead card is the very next card,
+   * in the order bumped — before everything else, learning cards due now included.
+   */
+  nextUpIds?: ReadonlyArray<string>,
 ): NextStudyItem | null {
   const now = Date.now();
+
+  // Priority 0: a new word he just put in today ("⚡ Study it today" during the session) — next, straight away.
+  const nextUp = pickNextUpCard(queue, nextUpIds);
+  if (nextUp) return { card: nextUp };
 
   // Filter out recently studied notes (except learning cards)
   const availableCards = queue.filter(card => {
@@ -385,6 +397,11 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
   const leadCardsRef = useRef<LeadCardsArg>(new Map());
   const newWordsByEarRef = useRef(false);
   const [bumpedCardIds, setBumpedCardIds] = useState<ReadonlySet<string>>(new Set());
+  // New words bumped during this session (shared/decks/bump-next.ts): their lead card comes next, in the
+  // order bumped; a card leaves once rated. `seenBumpsRef` = note id → the bump time already taken into
+  // account (every bump in the pocket when the queue loaded, then each one handled here).
+  const nextUpIdsRef = useRef<string[]>([]);
+  const seenBumpsRef = useRef<Map<string, number>>(new Map());
 
   // Single-level undo (like Anki): snapshot of the state before the last rating. Kept for
   // the day across visits to Study (services/studyResume.ts) — leaving doesn't end anything.
@@ -419,10 +436,12 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
         getStudyQueue(deckId, bonusNewCards),
         deckId ? Promise.resolve([]) : getDueReaders(),
         deckId || !GRAMMAR_LESSONS_ENABLED ? Promise.resolve(null) : getTodaysGrammarLesson(),
+        // The pocket as the queue saw it: bumps made from now on are "during the session" (bump-next.ts).
+        db.studyBumps.toArray(),
       ]);
       // A failed load used to fall through to an empty queue — "All Done" while
       // Home counted cards. Try once more before giving up.
-      const [{ dueCards, counts, reviewedNoteIds: reviewedIds, bumpedCardIds: bumpedIds, leadCards, newWordsByEar, seenCharacters }, dueReaders, todaysGrammar] = await load().catch(err => {
+      const [{ dueCards, counts, reviewedNoteIds: reviewedIds, bumpedCardIds: bumpedIds, leadCards, newWordsByEar, seenCharacters }, dueReaders, todaysGrammar, bumpsAtLoad] = await load().catch(err => {
         console.warn('[useStudySession] Queue load failed, retrying once:', err);
         return new Promise<Awaited<ReturnType<typeof load>>>((resolve, reject) => setTimeout(() => load().then(resolve, reject), 300));
       });
@@ -433,6 +452,8 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
       reviewedNoteIdsRef.current = reviewedIds;
       bumpedCardIdsRef.current = new Set(bumpedIds);
       setBumpedCardIds(new Set(bumpedIds));
+      nextUpIdsRef.current = [];
+      seenBumpsRef.current = new Map(bumpsAtLoad.map((b) => [b.note_id, bumpTimeMs(b.created_at)]));
       leadCardsRef.current = leadCards ?? new Map();
       newWordsByEarRef.current = !!newWordsByEar;
       // The new-character shimmer reads the same seen set (services/newCharacters.ts).
@@ -666,7 +687,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
       resumeTargetRef.current = null;
       setResume(null);
     }
-    const selection = selectNextItem(queue, readerQueue, grammarLesson, recentNoteIds, reviewedNoteIdsRef.current, undefined, undefined, bumpedCardIdsRef.current, leadCardsRef.current, newWordsByEarRef.current);
+    const selection = selectNextItem(queue, readerQueue, grammarLesson, recentNoteIds, reviewedNoteIdsRef.current, undefined, undefined, bumpedCardIdsRef.current, leadCardsRef.current, newWordsByEarRef.current, undefined, nextUpIdsRef.current);
 
     if (selection && await presentSelection(selection)) return;
 
@@ -879,6 +900,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     // its remaining NEW siblings count as secondary cards from here on.
     reviewedNoteIdsRef.current.add(noteId);
 
+    nextUpIdsRef.current = nextUpIdsRef.current.filter((id) => id !== cardId);
     // A bumped card is done with once rated (shared/decks/bumps.ts).
     if (bumpedCardIdsRef.current.delete(cardId)) {
       setBumpedCardIds(new Set(bumpedCardIdsRef.current));
@@ -888,7 +910,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     const updates = { queue: newQueue, recentNoteIds: newRecentNoteIds };
 
     // Select the next item synchronously from the new queues
-    const selection = selectNextItem(newQueue, readerQueue, grammarLesson, newRecentNoteIds, reviewedNoteIdsRef.current, cardId, undefined, bumpedCardIdsRef.current, leadCardsRef.current, newWordsByEarRef.current);
+    const selection = selectNextItem(newQueue, readerQueue, grammarLesson, newRecentNoteIds, reviewedNoteIdsRef.current, cardId, undefined, bumpedCardIdsRef.current, leadCardsRef.current, newWordsByEarRef.current, undefined, nextUpIdsRef.current);
 
     let presented = false;
     if (selection) {
@@ -987,7 +1009,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
       }
 
       const updates = { readerQueue: newReaderQueue };
-      const selection = selectNextItem(queue, newReaderQueue, grammarLesson, recentNoteIds, reviewedNoteIdsRef.current, undefined, reader.id, bumpedCardIdsRef.current, leadCardsRef.current, newWordsByEarRef.current);
+      const selection = selectNextItem(queue, newReaderQueue, grammarLesson, recentNoteIds, reviewedNoteIdsRef.current, undefined, reader.id, bumpedCardIdsRef.current, leadCardsRef.current, newWordsByEarRef.current, undefined, nextUpIdsRef.current);
       if (selection && await presentSelection(selection, updates)) return;
 
       const delayed = await findDelayedLearningCard();
@@ -1017,7 +1039,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
       syncService.syncEvents().catch(console.error);
     }
 
-    const selection = selectNextItem(queue, readerQueue, null, recentNoteIds, reviewedNoteIdsRef.current, undefined, undefined, bumpedCardIdsRef.current, leadCardsRef.current, newWordsByEarRef.current);
+    const selection = selectNextItem(queue, readerQueue, null, recentNoteIds, reviewedNoteIdsRef.current, undefined, undefined, bumpedCardIdsRef.current, leadCardsRef.current, newWordsByEarRef.current, undefined, nextUpIdsRef.current);
     if (selection && await presentSelection(selection)) return;
 
     const delayed = await findDelayedLearningCard();
@@ -1175,7 +1197,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     const newRecentNoteIds = recentNoteIds.filter(id => id !== noteId);
     const updates = { queue: newQueue, recentNoteIds: newRecentNoteIds };
 
-    const selection = selectNextItem(newQueue, readerQueue, grammarLesson, newRecentNoteIds, reviewedNoteIdsRef.current, undefined, undefined, bumpedCardIdsRef.current, leadCardsRef.current, newWordsByEarRef.current);
+    const selection = selectNextItem(newQueue, readerQueue, grammarLesson, newRecentNoteIds, reviewedNoteIdsRef.current, undefined, undefined, bumpedCardIdsRef.current, leadCardsRef.current, newWordsByEarRef.current, undefined, nextUpIdsRef.current);
     if (selection && await presentSelection(selection, updates)) return;
 
     // Nothing in the queues — check for delayed learning cards in IndexedDB
@@ -1195,6 +1217,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
       setCanUndo(false);
     }
     for (const id of ids) bumpedCardIdsRef.current.delete(id);
+    nextUpIdsRef.current = nextUpIdsRef.current.filter((id) => !ids.has(id));
     setBumpedCardIds(new Set(bumpedCardIdsRef.current));
     // A forgotten card replays from its forget from now on: drop the cached history.
     for (const id of ids) sessionEventsRef.current.delete(id);
@@ -1215,7 +1238,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
       applyQueueUpdates(updates);
       return;
     }
-    const selection = selectNextItem(newQueue, readerQueue, grammarLesson, recentNoteIds, reviewedNoteIdsRef.current, undefined, undefined, bumpedCardIdsRef.current, leadCardsRef.current, newWordsByEarRef.current);
+    const selection = selectNextItem(newQueue, readerQueue, grammarLesson, recentNoteIds, reviewedNoteIdsRef.current, undefined, undefined, bumpedCardIdsRef.current, leadCardsRef.current, newWordsByEarRef.current, undefined, nextUpIdsRef.current);
     if (selection && await presentSelection(selection, updates)) return;
     const delayed = await findDelayedLearningCard();
     if (delayed && !ids.has(delayed.id) && await presentCard(delayed, updates)) return;
@@ -1238,6 +1261,78 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
       return extra.length ? [...prev, ...extra] : prev;
     });
   }, [deckId]);
+
+  // "⚡ Study it today" DURING the session (shared/decks/bump-next.ts — Jerome, Nov 2026: "Don't add the new
+  // card to the mix straight away … it would be good if that blue card appeared straight away"): every bump
+  // row written while the session is open — the sentence breakdown → explorer → "+ Add as card" → ⚡, the
+  // explorer's / a word sheet's ⚡, Ask Claude's bump_cards (synced down) — puts its cards in THIS session: an
+  // unstarted word's lead card as the very next card (in the order bumped), the rest into the ⚡ mix. A word
+  // just added has no cards on this device until the sync brings them: it waits for that sync. "Practise
+  // this word other ways…" (source study_card) adds its cards itself (addBumpedCards, sibling spacing).
+  const liveRef = useRef({ currentNoteId: null as string | null, recentNoteIds: [] as string[] });
+  liveRef.current = { currentNoteId: currentCardState.card?.note_id ?? null, recentNoteIds };
+  const takeSessionBumps = useCallback(async () => {
+    if (!initializedRef.current) return;
+    const rows = (await db.studyBumps.toArray()).filter((b) => b.pending !== 'clear' && b.source !== 'study_card');
+    const fresh = rows.filter((b) => bumpTimeMs(b.created_at) > (seenBumpsRef.current.get(b.note_id) ?? -Infinity) + 1000);
+    if (fresh.length === 0) return;
+    fresh.sort((a, b) => bumpTimeMs(a.created_at) - bumpTimeMs(b.created_at));
+    const cutoff = getStudyCutoff().ts;
+    const addCards: LocalCard[] = [];
+    let changed = false;
+    for (const row of fresh) {
+      const cards = await db.cards.where('note_id').equals(row.note_id).toArray();
+      if (cards.length === 0) continue; // not on this device yet: the next sync brings it
+      seenBumpsRef.current.set(row.note_id, bumpTimeMs(row.created_at));
+      if (deckId && cards[0].deck_id !== deckId) continue;
+      const last = new Map<string, number>();
+      const first = new Map<string, number>();
+      await db.reviewEvents.where('card_id').anyOf(cards.map((c) => c.id)).each((e) => {
+        if ((e as { _synced?: number })._synced === -1) return;
+        const ms = Date.parse(e.reviewed_at);
+        if (!Number.isFinite(ms)) return;
+        if (ms > (last.get(e.card_id) ?? -Infinity)) last.set(e.card_id, ms);
+        if (ms < (first.get(e.card_id) ?? Infinity)) first.set(e.card_id, ms);
+      });
+      const held = await loadHeldCardIds();
+      const pocketIds = new Set(
+        bumpedCardsForNote(cards.map(queueInput), { note_id: row.note_id, created_ms: bumpTimeMs(row.created_at), card_types: row.card_types ?? null }, last, first, cutoff)
+          .map((c) => c.id),
+      );
+      const pocket = cards.filter((c) => pocketIds.has(c.id) && !held.has(c.id));
+      const started = reviewedNoteIdsRef.current.has(row.note_id) || cards.some((c) => c.queue !== CardQueue.NEW);
+      const { currentNoteId, recentNoteIds: recent } = liveRef.current;
+      const nearby = currentNoteId === row.note_id || recent.slice(-BUMP_SIBLING_GAP).includes(row.note_id);
+      const plan = sessionBumpPlan(pocket, started, nearby, newWordsByEarRef.current);
+      for (const c of pocket) {
+        bumpedCardIdsRef.current.add(c.id);
+        addCards.push(c);
+      }
+      if (plan.next && !nextUpIdsRef.current.includes(plan.next.id)) {
+        nextUpIdsRef.current = [...nextUpIdsRef.current, plan.next.id];
+        track('study.bump_next', { card_type: plan.next.card_type, source: row.source });
+      }
+      changed = changed || pocket.length > 0;
+    }
+    if (!changed) return;
+    setBumpedCardIds(new Set(bumpedCardIdsRef.current));
+    setQueue((prev) => {
+      const have = new Set(prev.map((c) => c.id));
+      const extra = addCards.filter((c) => !have.has(c.id));
+      return extra.length ? [...prev, ...extra] : prev;
+    });
+  }, [deckId]);
+  useEffect(() => {
+    if (!enabled) return;
+    const sub = liveQuery(() => db.studyBumps.toArray()).subscribe({ next: () => { void takeSessionBumps(); }, error: () => undefined });
+    const unsubscribe = syncService.addSyncListener((syncing) => {
+      if (!syncing) void takeSessionBumps();
+    });
+    return () => {
+      sub.unsubscribe();
+      unsubscribe();
+    };
+  }, [enabled, takeSessionBumps]);
 
   // Undo of "Forget this card": the cards are back as they were — those due today rejoin the session.
   const restoreCardsToSession = useCallback(async (cardIds: string[]) => {

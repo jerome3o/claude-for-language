@@ -91,6 +91,7 @@ object AnalyticsEvents {
         ev("study.tutor_model_play", "study", listOf("where", "which")),
         ev("study.bump_added", "study", listOf("source", "count", "already", "card_types")),
         ev("study.bump_studied", "study", listOf("card_type", "queue")),
+        ev("study.bump_next", "study", listOf("card_type", "source")),
         ev("study.bump_cleared", "study", listOf("source")),
         ev("study.other_card_types_open", "study", listOf("from_type")),
         ev("study.other_card_types", "study", listOf("types", "from_type", "count", "early")),

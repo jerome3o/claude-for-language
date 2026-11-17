@@ -11,6 +11,7 @@ export * from './tutor-budget';
 export * from './bumps';
 export * from './other-card-types';
 export * from './study-today';
+export * from './bump-next';
 export * from './frequency';
 export * from './new-card-order';
 export * from './up-next';

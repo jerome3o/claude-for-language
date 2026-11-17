@@ -131,6 +131,7 @@ export const ANALYTICS_EVENTS = {
   'study.tutor_model_play': e('study', "Played the tutor's model recording on a tutor note, or their own take beside it.", ['where', 'which']),
   'study.bump_added': e('study', '"⚡ Study it today": bumped cards the learner already had to the front of today\'s queue (card_types = how many card types of the note, 0 = the whole note).', ['source', 'count', 'already', 'card_types']),
   'study.bump_studied': e('study', 'Rated a card from the ⚡ bump pocket.', ['card_type', 'queue']),
+  'study.bump_next': e('study', '"⚡ Study it today" during a session on a new word: its lead card was put next (shared/decks/bump-next.ts).', ['card_type', 'source']),
   'study.bump_cleared': e('study', 'Took a word out of the ⚡ bump pocket by hand.', ['source']),
   'study.other_card_types_open': e('study', 'Opened ⋯ → "Practise this word other ways…" on the study card.', ['from_type']),
   'study.other_card_types': e('study', '"Practise this word other ways…": sent other card types of the word into today (a card-level ⚡ bump). types = the chosen card types joined with /.', ['types', 'from_type', 'count', 'early']),
