@@ -2533,7 +2533,8 @@ the account's own notes only) and fetched back from `GET /api/me/sentence-practi
 (D1 `sentence_practice_events`, migration 0138; account deletion removes them). Each device folds a note's
 events into per-sentence stats (`sentenceStats`: attempts / rights / misses / last time per mode, hidden).
 The sentence key is the row's id — the card's own sentence is the row `<note>-card` (see "Example sentences — one
-model"); events written before Nov 2026 carry `clue` for it and are folded into that id (`canonicalSentenceKey`).
+model"); events written before Nov 2026 carry `clue` for it and are folded into that id (`canonicalSentenceKey`), and so
+are a resume point's `listen_shown` keys and the last Listen-in-context set saved as `clue:<note>`.
 
 - **Fresh sentences first** (Nov 2026, Jerome: "I'm just memorizing new sentences"): each of the round's four
   slots (read, translate, read, translate) takes a FRESH sentence first — never practised in EITHER mode, not
