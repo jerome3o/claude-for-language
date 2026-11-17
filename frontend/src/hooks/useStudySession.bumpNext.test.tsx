@@ -78,7 +78,7 @@ async function mount() {
   await vi.waitFor(() => expect(latest.currentCard).not.toBeNull());
 }
 
-function freshCard(id: string, noteId: string, type: string): LocalCard {
+function freshCard(id: string, noteId: string, type: LocalCard['card_type']): LocalCard {
   return { ...newSibling(id, noteId), card_type: type };
 }
 
