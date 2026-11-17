@@ -37,9 +37,9 @@ object SentenceCheck {
     data class Chip(val icon: String, val tone: String, val label: String)
 
     fun chip(grade: String): Chip = when (grade) {
-        "right" -> Chip("✓", "good", "Right")
-        "needs_work" -> Chip("≈", "warn", "Nearly")
-        else -> Chip("✕", "bad", "Not quite")
+        "right" -> Chip(ResultState.ICON.getValue(ResultState.RIGHT), "good", "Right")
+        "needs_work" -> Chip(ResultState.ICON.getValue(ResultState.CLOSE), "warn", "Nearly")
+        else -> Chip(ResultState.ICON.getValue(ResultState.WRONG), "bad", "Not quite")
     }
 
     /** Port of sentenceResultState(): right · close · wrong (needs_work = close, the same ≈ as "almost"). */

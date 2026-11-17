@@ -14,6 +14,7 @@ import java.io.File
 class ResultColorsGuardTest {
     private val files = listOf(
         "YouSaidBox.kt", "HardModeUi.kt", "SentenceRoundUi.kt", "SentenceListenUi.kt", "SentencePractiseUi.kt", "RightMomentUi.kt",
+        "../lessons/SentenceCheckViews.kt",
     )
     private val forbidden = Regex("""Palette\.(Good|Gold|Hard|Partial\w*)|0xFF15803D|0xFF4ADE80|0xFFD97706|0xFFA16207""")
 

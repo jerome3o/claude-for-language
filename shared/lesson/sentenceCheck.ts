@@ -23,6 +23,7 @@
  */
 import { normalizeHanziAnswer, sentenceUsesWord } from './answer-check';
 import { digitsToHanzi } from '../text/numberHanzi';
+import { RESULT_STATE_ICON } from '../study/resultState';
 import type { LessonSentence } from './types';
 
 /** v1 = correct / minor / incorrect + comment + a corrected sentence; v2 = the grades, headline, reason, fixable. */
@@ -36,8 +37,8 @@ export type SentenceGrade = 'right' | 'needs_work' | 'wrong';
 export const SENTENCE_GRADES: readonly SentenceGrade[] = ['right', 'needs_work', 'wrong'];
 export type SentenceTone = 'good' | 'warn' | 'bad';
 /**
- * The judged-result state every "how did I do" surface shares (right ✓ · close ≈ · wrong ✕ — the slim answer diff's
- * `AnswerDiffTone`, and the shared result-state component to come): needs_work IS close, the same ≈ and colour as an
+ * The judged-result state every "how did I do" surface shares (right ✓ · close ≈ · wrong ✗ — shared/study/resultState.ts,
+ * the same icon and colour as every other result): needs_work IS close, the same ≈ and colour as an
  * answer check's "almost". The apps colour a grade by this, never by a style of its own.
  */
 export type SentenceResultState = 'right' | 'close' | 'wrong';
@@ -98,9 +99,9 @@ export const SENTENCE_WRONG_HEADLINE = 'Not quite — check how the target words
 /** The grade's mark: icon + tone + a word for screen readers (never colour alone). */
 export function sentenceGradeChip(grade: SentenceGrade): { icon: string; tone: SentenceTone; label: string } {
   switch (grade) {
-    case 'right': return { icon: '✓', tone: 'good', label: 'Right' };
-    case 'needs_work': return { icon: '≈', tone: 'warn', label: 'Nearly' };
-    default: return { icon: '✕', tone: 'bad', label: 'Not quite' };
+    case 'right': return { icon: RESULT_STATE_ICON.right, tone: 'good', label: 'Right' };
+    case 'needs_work': return { icon: RESULT_STATE_ICON.close, tone: 'warn', label: 'Nearly' };
+    default: return { icon: RESULT_STATE_ICON.wrong, tone: 'bad', label: 'Not quite' };
   }
 }
 

@@ -10,10 +10,10 @@
 .sentence-verdict { display: flex; flex-direction: column; gap: 0.15rem; }
 .sentence-verdict-head { margin: 0; font-size: 1.05rem; font-weight: 700; line-height: 1.35; }
 .sentence-verdict.compact .sentence-verdict-head { font-size: 0.98rem; }
-/* The shared result tokens (right ✓ · close ≈ · wrong ✕ — components/study/AnswerDiff.css): needs work = close. */
-.sentence-verdict.right .sentence-verdict-head { color: var(--adiff-right); }
-.sentence-verdict.close .sentence-verdict-head { color: var(--adiff-tone); }
-.sentence-verdict.wrong .sentence-verdict-head { color: var(--adiff-wrong); }
+/* The one result state (right ✓ · close ≈ · wrong ✗ — shared/study/resultState.ts, index.css `--result-*`): needs work = close. */
+.sentence-verdict.right .sentence-verdict-head { color: var(--result-right-ink); }
+.sentence-verdict.close .sentence-verdict-head { color: var(--result-close-ink); }
+.sentence-verdict.wrong .sentence-verdict-head { color: var(--result-wrong-ink); }
 .sentence-verdict-icon { font-weight: 800; }
 .sentence-verdict-reason,
 .sentence-verdict-full { margin: 0; font-size: 0.92rem; color: var(--text-secondary, #555); line-height: 1.4; }
