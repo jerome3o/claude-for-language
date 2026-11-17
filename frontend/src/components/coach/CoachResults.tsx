@@ -8,7 +8,8 @@
 import { useEffect, useState } from 'react';
 import { isSourceDeckKey } from '@shared/decks/source-decks';
 import { AddedToDeckLine } from '../sourceDecks/AddedToDeckLine';
-import { addedCards } from '@shared/claude/cardTools';
+import { addedCards, cardToolLines, toolResultLink, type CardToolResult } from '@shared/claude/cardTools';
+import { ResultLinkGo, ResultLinkLine } from '../claude/ResultLink';
 import { AddedCardChips } from '../claude/AddedCardChips';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
@@ -284,7 +285,9 @@ export function ToolResultChips({ results, surface = 'thread' }: { results: Coac
           const noteIds = cards.map((c) => c.note_id);
           const deckId = data?.deck_id ?? data?.targetDeckId;
           // A reply since source decks (the cards went to "From Claude" unless he named a deck): Change moves them.
-          // Each word is a chip → the language explorer (⚡ Study it today / Open card there).
+          // Each word is a chip → the language explorer (⚡ Study it today / Open card there); "Open card ›" /
+          // "Open deck ›" opens the card's hub / the deck (docs/CHAT.md "Tool lines you can tap").
+          const link = toolResultLink(r as CardToolResult, results as CardToolResult[]);
           if (deckId && noteIds.length) {
             return (
               <div key={i} className="coach-tool-chip coach-tool-chip-success coach-tool-chip-added" data-testid="claude-added-cards">
@@ -293,6 +296,7 @@ export function ToolResultChips({ results, surface = 'thread' }: { results: Coac
                   surface="coach"
                 />
                 <AddedCardChips cards={cards} surface={surface} />
+                {link && <ResultLinkGo link={link} context={surface === 'coach' ? 'coach' : undefined} />}
               </div>
             );
           }
@@ -303,11 +307,20 @@ export function ToolResultChips({ results, surface = 'thread' }: { results: Coac
             </div>
           );
         }
-        if (r.tool === 'create_custom_lesson' && r.success) {
-          const data = r.data as { title?: string } | undefined;
-          return (
-            <div key={i} className="coach-tool-chip coach-tool-chip-success">
-              🎓 Mini lesson created{data?.title ? `: ${data.title}` : ''} — it'll appear in your next study session
+        // A mini lesson, ⚡ bumped words, an edited card: the shared line, a link to what it made
+        // ("🎓 Mini lesson made: … · Start ›" → the player; docs/CHAT.md "Tool lines you can tap").
+        if (r.success && (r.tool === 'create_custom_lesson' || r.tool === 'bump_cards' || r.tool === 'edit_current_card')) {
+          const [line] = cardToolLines([r as CardToolResult]);
+          if (!line) return null;
+          const tone = line.kind === 'bumped' ? 'coach-tool-chip-bumped' : 'coach-tool-chip-success';
+          const link = toolResultLink(r as CardToolResult, results as CardToolResult[]);
+          return link ? (
+            <ResultLinkLine key={i} link={link} className={`coach-tool-chip ${tone}`} testId={`claude-tool-${line.kind}`} context={surface === 'coach' ? 'coach' : undefined}>
+              {line.text}
+            </ResultLinkLine>
+          ) : (
+            <div key={i} className={`coach-tool-chip ${tone}`} data-testid={`claude-tool-${line.kind}`}>
+              {line.text}
             </div>
           );
         }

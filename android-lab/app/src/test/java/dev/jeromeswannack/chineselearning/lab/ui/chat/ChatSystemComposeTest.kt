@@ -70,11 +70,14 @@ class ChatSystemComposeTest {
         compose.setContent { LabTheme { ChatScreen(S.student, actions) } }
         compose.onNodeWithText("Minghui started a video call", substring = true).performScrollTo()
         compose.onNodeWithText("Join").performScrollTo().performClick()
-        compose.onNodeWithText("Minghui set your new cards to 2 a day (+5 extra)", substring = true).performScrollTo().performTouchInput { longClick() }
+        // Its top line (the row now ends in "See in Settings", which a press on the middle would hit).
+        compose.onNodeWithText("Minghui set your new cards to 2 a day (+5 extra)", substring = true).performScrollTo().performTouchInput { longClick(androidx.compose.ui.geometry.Offset(width / 2f, 12f)) }
         assertEquals(listOf("open /calls/call-2 call_started", "menu s1"), calls)
         // Join on the live call, Open card on the flag and the reply; the missed call has none.
         assertEquals(1, compose.onAllNodesWithText("Join").fetchSemanticsNodes().size)
         assertEquals(2, compose.onAllNodesWithText("Open card").fetchSemanticsNodes().size)
+        // The budget change opens Settings for the student (the flow audit).
+        assertEquals(1, compose.onAllNodesWithText("See in Settings").fetchSemanticsNodes().size)
         assertNotNull(compose.onNodeWithText("Missed video call from Minghui", substring = true).fetchSemanticsNode())
         assertTrue(compose.onAllNodesWithText("I've", substring = true).fetchSemanticsNodes().isEmpty())
     }

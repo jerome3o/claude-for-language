@@ -81,7 +81,8 @@ vi.mock('../explorer/ExplorerContext', () => ({
   ExplorerProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
+import { readClaudeReturn } from './ResultLink';
 import { db } from '../../db/database';
 import { CardClaudeSheet, type CardClaudeSheetProps } from './CardClaudeSheet';
 
@@ -268,6 +269,44 @@ describe('CardClaudeSheet', () => {
     await render(props({ onToolResults }));
     await flush();
     expect(onToolResults).toHaveBeenCalledTimes(1);
+  });
+
+  it('a line under the reply opens what it made — the mini lesson — and back lands on the same thread', async () => {
+    const LESSON = JSON.stringify([{ tool: 'create_custom_lesson', success: true, data: { lesson_id: 'L1', title: '治理 vs 这里：听力辨音' } }]);
+    await db.claudeThreads.put(cardThread('t1', 60_000) as never);
+    api.getClaudeThread.mockResolvedValue({ thread: cardThread('t1', 60_000), messages: [msg('u1', 't1', 'user', '我分不清治理和这里。'), msg('a1', 't1', 'assistant', '我给你做了一个小练习。', { tool_results: LESSON })], server_time: iso(0) });
+    function Here() {
+      const loc = useLocation();
+      const r = readClaudeReturn(loc.state);
+      return <div data-testid="here" data-return={r ? `${r.source}:${r.ref}:${r.thread_id}` : ''} />;
+    }
+    function Player() {
+      const navigate = useNavigate();
+      const loc = useLocation();
+      return <button type="button" data-testid="player-close" data-path={`${loc.pathname}${loc.search}`} onClick={() => navigate(-1)}>✕</button>;
+    }
+    await act(async () =>
+      root.render(
+        <MemoryRouter initialEntries={['/study']}>
+          <Routes>
+            <Route path="/study" element={<><CardClaudeSheet {...props()} /><Here /></>} />
+            <Route path="/lessons/:id/play" element={<Player />} />
+          </Routes>
+        </MemoryRouter>,
+      ),
+    );
+    await waitFor(() => !!q('card-claude-tool-lesson'), 'the lesson line');
+    const line = q('card-claude-tool-lesson')!;
+    expect(line.tagName).toBe('BUTTON');
+    expect(line.textContent).toBe('🎓 Mini lesson made: 治理 vs 这里：听力辨音Start ›');
+    expect(line.getAttribute('aria-label')).toBe('Start the mini lesson 治理 vs 这里：听力辨音');
+    await act(async () => line.click());
+    expect(q('player-close')!.getAttribute('data-path')).toBe('/lessons/L1/play?from=claude');
+    expect(track).toHaveBeenCalledWith('claude.tool_result_open', { kind: 'lesson', context: 'card' });
+    // ✕ in the player: back on the study entry, which remembers the card's sheet and its thread.
+    await act(async () => q('player-close')!.click());
+    await waitFor(() => !!q('here'), 'back on the study page');
+    expect(q('here')!.getAttribute('data-return')).toBe('study_card:n1:t1');
   });
 
   it('the leech sheet\'s memory hook asks into the card\'s thread at once (once)', async () => {

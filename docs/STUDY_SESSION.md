@@ -813,7 +813,10 @@ session** (Jerome: "go all in on homework/assignments"). They are done from **Ho
 card** and the **Mini Lessons page** (`/lessons`); `/lessons/:id/play?from=&mode=revision` plays one
 (web `pages/LessonReplayPage.tsx`, Lab `ui/lessons/LessonReplay.kt`). The old lesson mix
 (`LESSON_MIX_INTERVAL`, `pickTodaysLessons`), "New lessons a day" and the Settings → "Lessons &
-readers" section are gone (the server still accepts their old settings / events from older apps).
+readers" section are gone, and so is their code (Nov 2026: `shared/study/revisit.ts`, Lab `Revisit.kt`'s
+schedule). The server still answers older apps: `PUT /api/profile/revisit-settings` is a no-op and
+`revisit_settings` on `/api/auth/me` / `/api/sync/changes` is fixed to the old defaults; the old Done-for-good
+marks (`revisit_events`) are still stored and read by the revision rule.
 
 ### Structure cards (`shared/lesson/pattern.ts`; Lab `core/…/LessonPatterns.kt`, parity-tested)
 
@@ -1390,8 +1393,7 @@ his recording, the model answer and Not quite / I said it well. Now the take is 
 Jerome (Oct 2026): after a dialogue podcast he loved, he wanted a mini lesson drilling its characters,
 sentences and meanings — queued, but LOCKED until he has listened to the podcast (or done some other
 real thing: "Watch episode 3 of …", "Go to a restaurant and order 打包"). `shared/lesson/unlock.ts`
-(Lab `core/…/LessonUnlock.kt`, parity-tested by `parity/fixtures/lesson-unlock.ts` + the `locked` /
-`unlocked` sets in `parity/fixtures/revisit.ts`, legacy).
+(Lab `core/…/LessonUnlock.kt`, parity-tested by `parity/fixtures/lesson-unlock.ts`).
 
 - **The condition**: `unlock: { kind: 'audio_lesson', audio_lesson_id } | { kind: 'manual', prompt }` on
   the lesson (columns `custom_lessons.unlock_kind / unlock_ref / unlock_prompt`, migration 0119);
@@ -3029,7 +3031,10 @@ the device, "Earlier about 银行"), `shared/study/askClaude.ts` + `askClaudeMen
   Lab `StudyViewModel.claudeToolResults` + `ClaudeThreads.markCardEffectsApplied`): the edited note into IndexedDB /
   Room and on screen, a deleted card leaves the session after 2 s, made cards / lessons / bumps come down by a sync.
   Under the reply one line per result (`cardToolLines`): **"✓ Claude edited this card · notes  [Undo]"**, "✓ Added 2
-  cards: 存钱、取钱", "🗑 Claude deleted this card", "🎓 Mini lesson made: …", "⚡ Study it today: 银行". **Undo** puts the
+  cards: 存钱、取钱", "🗑 Claude deleted this card", "🎓 Mini lesson made: … · Start ›", "⚡ Study it today: 银行". Each
+  line opens what it made (the lesson in the player, the card's hub, the deck, Up next) and **back comes to this card
+  with the sheet open on the same thread** — the study card reopens its sheet from the history entry's `claudeReturn`
+  (Lab: `askReturn` in saved state); docs/CHAT.md "Tool lines you can tap". **Undo** puts the
   changed fields back (`undoEditFields`, a normal `PUT /api/notes/:id`; needs a connection; `claude.undo_card_edit`).
   The old **Approve / Reject** is gone — it only ever decided whether the device heard about a change the server had
   already made. The sheet stays mounted (hidden) while closed (web) / its ViewModel keeps listening

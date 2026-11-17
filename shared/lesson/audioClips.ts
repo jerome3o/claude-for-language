@@ -112,7 +112,7 @@ export interface PrefetchLessonRow {
 
 /**
  * Which lessons the background sync fetches audio for — the ones the device will offer soon:
- * today's lessons (`pickTodaysLessons`), every lesson with OPEN homework (a one-off pass is
+ * today's lessons (revisions due + new homework lessons), every lesson with OPEN homework (a one-off pass is
  * never in today's rotation, so it was never prefetched — Jerome's homework lesson played each
  * clip seconds late, Oct 2026), the locked / unlocked lessons (often unlocked on the train, right
  * after their podcast) and the next few NEW lessons oldest first. Ids of lessons not on the

@@ -35,9 +35,7 @@ import androidx.navigation.compose.composable
 import dev.jeromeswannack.chineselearning.lab.LabApp
 import dev.jeromeswannack.chineselearning.lab.core.CoachMistakeLesson
 import dev.jeromeswannack.chineselearning.lab.core.IntervalPreview
-import dev.jeromeswannack.chineselearning.lab.core.ItemSchedule
 import dev.jeromeswannack.chineselearning.lab.core.Js
-import dev.jeromeswannack.chineselearning.lab.core.RevisitState
 import dev.jeromeswannack.chineselearning.lab.data.api.CoachThreadDto
 import dev.jeromeswannack.chineselearning.lab.data.api.CompletionUpload
 import dev.jeromeswannack.chineselearning.lab.data.api.coachConversation

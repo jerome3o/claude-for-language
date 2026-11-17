@@ -92,10 +92,8 @@ export function oneOffOnlyTargets(list: Pick<HomeworkAssignment, 'mode' | 'targe
 
 /**
  * Lessons / readers with a homework PASS (an assignment in `one_off` or `both` mode that wasn't
- * cancelled): the tutor's homework comes on top of the day's "New lessons a day" place — it
- * neither takes it while NEW nor uses it up when finished (`pickTodaysLessons`,
- * shared/study/revisit.ts). Once finished, a `both` lesson rotates on the "revisit later"
- * schedule like any other.
+ * cancelled). Once finished, a `both` lesson revises until right first time like any other
+ * (shared/study/lessonRevision.ts).
  */
 export function homeworkPassTargets(list: Pick<HomeworkAssignment, 'mode' | 'target_id' | 'status'>[]): Set<string> {
   return new Set(list.filter((a) => a.mode !== 'fsrs' && a.status !== 'cancelled').map((a) => a.target_id));

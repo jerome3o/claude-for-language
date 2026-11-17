@@ -437,8 +437,11 @@ fun ClaudeThreadScreen(
                         after = { m ->
                             val row = ui.messages.firstOrNull { it.id == m.id }
                             val raw = row?.tool_results
-                            if (row != null && toolResults != null) toolResults(row)
-                            else if (!raw.isNullOrBlank()) Column { CoachToolResults(raw) }
+                            // The lines' links say which context they were opened from (claude.tool_result_open).
+                            androidx.compose.runtime.CompositionLocalProvider(LocalResultContext provides ui.context.kind) {
+                                if (row != null && toolResults != null) toolResults(row)
+                                else if (!raw.isNullOrBlank()) Column { CoachToolResults(raw) }
+                            }
                         },
                     )
                 }
@@ -669,14 +672,25 @@ internal fun withFields(c: ClaudeChats.Context, f: dev.jeromeswannack.chineselea
  */
 @Composable
 internal fun FollowThreadEnd(listState: androidx.compose.foundation.lazy.LazyListState, mine: Int) {
-    val follow = remember(listState) { ThreadScroll() }
+    // Saved with the screen: back from something a line under a reply opened (docs/CHAT.md "Tool lines
+    // you can tap"), a thread he had scrolled up in stays where he was (the list state restores itself).
+    var savedStick by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(true) }
+    val follow = remember(listState) { ThreadScroll().also { it.stick = savedStick } }
     LaunchedEffect(listState) {
         androidx.compose.runtime.snapshotFlow { listState.isScrollInProgress to !listState.canScrollForward }
-            .collect { (scrolling, atEnd) -> if (scrolling && !follow.auto) follow.stick = atEnd }
+            .collect { (scrolling, atEnd) ->
+                if (scrolling && !follow.auto) {
+                    follow.stick = atEnd
+                    savedStick = atEnd
+                }
+            }
     }
     var lastMine by remember(listState) { mutableStateOf(mine) }
     LaunchedEffect(mine) {
-        if (mine > lastMine) follow.stick = true
+        if (mine > lastMine) {
+            follow.stick = true
+            savedStick = true
+        }
         lastMine = mine
     }
     LaunchedEffect(listState) {

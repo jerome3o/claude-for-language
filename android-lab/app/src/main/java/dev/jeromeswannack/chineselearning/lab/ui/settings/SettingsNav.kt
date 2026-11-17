@@ -45,7 +45,7 @@ fun NavGraphBuilder.settingsGraph(nav: LabNav) {
         val saveAs = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri: Uri? -> vm.finishExport(uri) }
 
         SettingsScreen(
-            revisitSettings = {
+            studySettings = {
                 androidx.compose.foundation.layout.Column(verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(androidx.compose.ui.unit.Dp(12f))) {
                     // "New day starts at" (core StudyDay, 4 am by default).
                     DayRolloverSettingsCard(app)

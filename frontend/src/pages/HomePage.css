@@ -438,6 +438,15 @@
   font-weight: 600;
   color: #b45309;
 }
+a.home-bumped-link {
+  display: flex;
+  gap: 0.3rem;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  margin-top: 0.1rem;
+  text-decoration: none;
+}
 
 /* "⏸ New cards paused — 124 reviews due today (limit 100)" (shared/decks/review-load.ts) */
 .home-paused {

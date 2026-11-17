@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -107,7 +108,7 @@ fun HomeScreen(
                 }
             }
             // Signed out: the shell's banner on every screen (ui/kit/AccountDialogs.kt SignedOutBanner).
-            item { StudyHero(ui, sync, actions.onStudyAll) }
+            item { StudyHero(ui, sync, actions.onStudyAll, actions.onUpNext) }
             // Lab "today split": the three kinds of today's work, separately.
             ui.today?.let { t ->
                 item(key = "today") {
@@ -176,7 +177,7 @@ private fun ago(ms: Long): String = when {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun StudyHero(ui: HomeUi, sync: SyncStatus, onStudy: () -> Unit) {
+private fun StudyHero(ui: HomeUi, sync: SyncStatus, onStudy: () -> Unit, onBumped: () -> Unit = {}) {
     val due = ui.due
     val source = remember { MutableInteractionSource() }
     val pressed by source.collectIsPressedAsState()
@@ -214,7 +215,12 @@ private fun StudyHero(ui: HomeUi, sync: SyncStatus, onStudy: () -> Unit) {
         val bumpedLine = dev.jeromeswannack.chineselearning.lab.core.Bumps.bumpedLabel(ui.bumped)
         if (bumpedLine.isNotEmpty() && !empty) {
             Spacer(Modifier.height(6.dp))
-            Text(bumpedLine, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.testTag("home-bumped"))
+            // Tappable (the flow audit, docs/CHAT.md "Tool lines you can tap"): the words are under Up next's "⚡ Today".
+            Text(
+                "$bumpedLine ›", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.heightIn(min = 44.dp).wrapContentHeight(Alignment.CenterVertically)
+                    .clickable(role = androidx.compose.ui.semantics.Role.Button, onClickLabel = "See them", onClick = onBumped).testTag("home-bumped"),
+            )
         }
         // "Pause new cards on heavy days" (core ReviewLoad, same copy as the web): why there are no new cards today.
         val pausedLine = dev.jeromeswannack.chineselearning.lab.core.ReviewLoad.pausedLabel(ui.reviewLoad)
