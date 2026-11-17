@@ -279,7 +279,7 @@ class SentenceRoundParityTest {
             val ids = o["ids"]!!.jsonArray.map { it.str!! }
             val fromLog = o["fromLog"]!!.let { if (it is JsonNull) null else it.jsonArray.map { e -> exercise(e) } }
             assertEquals(fromLog, SentenceRound.exercisesFromLog(sentences, ids), what)
-            if (set.any { SentenceFocus.isContrived(it.focus) }) withContrived++
+            if (sentences.any { SentenceFocus.isContrived(it.focus) }) withContrived++
             assertTrue(sentences.none { SentenceFocus.isContrived(it.focus) } || SentenceRound.pick(sentences).none { e -> SentenceFocus.isContrived(sentences[e.index].focus) }, what)
         }
         assertTrue(withContrived > 30, "lists with contrived rows")

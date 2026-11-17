@@ -10,8 +10,17 @@ import { skipFirstCardExplainer } from './fixtures/explainer';
  *   sentence in Edit card shows the new sentence as row 1 at once.
  */
 test.beforeEach(async ({ context }) => skipFirstCardExplainer(context));
+// The phone (Pixel Fold, folded) — also the PR screenshots' size.
+test.use({ viewport: { width: 412, height: 915 }, deviceScaleFactor: 2 });
 
 const API = process.env.E2E_API_URL || 'http://localhost:8787';
+/** SHOTS_DIR=… saves the PR screenshots along the way. */
+const SHOTS = process.env.SHOTS_DIR;
+const shot = async (page: Page, name: string) => {
+  if (!SHOTS) return;
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: `${SHOTS}/${name}.png` });
+};
 
 async function api<T = unknown>(
   request: APIRequestContext,
@@ -86,6 +95,8 @@ test('the card sentence is the note\'s first sentence row, end to end', async ({
   await expect(first.locator('.sentence-set-from-card')).toHaveText('From the card');
   await first.locator('.sentence-set-reveal').click();
   await expect(first.locator('.sentence-set-hanzi')).toHaveText(SECOND.hanzi);
+  await first.scrollIntoViewIfNeeded();
+  await shot(page, 'web-study-sentences');
 
   // Edit card → a new sentence → Save: row 1 is the new sentence at once (offline-first: from the note, then the row).
   await page.getByRole('button', { name: /Edit card/ }).click();
@@ -94,6 +105,8 @@ test('the card sentence is the note\'s first sentence row, end to end', async ({
   await field.fill(THIRD);
   await page.getByPlaceholder('Sentence pinyin...').fill('Zhè jiā yínháng hěn dà.');
   await page.getByPlaceholder('English translation...').fill('This bank is big.');
+  await field.scrollIntoViewIfNeeded();
+  await shot(page, 'web-edit-card');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(field).toBeHidden({ timeout: 15000 });
   const row1 = list.locator('.sentence-set-row').first();
@@ -101,6 +114,8 @@ test('the card sentence is the note\'s first sentence row, end to end', async ({
   if (!(await row1.locator('.sentence-set-hanzi').isVisible().catch(() => false))) await row1.locator('.sentence-set-reveal').click();
   await expect(row1.locator('.sentence-set-hanzi')).toHaveText(THIRD);
   await expect(list.locator('.sentence-set-hanzi', { hasText: SECOND.hanzi })).toHaveCount(0);
+  await row1.scrollIntoViewIfNeeded();
+  await shot(page, 'web-study-sentences-after-edit');
 
   // …and the server's row too.
   await expect(async () => {
