@@ -21,6 +21,8 @@ Cards exist in one of four queues:
 
 During a study session, cards are selected in this order:
 
+0. **A new word bumped during this session ("⚡ Study it today" → "During a session" below)** - its lead card (the listening card with "Start new words by ear") is the very next card once the one on screen is rated, before learning cards due now, several in the order bumped (`pickNextUpCard`, `shared/decks/bump-next.ts`).
+
 1. **Learning/Relearning cards due NOW** - These have active timers and take priority — over bumped cards too. Selected using weighted randomization (more overdue = higher weight).
 
 2. **Bumped cards ("⚡ Study it today"), mixed with the reviews** - while the bump pocket (below) has cards on offer, each pick is a pocket card (in pocket order) with probability **max(0.5, pocket ÷ (pocket + other new / review cards))** — at least half the picks, more when the pocket is the bigger pile — otherwise the regular mix below (without the pocket's cards). With 100 bumped cards and 85 reviews that is a 54 % chance per pick: roughly every other card is green. One rule, `mixBumpedCard` / `bumpPickChance` in `shared/decks/bumps.ts` (Lab `Bumps.kt`, parity-tested over seeded sessions, `parity/fixtures/bump-mix.ts`). The recent-notes filter still applies, so a bumped word's sibling cards are spaced out by a few other notes, and a bumped card never comes within 3 cards of its sibling (`pickBumpedCard`). Nothing else to mix with → the pocket card. (Until Nov 2026 the pocket came strictly first, before learning cards due now: ~36 bumped words left nothing but ⚡ cards on screen while 85 reviews waited.)
@@ -483,7 +485,17 @@ learning card due now ("Card Selection Priority" above). One rule, `shared/decks
   the queue"). What one ⚡ puts in the pocket is ONE rule, `shared/decks/study-today.ts` `studyTodayPlan` (Lab core
   `StudyToday.kt`, parity-tested by `parity/fixtures/study-today.ts`; first made for the homework pass, HOMEWORK.md §3c):
   - an **unstarted** word (no card past NEW) → a card-level bump of its **listening card** (`audio_to_hanzi`) when the
-    note has its word clip and a NEW listening card, else its lead card (`lead-card.ts`); its other NEW cards wait
+    note has a NEW listening card and either its word clip or **"Start new words by ear"** on (`newWordsByEar` — the
+    same rule the regular pool's lead card follows, which never waits for a clip), else its lead card
+    (`lead-card.ts`). Nov 2026, Jerome: "when I add a new card from the example sentence, what's going on section, it
+    doesn't add it as the listening exercises" — a word just added from a breakdown / the explorer has no clip for a
+    few seconds (the server makes it in the background right after the add), so the rule used to fall back to the
+    reading card. Now the listening card is bumped and, until the clip lands, the card says "Audio coming…" and asks
+    for it at interactive priority (`noteAudioEnsure` / Lab `NoteAudioFixer`). A note "+ Add as card" just made that
+    the sync hasn't brought down yet is planned on the device as an unstarted word (web `bumpNotes(…, { justCreated
+    })` from the explorer's `CardTieIn`, Lab `BumpStore.bumpHanzi(…, justCreated)`), not sent as a whole-note row;
+    the server's plan reads the account's switch too. With the switch off, a word with no clip leads with its lead
+    card as before. Its other NEW cards wait
     (`pocketSiblingIds`) and come later as purple cards; the word goes into long-term review when it isn't (a one-off
     copy);
   - a **started** word → a card-level bump of its **listening card** only (due → first; NEW → introduced; not due →
@@ -503,6 +515,20 @@ learning card due now ("Card Selection Priority" above). One rule, `shared/decks
   added to today", "⚡ 1 card of 银行 added to today", the whole note "⚡ 银行 will come first in today’s study"; a
   single word's button shows "⚡ Listening card today ✓". **"Practise this word other ways…"** (below) is an explicit
   choice of card types and keeps its own rule.
+- **During a session — the new word comes next** (Nov 2026, Jerome: "Don't add the new card to the mix straight
+  away. I think it would be good if that blue card appeared straight away"; `shared/decks/bump-next.ts`, Lab core
+  `BumpNext.kt`, parity-tested by `parity/fixtures/bump-next.ts`). Every bump row written while a session is open —
+  the sentence breakdown → explorer → + Add as card → ⚡, the explorer's / a word sheet's ⚡, Ask Claude's `bump_cards`
+  once synced down — puts its cards in THIS session (web `useStudySession` `takeSessionBumps`, on IndexedDB changes
+  and after each sync; Lab `StudyViewModel.takeSessionBumps`, on `dataVersion`). For an **unstarted** word its lead
+  card (`sessionBumpPlan`: the one card the bump put in the pocket; for a whole-note bump the listening card by ear,
+  else hanzi_to_meaning) is the **very next card** once the card on screen is rated (`pickNextUpCard`, priority 0 —
+  before learning cards due now: he just asked for it, and they're still there one card later); several words
+  bumped on one card come next in the order bumped. Never instead of the card on screen. A just-added word waits
+  for the sync that brings its cards. Its other cards, a **started** word's bumped card, and a bump of the note on
+  screen / just rated (`BUMP_SIBLING_GAP`) join the ⚡ mix as before; "Practise this word other ways…" (source
+  `study_card`) adds its own cards with the sibling spacing. Bumps made outside a session (Home, deck pages) are
+  mixed as before when a session starts. Analytics `study.bump_next`.
 - **Which cards (a whole-note bump)** — of the note's cards not reviewed since the bump: every NEW card, every card
   already due by the cutoff, plus ONE early review: the most important card that isn't due yet
   (hanzi_to_meaning → meaning_to_hanzi → audio_to_hanzi), unless a due card is already in or a card
