@@ -103,6 +103,19 @@ words; the tint only repeats them.
   id (web) / the word + that deck (Lab), which the server already has. Same on the Character view's
   "+ Add 性 as a card". Analytics `explorer.bump { just_added: true }`. (Before: "+ Add" again, or
   "✓ Added — after the next sync", until the explorer was closed and reopened.)
+- **Adding before the meaning has loaded** (`shared/explorer/addCard.ts`, Lab core
+  `explorer/ExplorerAdd.kt`, parity-tested `parity/fixtures/explorer-add.ts`; Nov 2026 — a fast tap from
+  the ＋ Add tab failed with the server's "english is required"): the tap first WAITS for the view's
+  in-flight lookups (the word dictionary and the character records, ≤ 8 s, `EXPLORER_ADD_WAIT_MS`) with
+  the button saying **Adding…**, resolves the word again, then `explorerAddStep`: a meaning → add; none
+  (a word outside the 60k list) → the gloss path (`POST /api/ai/gloss-words`, Haiku) fills it; still none,
+  or **offline** → the **fill sheet**: "What does 吴侬软语 mean?", why it asks ("You're offline, so the
+  meaning can't be looked up…" / "The dictionary doesn't have this word…"), the pinyin and the meaning to
+  type; Add waits for a meaning and a connection ("Waiting for a connection…"). Missing pinyin is always
+  the device's reading (auto-pinyin + the 一 / 不 rule), never the gloss's. Web: `CardTieIn`'s
+  `MeaningFill` in the explorer's footer; Lab: `ExplorerAddFlow.kt` → `AddChunkSheet(fill = …)`. The
+  Character view's "+ Add 性 as a card" does the same. Analytics `explorer.add_gloss { kind, found }`,
+  `explorer.add_fill { kind, reason }`.
 - **Meaning**: the dictionary senses.
 - **Sentence**: the sentence it was tapped in, and up to three of the learner's own cards that
   use the word — each itself explorable.
@@ -268,4 +281,4 @@ stroke data once cached).
 ## Analytics (`shared/analytics/events.ts`)
 
 `explorer.open` (source, kind — source `word_tag` from a word tag's sheet), `explorer.push` (kind, from), `explorer.more` (kind),
-`explorer.add_card` (kind = word | char), `explorer.bump` (kind = word | char), `study.word_tag_word` (a tap on Chinese in a word tag's sheet), `explorer.write`, `explorer.drill_start` (kind, items), `explorer.drill_finish` (kind, items, correct, duration_ms). Ids / enums / counts only.
+`explorer.add_card` (kind = word | char), `explorer.add_gloss` (kind, found), `explorer.add_fill` (kind, reason), `explorer.bump` (kind = word | char), `study.word_tag_word` (a tap on Chinese in a word tag's sheet), `explorer.write`, `explorer.drill_start` (kind, items), `explorer.drill_finish` (kind, items, correct, duration_ms). Ids / enums / counts only.
