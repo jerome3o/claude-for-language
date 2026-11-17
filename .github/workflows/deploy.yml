@@ -24,7 +24,7 @@ on:
 permissions:
   contents: read
 
-# Never cancelled: every deploy runs (no concurrency group).
+# Checks of every push run side by side; the Deploy JOB is one at a time (see its concurrency group).
 jobs:
   # Type check, tests and the frontend build run side by side; the deploy starts once all pass
   # (as before, nothing is deployed when any of them fails). Same commands as PR Checks.
@@ -70,10 +70,36 @@ jobs:
           include-hidden-files: true
           retention-days: 3
 
-  deploy:
+  # Is this push still the head of main once its checks pass? A newer push carries these changes and deploys them,
+  # so an older one never deploys after it (that would put older code live).
+  newest:
     needs: check
     runs-on: ubuntu-latest
+    name: Still the newest push?
+    outputs:
+      newest: ${{ steps.head.outputs.newest }}
+    steps:
+      - id: head
+        env:
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          head=$(git ls-remote "$REPO_URL" refs/heads/main | cut -f1)
+          echo "main is at $head, this push is $SHA"
+          if [ -z "$head" ] || [ "$head" = "$SHA" ]; then echo "newest=true" >> "$GITHUB_OUTPUT"; else echo "newest=false" >> "$GITHUB_OUTPUT"; fi
+
+  deploy:
+    needs: [check, newest]
+    if: needs.newest.outputs.newest == 'true'
+    runs-on: ubuntu-latest
     name: Deploy
+    # One deploy at a time, never cancelled mid-way: two pushes in quick succession used to deploy at once, and the
+    # older one's "Set Worker Secrets" failed ("the latest version of your Worker isn't currently deployed") because
+    # the newer one had just uploaded a version (17 Nov 2026, #759 / #757). A push that is no longer the head of main
+    # skips its deploy (the `newest` job): the newer push deploys its changes.
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0

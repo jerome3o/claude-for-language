@@ -63,7 +63,7 @@ fun SentenceVerdictLine(f: SentenceFeedback, words: List<String>, tag: String = 
     val v = remember(f, words) { SentenceCheck.view(f, words) }
     var more by remember(f) { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth().testTag(tag).semantics { contentDescription = "${v.label}: ${v.headline}" }, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Text("${v.icon} ${v.headline}", Modifier.testTag("$tag-headline"), color = dev.jeromeswannack.chineselearning.lab.ui.study.answerDiffToneInk(v.state), fontWeight = FontWeight.Bold, fontSize = if (compact) 15.sp else 17.sp)
+        Text("${v.icon} ${v.headline}", Modifier.testTag("$tag-headline"), color = dev.jeromeswannack.chineselearning.lab.ui.study.ResultColors.ink(v.state), fontWeight = FontWeight.Bold, fontSize = if (compact) 15.sp else 17.sp)
         if (v.reason.isNotEmpty()) Text(v.reason, Modifier.testTag("$tag-reason"), color = Lab.colors.muted, fontSize = 14.sp)
         if (v.more.isNotEmpty()) {
             if (more) Text(v.more, Modifier.testTag("$tag-full"), color = Lab.colors.muted, fontSize = 14.sp)

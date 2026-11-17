@@ -18,6 +18,7 @@ const FILES = [
   './DifferenceCompare.css',
   './listenContext.css',
   '../lessons/AnswerCheckCard.css',
+  '../lessons/SentenceCheck.css',
 ];
 const FORBIDDEN = /var\(--color-success|var\(--color-warning|#15803d|#16a34a|#22c55e|#4ade80|#d97706|#b45309|#c2410c|#f97316/i;
 

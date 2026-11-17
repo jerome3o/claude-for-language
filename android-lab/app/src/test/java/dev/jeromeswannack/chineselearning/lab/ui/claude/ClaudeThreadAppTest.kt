@@ -200,6 +200,10 @@ class ClaudeThreadAppTest {
         vm.send("「买单」是什么意思？", spoken = false)
         val mine = awaitOnMain(describe = { "my queued bubble: ${vm.ui.value.messages}" }) { vm.ui.value.messages.lastOrNull()?.takeIf { it.role == "user" && it.queued } }
         assertEquals("「买单」是什么意思？", mine.content)
+        // The bubble comes from the store's cache, which can be emitted before send()'s coroutine resumes on the
+        // main thread to clear `sending` (and track the event) — the screen hides `sending` once the queued bubble
+        // shows (ClaudeThreadScreen), so wait for the send to settle rather than assert it in the same instant.
+        awaitOnMain(describe = { "the send settled: sending=${vm.ui.value.sending}" }) { if (vm.ui.value.sending == null) true else null }
         assertNull(vm.ui.value.sending)
         assertEquals(listOf("/api/claude/threads/t1/messages"), claudeItems().map { it.path })
         assertTrue("claude.message_send" in app.analytics.recentEventNames(), app.analytics.recentEventNames().toString())
