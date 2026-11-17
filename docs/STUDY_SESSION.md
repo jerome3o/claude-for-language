@@ -1609,9 +1609,9 @@ All session logic works offline. Reviews are stored locally and synced when conn
 Jerome: *"On the listening cards, show all the example sentences so I can play them, and at the very
 bottom play the individual word … ideally I have to listen to the sentences before the word."*
 
-The question side of an **audio → hanzi** card is a list of the note's sentences — the card's own
-sentence first (shown once when the set repeats it), then the generated set in order — as
-**audio-only rows**: ▶, the row's number and a ✓ once heard. The Chinese, the pinyin and the English
+The question side of an **audio → hanzi** card is a short list of the note's sentences — **four,
+picked fresh for this showing and shuffled** (below) — as **audio-only rows**: ▶, the row's number,
+a small dot while a sentence never heard here waits, and a ✓ once heard. The Chinese, the pinyin and the English
 stay hidden (they would give the answer away); **EN** on a row shows just that row's English, a hint,
 never the characters. The card's own sentence always has EN, even when the note carries no English
 for it (~⅓ of notes — MCP-added / older; Nov 2026: row 1 had no EN): the line is fetched on the tap
@@ -1624,8 +1624,62 @@ before). While no sentence has been played on the card, tapping it asks first, i
 browser dialog): **"Try the sentences first? Hearing the word in context helps."** —
 [Play the word anyway] [Play a sentence]. Once any sentence was heard (or "anyway" was chosen) the
 word plays at once. The answer box / multiple choice / voice-first controls below are unchanged; the
-old "Use in Sentence" button is gone from this card (its sentence is the list's row 1). The answer
-side's sentence list is unchanged.
+old "Use in Sentence" button is gone from this card. The answer side's sentence list is unchanged.
+
+### Fresh sentences every showing
+
+Jerome, Nov 2026: *"we should shuffle the order of the sentences, each time I see the screen. We should
+also probably generate more sentences. We should track which ones have been played and how many times,
+and try to avoid giving me the same sentence many times, because I'm noticing I'm just memorising the
+sentence as a clue to the word … Variety and amount is key."*
+
+- **Heard history**: every sentence played on this question is recorded once per showing as a sentence
+  practice event `{ kind: 'heard', mode: 'listen_context' }` (`sentence_practice_events` — the columns have
+  no CHECK, so no migration; the same offline outbox + sync as the 🎤 takes: web `recordSentenceHeard`,
+  Lab `SentencePracticeStore.recordHeard`). `sentenceStats` folds them into `heard { count, last_at }` per
+  sentence on every device. Being heard is NOT practice: the Sentence round's "fresh" still counts takes only.
+- **The pick** (`pickListenRows`): the candidates are the note's natural sentences that aren't hidden — the
+  card's own sentence included, with **no fixed first slot** — (contrived look-alike rows only when nothing
+  else exists). Ranked: **never heard in context first**, then fewest times heard; among equals a **simple**
+  sentence before a long one (`isSimpleSentence`, below), then the one heard **longest ago**, then a seeded
+  tie-break for variety. The first four are shown — and **never the same set twice in a row** while there are
+  more (the previous showing's set is kept per device: web `services/listenShown.ts`, Lab
+  `data/sentences/ListenShownStore.kt`; when the pick would repeat it, its last sentence is swapped for the
+  next best).
+- **The order** is shuffled with a seed made for the showing: a **new order every time the card comes up**
+  (an Again brings it back in another order), the same while it is on screen. The pick is made once the rows
+  and the heard history are known and then frozen, so a sentence played now never drops out of the list;
+  "+ More sentences" appends the new ones after it. Auto-play plays the first row of the shuffled list
+  whose clip is ready.
+- **More sentences, always topped up**: a showing that leaves fewer than **four** unheard sentences
+  (besides the ones it shows) asks for more in the background — `listenTopUpWant` →
+  `POST /api/sentences/top-up { note_ids, reason: 'fresh', counts }` (the Sentence round's fresh buffer:
+  3–8 ADDED to the set, clips made at interactive priority, at most one ask per word every ten minutes,
+  offline at the next sync; the new rows and clips are pulled ~45 s / 150 s later so the next showing has
+  them offline). A word now holds up to **120** sentences (was 80).
+- **Simple sentences** (*"some of the sentences are too complicated — relatively simple sentences"*): the
+  sentence generator (`services/sentence-set.ts`, every new set and top-up) now asks for short sentences —
+  about 6–14 characters, never over 16 (a long word gets its own length + 8), one clause (two short halves
+  of one familiar pattern at most), everyday words, preferring the words he already has (the same daily
+  known-words sample the Claude chats use, `claude-agent/learner.ts`). A deterministic yardstick
+  (`shared/study/sentenceSimplicity.ts`: Han characters ≤ 16 / word + 8, at most one clause break inside —
+  ，；; or a mid-sentence 。！？) drops NEW sentences over it (the call is retried when none is left; the
+  learner's own "custom prompt" wins over it). Stored sentences are never deleted; "Listen in context" just
+  prefers the simple ones.
+- **Sentences that use his structures** (*"look at what sentence structures I should ostensibly know based
+  on my lessons, cache those somewhere, and say 'use these sentence structures'"*): the grammar structures
+  of the mini lessons he has DONE — their notes' `patterns`, else the free-text structures parsed into the
+  same cards (`shared/lesson/learnerStructures.ts` over `structureNoteView`), with when each was first /
+  last met and how many runs went through it — are cached per user in D1 `learner_structures` (migration
+  0151), rebuilt lazily when a cheap fingerprint of his lessons (completions count, newest completion,
+  newest lesson edit) changes (`services/learner-structures.ts`; no cron, no hook in every lesson write).
+  The generator gets up to ten, alternating the most recent and the most practised
+  (`structuresForPrompt`): "where one fits this word naturally, use it … never force one". Each sentence
+  is tagged with the structure it really uses — the model's tag kept only when the sentence has that
+  structure's fixed words in order (`structureUsedBy`) — in `note_sentences.structure` (migration 0151), so
+  the apps can later show "uses 本来…后来…". The learner's own rows only (never a tutor's private profile).
+  E2E: a deterministic stand-in (`services/sentence-set-fake.ts`) writes short template sentences, one with
+  the first structure.
 
 - **Auto-play** (the card used to read the word as it showed): the **first sentence whose clip is
   ready** plays instead (it counts as heard, ✓); only when no sentence has a clip does the word play,
@@ -1633,21 +1687,24 @@ side's sentence list is unchanged.
 - **Offline**: a row plays when its clip is on the device; the others show "Not downloaded" and are
   disabled. The card's own sentence with no clip yet uses the device voice online; a set row with no
   clip waits for it. The word always plays (device voice when its clip isn't cached).
-- **Top-up**: a listening card shown with fewer than **five** sentences in total (card sentence +
-  set) asks the server for more in the background — `POST /api/sentences/top-up { note_ids }` (the
-  card shown now; the upcoming listening cards in the web's hourly sentence prefetch and the Lab
-  session's next ten). The server queues a `top_up` job on `sentence-set-queue` that ADDS sentences
+- **Top-up**: besides the fresh buffer above, the upcoming listening cards with fewer than **five**
+  sentences in total (card sentence + set) ask the server for more in the background —
+  `POST /api/sentences/top-up { note_ids }` (the web's hourly sentence prefetch and the Lab session's next
+  ten). The server queues a `top_up` job on `sentence-set-queue` that ADDS sentences
   after the set (rows, clips and breakdowns kept; `appendNoteSentences` touches every row so the sync
   still hands the set out whole) — at most one job per note a day, never one given up on (3 failed
   attempts), ≤ 50 notes a call. The card never waits for it; the rows arrive with a later sync.
-- **Rules** (`shared/study/listenContext.ts`, Lab `core/…/ListenContext.kt`, parity-tested by
-  `android-lab/parity/fixtures/listen-context.ts`): row order, row state (ready / fetch / device /
-  unavailable), the auto-play choice, the word-first ask, the top-up and "+ More" counts. Web
+- **Rules** (`shared/study/listenContext.ts` + `sentenceSimplicity.ts`, Lab `core/…/ListenContext.kt` +
+  `SentenceSimplicity.kt`, parity-tested by `android-lab/parity/fixtures/listen-context.ts`): row order,
+  the showing's pick + seeded shuffle (FNV-1a + mulberry32, integer only, so both apps agree), the fresh
+  top-up, row state (ready / fetch / device / unavailable), the auto-play choice, the word-first ask, the
+  top-up and "+ More" counts, simple sentences; the heard stats in `sentence-history.ts`. Web
   `components/study/ListenContext.tsx`; Lab `ui/study/ListenContextUi.kt` (state per card in
   `ListenState`, the auto-play in `CardStage`).
 - **Analytics**: `study.listen_context { sentences_played, word_first_prompt_shown,
-  played_word_anyway }` once the card is answered (verbose level), `study.listen_more_sentences
-  { before, after }`.
+  played_word_anyway }` once the card is answered (verbose level), `study.listen_context_shown { shown,
+  fresh, heard_before }` once per showing (verbose level), `study.listen_more_sentences { before, after }`,
+  `server.sentence_topup { reason, added, structured }` per top-up job.
 
 ## Card back layout
 

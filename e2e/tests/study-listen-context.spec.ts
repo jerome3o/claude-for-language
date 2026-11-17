@@ -7,11 +7,11 @@ test.beforeEach(async ({ context }) => skipFirstCardExplainer(context));
 test.use({ viewport: { width: 412, height: 915 }, deviceScaleFactor: 2 });
 
 /**
- * "Listen in context" — a listening card's question side (docs/STUDY_SESSION.md): the note's
- * sentences as audio-only rows (the card's own sentence first, then the set; no Chinese on
- * screen; EN shows just the English), "▶ The word" at the bottom asking "Try the sentences
- * first?" until a sentence was heard, and a note with fewer than five sentences asks for a
- * background top-up. The set comes from the server (GET /api/notes/:id/sentences, stubbed:
+ * "Listen in context" — a listening card's question side (docs/STUDY_SESSION.md): a few of the
+ * note's sentences, picked fresh for each showing and shuffled (never heard in context first), as
+ * audio-only rows (no Chinese on screen; EN shows just the English; a dot on never-heard ones),
+ * "▶ The word" at the bottom asking "Try the sentences first?" until a sentence was heard, and a
+ * showing that leaves fewer than four unheard sentences asks for a background top-up. The set comes from the server (GET /api/notes/:id/sentences, stubbed:
  * the local worker writes no sets without a model) and the top-up is stubbed too.
  */
 
@@ -90,12 +90,12 @@ test('a listening card: the sentences first, the word last — "Try the sentence
   await page.goto(`/study?deck=${deck.id}&autostart=true`);
   await untilListeningCard(page);
 
-  // The card sentence + the set, audio only: none of their Chinese or English on screen.
+  // The card sentence + the set (four: all of them), audio only: none of their Chinese or English on screen.
   const rows = page.getByTestId('listen-row');
   await expect(rows).toHaveCount(4);
   await expect(page.getByTestId('listen-context')).not.toContainText('打算');
   await expect(page.getByTestId('listen-context')).not.toContainText('weekend');
-  // Fewer than five sentences: a background top-up was asked for.
+  // The showing leaves no unheard sentence: a background top-up was asked for.
   await expect.poll(() => toppedUp.flat()).toContain(note.id);
 
   // The word before any sentence: the ask (the auto-played first sentence counts as heard,
@@ -114,8 +114,8 @@ test('a listening card: the sentences first, the word last — "Try the sentence
     await expect(page.getByTestId('listen-row-play').first()).toHaveAttribute('aria-label', 'Sentence 1, played');
   }
 
-  // EN on a set row shows only its English.
-  await page.getByTestId('listen-row-en').nth(1).click();
+  // EN on a set row shows only its English (rows are shuffled: find it by its key).
+  await page.locator('[data-testid="listen-row"][data-key="e2e-s0"]').getByTestId('listen-row-en').click();
   await expect(page.getByTestId('listen-row-translation')).toHaveText('I plan to study Chinese.');
   await expect(page.getByTestId('listen-context')).not.toContainText('我打算学中文');
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/web-03-after-a-sentence.png` });
@@ -151,4 +151,66 @@ test('screenshots: the question and the ask', async ({ page, request }) => {
   await page.getByTestId('listen-word').click();
   await page.waitForTimeout(400);
   if (await page.getByTestId('listen-word-prompt').isVisible()) await page.screenshot({ path: `${SHOTS}/web-02-try-sentences-first.png` });
+});
+
+const MANY = ['我打算学中文。', '你打算什么时候回家？', '我们打算去北京。', '他打算买车。', '你打算做什么？', '我不打算去。', '她打算明天走。'];
+
+test('a listening card shown twice: fresh sentences, a new set and order the second time', async ({ page, request }) => {
+  test.setTimeout(180_000);
+  const email = `listen-twice-${Date.now()}-${Math.floor(Math.random() * 1e6)}@test.e2e`;
+  const auth = await api<{ session_token: string }>(request, '/api/test/auth', { method: 'POST', data: { email, name: 'Jerome' } });
+  const token = auth.session_token;
+  const deck = await api<{ id: string }>(request, '/api/decks', { method: 'POST', token, data: { name: 'Plans' } });
+  const note = await api<{ id: string }>(request, `/api/decks/${deck.id}/notes`, {
+    method: 'POST', token, data: {
+      hanzi: '打算', pinyin: 'dǎsuàn', english: 'to plan; to intend',
+      sentence_clue: CLUE, sentence_clue_pinyin: 'Nǐ zhōumò dǎsuàn zuò shénme?', sentence_clue_translation: 'What are you planning to do this weekend?',
+    },
+  });
+  // Eight sentences (the card's own + seven in the set) — two showings' worth.
+  await page.route(`**/api/notes/${note.id}/sentences`, async (route) => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    const now = new Date().toISOString();
+    const sentences = MANY.map((hanzi, i) => ({
+      id: `tw-s${i}`, note_id: note.id, position: i, hanzi, pinyin: null, translation: `Sentence ${i}`, audio_url: null,
+      focus: 'core', focus_note: null, explanation: null, created_at: now, updated_at: now,
+    }));
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ sentences }) });
+  });
+  await page.route('**/api/sentences/top-up', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"queued":0,"note_ids":[]}' }));
+  await page.route('**/api/sentences/*/ensure-audio', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"status":"failed","audio_url":null}' }));
+
+  await page.goto(`/decks?session_token=${token}`);
+  await page.locator('.header').waitFor({ timeout: 30000 });
+  await expect(page.getByText('Plans')).toBeVisible({ timeout: 30000 });
+  await page.goto(`/study?deck=${deck.id}&autostart=true`);
+  await untilListeningCard(page);
+
+  const keysNow = () => page.getByTestId('listen-row').evaluateAll((els) => els.map((el) => el.getAttribute('data-key') ?? ''));
+  const rows = page.getByTestId('listen-row');
+  await expect(rows).toHaveCount(4);
+  const first = await keysNow();
+  // Never heard before: every row carries the "new" dot.
+  await expect(page.getByTestId('listen-row-new')).toHaveCount(4);
+  // Hear every sentence of this showing (each is recorded once as heard in context).
+  for (let i = 0; i < 4; i++) {
+    const play = page.getByTestId('listen-row-play').nth(i);
+    if (!((await play.getAttribute('aria-label')) ?? '').includes('played')) await play.click();
+    await expect(play).toHaveAttribute('aria-label', /played/);
+  }
+  await expect(page.getByTestId('listen-row-new')).toHaveCount(0);
+
+  // Answer it Again: the card comes straight back (after anything else due).
+  const shown = await page.getByTestId('listen-context').elementHandle();
+  await page.getByRole('button', { name: /Skip recording|Show answer|Check Answer/i }).first().click();
+  await page.getByRole('button', { name: /^Again/ }).first().dispatchEvent('click');
+  await page.waitForFunction((el) => !el || !el.isConnected, shown, { timeout: 15000 });
+  await untilListeningCard(page);
+
+  // The second showing: the four sentences not heard yet — a different set, all new again.
+  await expect(rows).toHaveCount(4);
+  const second = await keysNow();
+  expect(second.filter((k) => first.includes(k))).toEqual([]);
+  expect(new Set([...first, ...second]).size).toBe(8);
+  await expect(page.getByTestId('listen-row-new')).toHaveCount(4);
 });
