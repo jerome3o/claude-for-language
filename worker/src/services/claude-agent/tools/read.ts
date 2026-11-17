@@ -31,6 +31,8 @@ export async function executeBumpCardsTool(
     const r = await addBumps(ctx.db, ctx.userId, { noteIds, hanzi, source });
     return {
       bumped: r.added.map((a) => a.hanzi),
+      // The words with their note ids: the app's "⚡" line under the reply opens the card (shared/claude/cardTools.ts toolResultLink).
+      bumped_notes: [...r.added, ...r.already].map((a) => ({ note_id: a.note_id, hanzi: a.hanzi })),
       // What one ⚡ put in today per word (shared/decks/study-today.ts): listening card / one card / the whole word.
       added_today: r.added.map((a) => ({ hanzi: a.hanzi, what: KIND_WORDS[r.kinds?.[a.note_id] ?? 'whole'] })),
       already_bumped: r.already.map((a) => a.hanzi),

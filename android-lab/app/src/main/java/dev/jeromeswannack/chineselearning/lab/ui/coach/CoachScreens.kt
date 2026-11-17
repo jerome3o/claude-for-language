@@ -582,6 +582,8 @@ internal fun CoachToolResults(raw: String?, surface: String = "thread") {
     CoachAnalysisDto.toolResults(raw).forEach { ToolChip(it, surface) }
 }
 
+private fun CoachToolResultDto.asCardTool() = dev.jeromeswannack.chineselearning.lab.core.claude.CardTools.Result(tool, success, data, error)
+
 /** One tool result's chip. */
 @Composable
 private fun ToolChip(r: CoachToolResultDto, surface: String) {
@@ -598,9 +600,23 @@ private fun ToolChip(r: CoachToolResultDto, surface: String) {
             ) {
                 Text("${dev.jeromeswannack.chineselearning.lab.core.claude.CardTools.addedCardsHead(cards.size)}${deckName?.let { " to $it" }.orEmpty()}", fontSize = 13.sp, color = Lab.colors.ink)
                 dev.jeromeswannack.chineselearning.lab.ui.claude.AddedCardChips(cards, surface, Palette.Good)
+                // "Open card ›" / "Open deck ›" (docs/CHAT.md "Tool lines you can tap").
+                dev.jeromeswannack.chineselearning.lab.core.claude.CardTools.resultLink(r.asCardTool())?.let { dev.jeromeswannack.chineselearning.lab.ui.claude.ResultLinkGo(it, Palette.Good) }
             }
             return
         }
+    }
+    // A mini lesson, ⚡ bumped words, an edited card: the shared line, a link to what it made ("🎓 Mini lesson made: … · Start ›").
+    if (r.success && r.tool in setOf("create_custom_lesson", "bump_cards", "edit_current_card")) {
+        val line = dev.jeromeswannack.chineselearning.lab.core.claude.CardTools.lines(listOf(r.asCardTool())).firstOrNull() ?: return
+        val tone = if (line.kind == "bumped") Color(0xFFB45309) else Palette.Good
+        val link = line.link
+        if (link != null) {
+            dev.jeromeswannack.chineselearning.lab.ui.claude.ResultLinkLine(link, line.text, tone, Modifier.padding(top = 4.dp))
+        } else {
+            Text(line.text, fontSize = 13.sp, color = tone, modifier = Modifier.padding(top = 4.dp).clip(RoundedCornerShape(10.dp)).background(tone.copy(alpha = 0.12f)).padding(horizontal = 10.dp, vertical = 6.dp))
+        }
+        return
     }
     val text = when {
         r.tool == "create_flashcards" && r.success -> {

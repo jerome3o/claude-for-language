@@ -12,6 +12,10 @@
  * A second one: in any context offering create_flashcards, a question asking for a card (卡片 /
  * "make a card") makes `FAKE_CARDS[0]` — "two cards" / 两张 makes both — so a spec can tap the
  * "✓ Added" line's word into the explorer (docs/CHAT.md "Cards Claude added").
+ *
+ * A third: in any context offering create_custom_lesson, a question asking for a mini lesson
+ * ("mini lesson" / 小练习) makes `FAKE_LESSON`, so a spec can tap "🎓 Mini lesson made · Start ›"
+ * into the player and come back (docs/CHAT.md "Tool lines you can tap").
  */
 import type Anthropic from '@anthropic-ai/sdk';
 import type { AskLanguage } from '@shared/study/askClaude';
@@ -34,6 +38,19 @@ export const FAKE_CARDS = [
   { hanzi: '机会', pinyin: 'jīhuì', english: 'opportunity', fun_facts: '机 (jī) machine, moment + 会 (huì) meeting, chance → a moment that comes together: an opportunity.', sentence_clue: '这是一个好机会。', sentence_clue_pinyin: 'Zhè shì yí gè hǎo jīhuì.', sentence_clue_translation: 'This is a good opportunity.' },
   { hanzi: '难得', pinyin: 'nándé', english: 'rare, hard to come by', fun_facts: '难 (nán) hard + 得 (dé) to get → hard to get: rare, precious.', sentence_clue: '这样的机会很难得。', sentence_clue_pinyin: 'Zhèyàng de jīhuì hěn nándé.', sentence_clue_translation: 'A chance like this is rare.' },
 ] as const;
+
+/** The mini lesson the stand-in makes when asked for one (valid per shared/lesson/validate.ts). */
+export const FAKE_LESSON = {
+  title: '治理 vs 这里：听力辨音',
+  icon: '👂',
+  sections: [{
+    title: '听一听',
+    exercises: [
+      { type: 'note', body: '治理 (zhìlǐ) means to govern; 这里 (zhèlǐ) means here. Listen for zh-ì vs zh-è.', sentences: [{ hanzi: '这里很安静。', pinyin: 'Zhèlǐ hěn ānjìng.', english: 'It is quiet here.' }] },
+      { type: 'choice', question: 'Which word means "here"?', options: [{ hanzi: '这里', pinyin: 'zhèlǐ', english: 'here' }, { hanzi: '治理', pinyin: 'zhìlǐ', english: 'to govern' }], correct: 0, explanation: '这里 zhèlǐ = here; 治理 zhìlǐ = to govern.' },
+    ],
+  }],
+};
 
 type Params = { tools?: Array<{ name?: string }>; messages?: Array<{ role: string; content: unknown }> };
 
@@ -70,6 +87,19 @@ function cardsToolUse(params: Params | undefined): Anthropic.Message | null {
   const flashcards = /两张|two cards/i.test(text) ? [...FAKE_CARDS] : [FAKE_CARDS[0]];
   const m = message('', 'tool_use');
   m.content = [{ type: 'tool_use', id: `toolu_e2e_${Math.random().toString(36).slice(2, 10)}`, name: 'create_flashcards', input: { flashcards } } as Anthropic.ToolUseBlock];
+  return m;
+}
+
+/** The mini-lesson tool call, when this round should make it (see the file comment). */
+function lessonToolUse(params: Params | undefined): Anthropic.Message | null {
+  if (!params?.tools?.some((t) => t.name === 'create_custom_lesson')) return null;
+  const messages = params.messages ?? [];
+  const last = messages[messages.length - 1];
+  if (!last || last.role !== 'user') return null;
+  if (Array.isArray(last.content) && last.content.some((b) => (b as { type?: string })?.type === 'tool_result')) return null;
+  if (!/mini lesson|小练习/i.test(textOf(last.content))) return null;
+  const m = message('', 'tool_use');
+  m.content = [{ type: 'tool_use', id: `toolu_e2e_${Math.random().toString(36).slice(2, 10)}`, name: 'create_custom_lesson', input: FAKE_LESSON } as Anthropic.ToolUseBlock];
   return m;
 }
 
@@ -123,8 +153,8 @@ export function fakeStreamingClient(language: AskLanguage = 'zh', delayMs = 250,
   const chunks = variant === 'practice' ? FAKE_PRACTICE_CHUNKS : FAKE_STREAM_CHUNKS[language];
   return {
     messages: {
-      create: async (params: Params) => funFactToolUse(params) ?? cardsToolUse(params) ?? message(chunks.join(''), 'end_turn'),
-      stream: (params: Params) => new FakeMessageStream(chunks, delayMs, funFactToolUse(params) ?? cardsToolUse(params)),
+      create: async (params: Params) => funFactToolUse(params) ?? cardsToolUse(params) ?? lessonToolUse(params) ?? message(chunks.join(''), 'end_turn'),
+      stream: (params: Params) => new FakeMessageStream(chunks, delayMs, funFactToolUse(params) ?? cardsToolUse(params) ?? lessonToolUse(params)),
     },
   } as unknown as Pick<Anthropic, 'messages'>;
 }

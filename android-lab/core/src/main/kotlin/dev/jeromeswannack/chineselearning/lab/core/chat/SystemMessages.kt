@@ -127,7 +127,7 @@ object SystemMessages {
                 val to = if (d.isTrue("is_default")) "back to the usual " else "to "
                 val nums = budgetNumbers(d)
                 return if (me) v("📚", "You set ${firstName(ctx.otherName, "your student")}'s new cards $to$nums")
-                else v("📚", "${capitalise(firstName(ctx.otherName, "your tutor"))} set your new cards $to$nums")
+                else v("📚", "${capitalise(firstName(ctx.otherName, "your tutor"))} set your new cards $to$nums", action = Action("See in Settings", "/settings"))
             }
             "call_started" -> {
                 val callId = d.str("call_id")

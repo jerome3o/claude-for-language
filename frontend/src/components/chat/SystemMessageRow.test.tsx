@@ -28,12 +28,12 @@ describe('SystemMessageRow', () => {
       { system_kind: 'study_budget', system_data: { new_cards_per_day: 2, secondary_cards_per_day: 5 } },
       { viewerIsSender: false, otherName: 'Minghui Wang' },
     )!;
-    act(() => root.render(<SystemMessageRow view={view} time="9:41 AM" />));
+    act(() => root.render(<SystemMessageRow view={view} time="9:41 AM" onAction={() => {}} />));
     const row = host.querySelector('[data-testid="chat-system-message"]')!;
     expect(row.textContent).toContain('Minghui set your new cards to 2 a day (+5 extra)');
     expect(row.textContent).not.toMatch(/\bI've\b/);
     expect(host.querySelector('.chat-bubble')).toBeNull();
-    expect(host.querySelector('[data-testid="chat-system-action"]')).toBeNull();
+    expect(host.querySelector('[data-testid="chat-system-action"]')!.textContent).toContain('See in Settings');
   });
 
   it('a live call has Join; a flag quotes the student and opens the card', () => {

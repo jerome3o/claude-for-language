@@ -75,6 +75,17 @@ object CardClaudeSamples {
         ),
     )
 
+    const val LESSON = """[{"tool":"create_custom_lesson","success":true,"data":{"lesson_id":"L1","title":"治理 vs 这里：听力辨音"}}]"""
+
+    /** Jerome's thread (Nov 2026): Claude explained 治理 vs 这里 and made a mini lesson — the line opens it. */
+    val lessonMade = ui(
+        listOf(
+            mine("u1", "I struggle to tell the difference between 治理 and 这里."),
+            claude("a2", "「治理」读 zhìlǐ，意思是管理国家、管理环境。\n「这里」读 zhèlǐ，意思是这个地方。\n我给你做了一个听力小练习。", tools = LESSON),
+        ),
+        hanzi = "这里",
+    ).copy(title = "I struggle to tell the difference between 治理 and 这里.")
+
     /** A short thread: my checked question, then Claude added a fun fact to the card ("✓ Claude edited this card · Undo"). */
     val edited = ui(
         listOf(
