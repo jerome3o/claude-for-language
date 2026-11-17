@@ -1172,6 +1172,42 @@ Chinese (like 一到家，我就睡觉了) — and got "✗ Not quite": the less
   Analytics `lesson.scramble_checked { verdict, cached, ms }`. E2E stand-in: the expected order's first tile moved right
   before 就 / 也 / 都 / 才 / 还 / 又 is right, anything else wrong (`fakeScrambleCheck`).
 
+#### Word order — rearrange by dragging
+
+Jerome (Nov 2026), on a word-order exercise in a homework pass: "it would be nice if I could click and drag and rearrange
+stuff so that the order that I click them in isn't final." The tiles can now be moved after they are placed — in the
+regular lesson player, the homework pass, the catalogue trial / previews and StudyGrammar (they share the exercise view):
+
+- **Tap is unchanged**: a pool tile goes to the END of the answer, a placed tile goes back to the pool.
+- **Drag inside the answer**: a press that travels more than ~8 px (web; the touch slop in the Lab) picks the tile up — a
+  copy follows the finger, the answer is outlined and shows a dashed **gap** of the tile's size where it will land; the
+  other tiles move round the gap, over lines that wrap. Letting go puts it there.
+- **Drag in from the pool**: the same, inserting the tile at the gap (a tap still appends).
+- **Drag out**: a placed tile let go over the pool goes back to the pool. Let go anywhere else (neither row) = nothing
+  changes.
+- No hold needed and no page scroll: the tiles take the gesture (web `touch-action: none` on the tile buttons; the Lab
+  board consumes the drag past the slop), a swipe that starts off a tile still scrolls. Nothing jumps at pick-up: the tile's
+  place becomes the gap of the same size. A light haptic tick on pick-up and drop (Lab `env.onTap`; web
+  `navigator.vibrate` where there is one). The release that ends a drag never also counts as a tap.
+- **Without a drag**: web — each placed tile is a button labelled "他, 2 of 6" with the hint "Tap to take it out. Drag,
+  or use the arrow keys, to move it."; ←/→ on a focused tile move it one place (focus stays on it, a polite
+  announcement "他 moved to 1 of 6"). Lab — each placed tile has the TalkBack actions **Move left / Move right**.
+- Checking is unchanged: Check grades the final order (the device's listed orders, else Claude's check above); the
+  attempt's `order` is the final order, the retry round and revisions as before.
+
+Rules (pure, `shared/lesson/scrambleOrder.ts`, Lab `core/…/ScrambleOrder.kt`, parity-tested by
+`parity/fixtures/scramble-order.ts` → `ScrambleOrderParityTest`): `scrambleZone` (answer with 24 px slack wins, then the
+pool, else none), `scrambleDropSlot` (the OTHER placed tiles' boxes grouped into wrapped lines — a tile starts a line when
+its top is below the middle of the line's first tile —, the line whose band holds the finger else the nearest, then before
+the first tile whose centre is right of the finger, else after the line), `scramblePreview` / `scrambleDrop` (moved ·
+inserted · removed · none), `scrambleNudge`. Web: `components/lessons/useScrambleDrag.tsx` (pointer events on window for
+the press, the copy portalled to `<body>`) in `ScrambleExercise`; Lab: `ui/lessons/ScrambleBoard.kt` (one gesture on the
+board, hit-testing the tiles' boxes; the answer row is composed BY PLACE, not keyed by tile — FlowRow didn't re-measure when
+keyed children only moved). Analytics `lesson.scramble_reorder { how: drag | keyboard | a11y, from_pool, change }`. E2E
+`lesson-scramble-drag.spec.ts`; Lab `ScrambleBoardUiTest`. Not covered: the 🎬 clips `order` scene (it checks the moment
+the last tile is placed, so there is nothing to rearrange), the in-call "sentence building" activity (its tiles live in the
+CallRoom's shared state — a reorder would need a new room action) and the VR mini-lesson panel (tap only).
+
 ### Claude checks your speaking (free speaking: `oral_expression`, `speak`)
 
 Jerome (Oct 2026): in "口语 · Speaking — recorded 🎙" he records a long answer to a task like "Annie

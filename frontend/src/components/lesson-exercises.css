@@ -878,3 +878,53 @@
 .scramble-claude-note.good { border-left-color: #16a34a; }
 .scramble-claude-note.bad { border-left-color: #dc2626; }
 .scramble-claude-note-label { font-weight: 600; color: var(--color-text-light, #6b7280); }
+
+/* Word order: rearranging by hand (shared/lesson/scrambleOrder.ts, components/lessons/useScrambleDrag.tsx).
+   A tile being arranged never scrolls the page or selects text; the dragged tile's place in the answer is a dashed
+   gap of the same size (so nothing jumps when a drag starts); a copy of the tile follows the finger. */
+.scramble-row button.tile {
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+.scramble-row button.tile:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+}
+.scramble-row .tile.tile-gap {
+  color: transparent;
+  background: transparent;
+  border-style: dashed;
+  border-color: #3b82f6;
+}
+.scramble-row.answer.drop-target {
+  border-color: #3b82f6;
+}
+.tile.tile-floating {
+  position: fixed;
+  z-index: 1000;
+  margin: 0;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  cursor: grabbing;
+  white-space: nowrap;
+  transform: scale(1.06);
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.22);
+  -webkit-user-select: none;
+  user-select: none;
+}
+.scramble-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
