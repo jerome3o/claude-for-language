@@ -101,6 +101,7 @@ const WHY_PAIRS: [string, string][] = [
   ['他们豆去北京很了', '我们都去北京了吗'],
   ['我们都去北京了吗', '我们都去北京了吗'],
   ['妈骂妈马', '马麻马麻'],
+  ['我们都去北京了', '我们都去过北京吗。'],
 ];
 const whys = WHY_PAIRS.flatMap(([said, expected]) => CHECKS.map((check) => {
   const diff = answerDiff(said, expected);

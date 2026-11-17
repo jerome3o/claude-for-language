@@ -41,6 +41,7 @@ object AnswerWhy {
 
     private val WS = Regex("[${AnswerKey.JS_WS}]+")
     private val END = Regex("[.!?。！？…]+$")
+    private val BARE_END = Regex("[。．.！!？?，,、…${AnswerKey.JS_WS}]+$")
 
     private fun squash(s: String) = AnswerKey.jsTrim(WS.replace(s, " "))
     private fun norm(s: String) = END.replace(squash(s), "").lowercase(Locale.ROOT)
@@ -82,10 +83,11 @@ object AnswerWhy {
             .take(4)
         val corrected = AnswerKey.jsTrim(check.corrected ?: "")
         val alternative = AnswerKey.jsTrim(check.alternative ?: "")
-        val s = AnswerKey.jsTrim(said)
-        val e = AnswerKey.jsTrim(expected)
-        val fixed = if (corrected.isNotEmpty() && corrected != s && corrected != e) corrected else null
-        val alt = if (alternative.isNotEmpty() && alternative != s && alternative != corrected && alternative != e) alternative else null
+        // A line equal to one already there (sentence punctuation aside) isn't shown again.
+        fun bare(t: String) = BARE_END.replace(AnswerKey.jsTrim(t), "")
+        fun shown(t: String, vararg others: String) = others.any { bare(it).isNotEmpty() && bare(it) == bare(t) }
+        val fixed = if (corrected.isNotEmpty() && !shown(corrected, said, expected)) corrected else null
+        val alt = if (alternative.isNotEmpty() && !shown(alternative, said, corrected, expected)) alternative else null
         val head = squash(check.headline ?: "")
         var rest = ""
         if (why != null && why.isNotEmpty() && head.isNotEmpty() && head != why) {

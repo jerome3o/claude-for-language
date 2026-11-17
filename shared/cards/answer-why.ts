@@ -99,8 +99,11 @@ export function answerMore(check: AnswerWhyCheck | null | undefined, why: string
   const tips = (check.tips ?? []).map((t) => t.text.replace(/\s+/g, ' ').trim()).filter((t) => t && norm(t) !== whyKey && norm(firstSentence(t, ANSWER_WHY_MAX)) !== whyKey).slice(0, 4);
   const corrected = (check.corrected ?? '').trim();
   const alternative = (typeof check.alternative === 'string' ? check.alternative : check.alternative?.hanzi ?? '').trim();
-  const fixed = corrected && corrected !== said.trim() && corrected !== expected.trim() ? corrected : null;
-  const alt = alternative && alternative !== said.trim() && alternative !== corrected && alternative !== expected.trim() ? alternative : null;
+  // A line equal to one already there (sentence punctuation aside) isn't shown again.
+  const bare = (t: string) => t.trim().replace(/[。．.！!？?，,、…\s]+$/u, '');
+  const shown = (t: string, ...others: string[]) => others.some((o) => bare(o) !== '' && bare(o) === bare(t));
+  const fixed = corrected && !shown(corrected, said, expected) ? corrected : null;
+  const alt = alternative && !shown(alternative, said, corrected, expected) ? alternative : null;
   // The headline beyond the why (the rest after its first sentence, or all of it when the why had to be cut short).
   const head = (check.headline ?? '').replace(/\s+/g, ' ').trim();
   let rest = '';
