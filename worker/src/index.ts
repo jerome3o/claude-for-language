@@ -18,12 +18,16 @@ import * as content from './services/content';
 import { enqueueSentenceSet, enqueueSentenceTopUp, ensureSentenceClueAudio, enqueueClueAudio, ContentError } from './services/content';
 import { LISTEN_CONTEXT_MIN_SENTENCES, needsSentenceTopUp, topUpCount } from '@shared/study/listenContext';
 import { naturalSentenceCount } from '@shared/study/sentenceFocus';
+import { sentenceLearnerContext } from './services/sentence-learner-context';
 import { SENTENCE_TOPUP_MAX, SENTENCE_TOPUP_MIN, freshTopUpCount } from '@shared/study/sentenceHistory';
 
 /** An older app's "every sentence known" ask (reason 'known') gets this many more. */
 const SENTENCE_KNOWN_TOPUP_COUNT = 4;
-/** The Sentence round's top-ups stop once a word holds this many sentences (card sentence + set). */
-const SENTENCE_SET_MAX_TOTAL = 80;
+/**
+ * The Sentence round's / "Listen in context"'s top-ups stop once a word holds this many sentences (card
+ * sentence + set) — both use sentences up (each showing / round wants fresh ones), so the cap is generous.
+ */
+const SENTENCE_SET_MAX_TOTAL = 120;
 import { DEFAULT_STUDY_BUDGET, pickStudyBudgetUpdate, pickNewCardOrderUpdate, daysToIntroduce, isSourceDeckKey, SOURCE_DECK_KEYS } from '@shared/decks';
 import { parseVoiceGender, chatReadAloudVoice, chatReadAloudSpeed } from '@shared/chats';
 import { cachedConversationTTS } from './services/tts-cache';
@@ -1727,9 +1731,8 @@ app.post('/api/notes/:id/sentences/generate', async (c) => {
       ...existingRows.map((s) => s.hanzi),
     ];
 
-    const userRow = await c.env.DB.prepare('SELECT bio FROM users WHERE id = ?')
-      .bind(userId)
-      .first<{ bio: string | null }>();
+    // The learner's bio, known words and lesson structures (services/sentence-learner-context.ts).
+    const learner = await sentenceLearnerContext(c.env.DB, id, note.hanzi);
 
     const generated = await generateSentenceSet(
       c.env.ANTHROPIC_API_KEY,
@@ -1738,10 +1741,13 @@ app.post('/api/notes/:id/sentences/generate', async (c) => {
         pinyin: note.pinyin,
         english: note.english,
         existing: seen,
-        bio: userRow?.bio ?? null,
+        bio: learner.bio,
         customPrompt,
+        knownWords: learner.knownWords,
+        structures: learner.structures,
       },
-      count
+      count,
+      { fake: c.env.E2E_TEST_MODE === 'true' }
     );
 
     // "Keep existing" appends the new batch after what's already there; the
@@ -1754,6 +1760,7 @@ app.post('/api/notes/:id/sentences/generate', async (c) => {
           audioUrl: s.audio_url,
           focus: s.focus,
           focusNote: s.focus_note,
+          structure: s.structure ?? null,
         }))
       : [];
 
@@ -1766,6 +1773,7 @@ app.post('/api/notes/:id/sentences/generate', async (c) => {
         audioUrl: null,
         focus: s.focus,
         focusNote: s.focusNote,
+        structure: s.structure ?? null,
       })),
     ]);
 
@@ -1968,7 +1976,7 @@ app.post('/api/sentences/top-up', async (c) => {
         ? Math.round(asked)
         : why === 'known' ? SENTENCE_KNOWN_TOPUP_COUNT : freshTopUpCount(0);
       const count = Math.min(SENTENCE_SET_MAX_TOTAL - note.total, Math.max(SENTENCE_TOPUP_MIN, Math.min(SENTENCE_TOPUP_MAX, wanted)));
-      if (await enqueueSentenceTopUp(c.env, note.id, count, true)) queued.push(note.id);
+      if (await enqueueSentenceTopUp(c.env, note.id, count, true, why)) queued.push(note.id);
     }
     if (queued.length > 0) console.log('[sentence-set] Round top-up queued for', queued.length, 'notes (', why, ')');
     return c.json({ queued: queued.length, note_ids: queued });
@@ -7056,7 +7064,7 @@ async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | Ima
     } else if (queueName === 'sentence-set-queue') {
       // Pre-generate a note's sentence set so study never waits on the AI
       for (const message of batch.messages) {
-        const { noteId, count, kind, sentenceId, force, round, attempt: priorAttempt } = message.body as SentenceSetMessage;
+        const { noteId, count, kind, sentenceId, force, round, reason, attempt: priorAttempt } = message.body as SentenceSetMessage;
 
         // Clip-only messages from before tts-queue existed: hand them over (docs/AUDIO.md).
         if (kind === 'clue_audio' || kind === 'note_audio' || kind === 'sentence_audio') {
@@ -7091,7 +7099,7 @@ async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | Ima
               message.ack();
               continue;
             }
-            const bio = await db.getUserBioForNote(env.DB, noteId);
+            const learner = await sentenceLearnerContext(env.DB, noteId, note.hanzi);
             const generated = await generateSentenceSet(
               env.ANTHROPIC_API_KEY,
               {
@@ -7099,9 +7107,12 @@ async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | Ima
                 pinyin: note.pinyin,
                 english: note.english,
                 existing: [...(clue ? [clue] : []), ...current.map((s) => s.hanzi)],
-                bio,
+                bio: learner.bio,
+                knownWords: learner.knownWords,
+                structures: learner.structures,
               },
-              round ? Math.max(1, Math.min(count ?? SENTENCE_TOPUP_MIN, SENTENCE_SET_MAX_TOTAL - total)) : count ?? topUpCount(natural)
+              round ? Math.max(1, Math.min(count ?? SENTENCE_TOPUP_MIN, SENTENCE_SET_MAX_TOTAL - total)) : count ?? topUpCount(natural),
+              { fake: env.E2E_TEST_MODE === 'true' }
             );
             const known = new Set([...(clue ? [clue] : []), ...current.map((s) => s.hanzi)]);
             const fresh = generated.filter((s) => !known.has(s.hanzi));
@@ -7115,12 +7126,18 @@ async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | Ima
                 audioUrl: null,
                 focus: s.focus,
                 focusNote: s.focusNote,
+                structure: s.structure ?? null,
               }))
             );
             // The round's buffer is played within minutes: its clips go ahead of the backfill.
             await attachSentenceSetAudio(env, stored.filter((s) => !s.audio_url), round ? 'interactive' : 'batch');
             await db.markSentenceSetJobDone(env.DB, noteId);
             console.log('[Queue] Sentence top-up done:', noteId, fresh.length, 'added', round ? '(round)' : '');
+            await trackServer(
+              'server.sentence_topup',
+              { reason: reason ?? (round ? 'fresh' : 'listen'), added: fresh.length, structured: fresh.filter((s) => s.structure).length },
+              { env, userId: learner.userId }
+            ).catch(() => {});
             message.ack();
             continue;
           }
@@ -7133,7 +7150,7 @@ async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | Ima
             continue;
           }
 
-          const bio = await db.getUserBioForNote(env.DB, noteId);
+          const learner = await sentenceLearnerContext(env.DB, noteId, note.hanzi);
           const generated = await generateSentenceSet(
             env.ANTHROPIC_API_KEY,
             {
@@ -7141,9 +7158,12 @@ async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | Ima
               pinyin: note.pinyin,
               english: note.english,
               existing: note.sentence_clue ? [note.sentence_clue] : [],
-              bio,
+              bio: learner.bio,
+              knownWords: learner.knownWords,
+              structures: learner.structures,
             },
-            count
+            count,
+            { fake: env.E2E_TEST_MODE === 'true' }
           );
 
           const stored = await db.replaceNoteSentences(
@@ -7156,6 +7176,7 @@ async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | Ima
               audioUrl: null,
               focus: s.focus,
               focusNote: s.focusNote,
+              structure: s.structure ?? null,
             }))
           );
 

@@ -85,6 +85,7 @@ object AnalyticsEvents {
         ev("study.sentence_hidden", "study", listOf("reason", "where", "unhidden")),
         ev("study.sentence_topup_requested", "study", listOf("why", "count", "queued")),
         ev("study.listen_context", "study", listOf("sentences_played", "word_first_prompt_shown", "played_word_anyway")),
+        ev("study.listen_context_shown", "study", listOf("shown", "fresh", "heard_before")),
         ev("study.listen_more_sentences", "study", listOf("before", "after")),
         ev("study.tutor_note_practice", "study", listOf("count")),
         ev("study.tutor_model_play", "study", listOf("where", "which")),
@@ -380,6 +381,7 @@ object AnalyticsEvents {
         ev("auth.session_renewed", "auth", listOf("days_left"), server = true),
         ev("auth.unsynced_warning", "auth", listOf("reason", "choice", "reviews", "recordings", "other")),
         ev("server.sentence_practice_events", "server", listOf("count"), server = true),
+        ev("server.sentence_topup", "server", listOf("reason", "added", "structured"), server = true),
         ev("server.content_created", "server", listOf("kind", "count", "via"), server = true),
         ev("server.audio_lesson_built", "server", listOf("format", "minutes", "clips"), server = true),
         ev("server.podcast_transcribed", "server", listOf("ok", "stage", "minutes", "segments"), server = true),
@@ -426,6 +428,7 @@ object AnalyticsEvents {
         "reader.audio_block",
         "chat.listening_play",
         "study.listen_context",
+        "study.listen_context_shown",
     )
 
     /** Port of parseAnalyticsLevel (anything unknown = verbose). */

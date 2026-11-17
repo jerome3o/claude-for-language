@@ -1656,6 +1656,7 @@ export function StudyCard({
             <ListenContext
               key={card.id}
               noteId={card.note.id}
+              word={card.note.hanzi}
               cardSentence={{
                 hanzi: card.note.sentence_clue,
                 pinyin: card.note.sentence_clue_pinyin,

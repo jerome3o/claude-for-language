@@ -16,6 +16,7 @@ import Dexie, { type Table } from 'dexie';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useMemo } from 'react';
 import {
+  LISTEN_CONTEXT_MODE,
   SENTENCE_TOPUP_RETRY_MS,
   sentenceHistoryKey,
   sentenceStats,
@@ -83,6 +84,15 @@ async function addEvent(e: Omit<SentencePracticeEvent, 'id' | 'at'>): Promise<Se
 /** A take on a sentence was judged (round or row; mode listen = Sentences by ear). `rowKey` = the list's row key (`clue:<noteId>` or the set id). */
 export function recordSentenceAttempt(noteId: string, rowKey: string, mode: SentencePracticeMode, result: SentencePracticeResult): void {
   void addEvent({ note_id: noteId, sentence_key: sentenceHistoryKey(rowKey), kind: 'attempt', mode, result, reason: null });
+}
+
+/**
+ * Played on a listening card's "Listen in context" question — once per sentence per showing (the caller keeps
+ * the showing's set): every device then knows how often / how lately it was heard there, and the next showing
+ * picks fresh ones (shared/study/listenContext.ts `pickListenRows`).
+ */
+export function recordSentenceHeard(noteId: string, rowKey: string): void {
+  void addEvent({ note_id: noteId, sentence_key: sentenceHistoryKey(rowKey), kind: 'heard', mode: LISTEN_CONTEXT_MODE, result: null, reason: null });
 }
 
 /** "Stop showing this sentence". Returns the event (Undo = `unhideSentence`). */

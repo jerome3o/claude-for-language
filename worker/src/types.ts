@@ -186,6 +186,8 @@ export interface SentenceSetMessage {
    * at interactive priority. Without it, a listening top-up (only below five sentences).
    */
   round?: boolean;
+  /** For a round 'top_up': why it was asked (`server.sentence_topup`); "Listen in context" asks 'fresh' too. */
+  reason?: 'fresh' | 'few' | 'known';
   /** For 'sentence_audio': the note_sentences row to regenerate. */
   sentenceId?: string;
   /** For 'clue_audio': replace existing audio rather than only filling a gap. */
@@ -381,6 +383,8 @@ export interface NoteSentence {
   focus: string | null;
   /** Short learner-facing note explaining why this sentence is in the set */
   focus_note: string | null;
+  /** The learner's lesson structure it uses ("除了…还…", migration 0151); null / absent = none */
+  structure?: string | null;
   /** JSON SentenceExplanation, generated on demand and cached (see 0055) */
   explanation: string | null;
   created_at: string;

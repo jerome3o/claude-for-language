@@ -125,6 +125,7 @@ export const ANALYTICS_EVENTS = {
   'study.sentence_hidden': e('study', '"Stop showing this sentence" on an example sentence (long-press / ⋯ in the Sentence round or the answer side\'s list): reason = weird | wrong | not_useful | too_rare; where = round | list. "Show again" = unhidden.', ['reason', 'where', 'unhidden']),
   'study.sentence_topup_requested': e('study', 'A word asked for more example sentences: fewer than four left in rotation (why = few) or fewer than six fresh ones — never practised — left (why = fresh); count = sentences asked for; queued = asked now (false = waiting for a connection).', ['why', 'count', 'queued']),
   'study.listen_context': e('study', 'A listening card answered: its "Listen in context" question side — sentences played (incl. the auto-played first one), whether "Try the sentences first?" was shown, whether he chose "Play the word anyway".', ['sentences_played', 'word_first_prompt_shown', 'played_word_anyway']),
+  'study.listen_context_shown': e('study', 'A listening card\'s "Listen in context" question showed its sentences: how many, how many never heard there before (fresh), how many heard before (docs/STUDY_SESSION.md "Listen in context").', ['shown', 'fresh', 'heard_before']),
   'study.listen_more_sentences': e('study', '"+ More sentences" on a listening card\'s question side (sentences before / after).', ['before', 'after']),
   'study.tutor_note_practice': e('study', 'Practised cards from a tutor note.', ['count']),
   'study.tutor_model_play': e('study', "Played the tutor's model recording on a tutor note, or their own take beside it.", ['where', 'which']),
@@ -453,6 +454,7 @@ export const ANALYTICS_EVENTS = {
 
   // ── server (written by the worker) ─────────────────────────────────────
   'server.sentence_practice_events': e('server', 'Example-sentence practice events stored (🎤 attempts, hide / show again; docs/STUDY_SESSION.md "Sentence practice history").', ['count'], { server: true }),
+  'server.sentence_topup': e('server', 'A sentence top-up job added example sentences to a word\'s set: reason (fresh | few | known | listen), added = sentences stored, structured = how many use one of the learner\'s lesson structures.', ['reason', 'added', 'structured'], { server: true }),
   'server.content_created': e('server', 'A deck / notes / lesson / reader was created through the API.', ['kind', 'count', 'via'], { server: true }),
   'server.audio_lesson_built': e('server', 'An audio lesson finished rendering.', ['format', 'minutes', 'clips'], { server: true }),
   'server.podcast_transcribed': e('server', 'A podcast episode finished transcribing, or failed (docs/PODCASTS.md; stage = where it failed).', ['ok', 'stage', 'minutes', 'segments'], { server: true }),
@@ -511,6 +513,7 @@ export const VERBOSE_ONLY_EVENTS: readonly AnalyticsEventName[] = [
   'reader.audio_block',
   'chat.listening_play',
   'study.listen_context',
+  'study.listen_context_shown',
 ];
 
 export function parseAnalyticsLevel(raw: unknown): AnalyticsLevel {

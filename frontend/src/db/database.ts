@@ -483,6 +483,8 @@ export interface LocalNoteSentence {
   audio_url: string | null;
   focus: string | null;
   focus_note: string | null;
+  /** The learner's lesson structure the sentence uses ("除了…还…"; generated since Nov 2026), null / absent = none */
+  structure?: string | null;
   /** JSON SentenceBriefExplanation, cached after the first "explain" tap */
   explanation: string | null;
   created_at: string;

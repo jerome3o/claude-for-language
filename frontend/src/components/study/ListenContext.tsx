@@ -7,7 +7,6 @@ import {
   generateAndStoreSentenceSet,
   awaitSentenceAudio,
   ensureSentenceAudio,
-  topUpListeningSentences,
   getCachedClueTranslation,
   getClueTranslation,
   SENTENCE_AUDIO_COMING_LABEL,
@@ -15,6 +14,8 @@ import {
 import { isAudioCached } from '../../services/audioCache';
 import { fetchNoteSentences } from '../../api/client';
 import { track } from '../../services/analytics';
+import { recordSentenceHeard, requestMoreSentences, useSentenceStats } from '../../services/sentencePractice';
+import { lastShownListenKeys, newListenSeed, rememberShownListenKeys } from '../../services/listenShown';
 import './listenContext.css';
 import {
   LISTEN_CONTEXT_COPY as COPY,
@@ -23,20 +24,30 @@ import {
   listenContextRows,
   listenRowLabel,
   listenRowState,
+  listenShownProps,
+  listenShownRows,
+  listenTopUpWant,
   moreSentencesCount,
   listenNaturalCount,
+  pickListenRows,
   wordTapAction,
   type ListenRow,
   type ListenRowState,
 } from '@shared/study/listenContext';
+import { sentenceHistoryKey } from '@shared/study/sentenceHistory';
 
 /**
  * "Listen in context" — the question side of a listening card (audio → hanzi;
  * docs/STUDY_SESSION.md, rules in shared/study/listenContext.ts, Lab
  * `ui/study/ListenContext.kt`).
  *
- * The note's sentences — the card's own sentence first, then the generated
- * set — as AUDIO-ONLY rows: ▶, the row's number, ✓ once heard. The Chinese,
+ * A few of the note's sentences (the card's own and the generated set alike),
+ * picked fresh for this showing and shuffled (`pickListenRows`: never heard in
+ * context first, then the least heard; a new order each showing, the same while
+ * the card is up), as AUDIO-ONLY rows: ▶, the row's number, ✓ once heard, a dot
+ * while a never-heard one waits. Each sentence played is recorded once per
+ * showing (`recordSentenceHeard`); a showing that leaves fewer than four unheard
+ * asks the sentence top-up for more (`listenTopUpWant` → `requestMoreSentences`). The Chinese,
  * pinyin and English stay hidden (they would give the answer away); EN shows
  * just the English. "+ More sentences" writes more (online). At the bottom
  * "▶ The word": before any sentence was played it first asks "Try the
@@ -56,6 +67,8 @@ export interface ListenContextStats {
 
 export interface ListenContextProps {
   noteId: string;
+  /** The note's hanzi (simple sentences are judged against it). */
+  word?: string | null;
   /** The card's own example sentence (on the note). */
   cardSentence: { hanzi?: string | null; pinyin?: string | null; translation?: string | null; audio_url?: string | null } | null;
   /** Online and not forced offline: clips stream, ensure-audio and generation are possible. */
@@ -80,6 +93,7 @@ export interface ListenContextProps {
 
 export function ListenContext({
   noteId,
+  word,
   cardSentence,
   online,
   playAudio,
@@ -94,6 +108,15 @@ export function ListenContext({
 }: ListenContextProps) {
   const [sentences, setSentences] = useState<LocalNoteSentence[]>([]);
   const [loaded, setLoaded] = useState(false);
+  // Local rows read and, when there were none, the server asked once: the showing's pick can be made.
+  const [settled, setSettled] = useState(false);
+  // This showing: its seed (a new order each showing), the picked keys (frozen while the card is up), the
+  // never-heard ones among them, rows added by "+ More sentences", the keys recorded as heard.
+  const [seed] = useState(() => newListenSeed(noteId));
+  const [pick, setPick] = useState<{ keys: string[]; fresh: Set<string> } | null>(null);
+  const [added, setAdded] = useState<string[]>([]);
+  const heardRecorded = useRef<Set<string>>(new Set());
+  const stats = useSentenceStats(noteId);
   // Which clips are on the device (only matters offline).
   const [cached, setCached] = useState<Record<string, boolean>>({});
   // Heard on this card — by the sentence's text, so a regenerated set keeps its ✓s.
@@ -116,6 +139,7 @@ export function ListenContext({
   useEffect(() => {
     let live = true;
     setLoaded(false);
+    setSettled(false);
     setSentences([]);
     void (async () => {
       const local = await getLocalNoteSentences(noteId).catch(() => [] as LocalNoteSentence[]);
@@ -125,14 +149,16 @@ export function ListenContext({
       if (local.length === 0 && online) {
         try {
           const remote = await fetchNoteSentences(noteId);
-          if (!live || remote.length === 0) return;
-          const stored = await putLocalNoteSentences(noteId, remote);
-          cacheSentenceAudio(stored);
-          if (live) setSentences(stored);
+          if (live && remote.length > 0) {
+            const stored = await putLocalNoteSentences(noteId, remote);
+            cacheSentenceAudio(stored);
+            if (live) setSentences(stored);
+          }
         } catch {
           // The (empty) local set is fine.
         }
       }
+      if (live) setSettled(true);
     })();
     return () => {
       live = false;
@@ -140,16 +166,27 @@ export function ListenContext({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [noteId]);
 
-  const rows = useMemo(
+  const allRows = useMemo(
     () => listenContextRows(noteId, cardSentence, sentences),
     [noteId, cardSentence, sentences],
   );
 
-  // Background top-up: fewer than five sentences in total → more queued (once per note per session).
+  // The showing's sentences: picked once the rows and the heard history are known, then frozen (a sentence
+  // played now must not drop out of the list). The set is remembered (never the same set twice in a row), the
+  // numbers go out as study.listen_context_shown, and a showing leaving fewer than four unheard asks for more.
   useEffect(() => {
-    if (!loaded || !online) return;
-    topUpListeningSentences([noteId]).catch(() => {});
-  }, [loaded, online, noteId]);
+    if (pick || !settled || stats === null) return;
+    const p = pickListenRows(allRows, stats, { seed, word, previous: lastShownListenKeys(noteId) });
+    const keys = p.rows.map((r) => r.key);
+    const heardCount = (key: string) => stats.get(sentenceHistoryKey(key))?.heard?.count ?? 0;
+    setPick({ keys, fresh: new Set(keys.filter((k) => heardCount(k) === 0)) });
+    if (keys.length > 0) rememberShownListenKeys(noteId, keys);
+    track('study.listen_context_shown', listenShownProps(p));
+    const want = listenTopUpWant(p);
+    if (want) requestMoreSentences(noteId, want);
+  }, [pick, settled, stats, allRows, seed, word, noteId]);
+
+  const rows = useMemo(() => (pick ? listenShownRows(allRows, pick.keys, added) : []), [pick, allRows, added]);
 
   // Which clips this device holds (offline they are the only ones that play).
   const urlsKey = rows.map((r) => r.audioUrl ?? '').join('|');
@@ -180,8 +217,13 @@ export function ListenContext({
     onStats?.({ sentencesPlayed: played.size, wordFirstPromptShown: promptShown, playedWordAnyway: anyway });
   }, [played, promptShown, anyway, onStats]);
 
-  const markPlayed = (row: ListenRow) =>
+  const markPlayed = (row: ListenRow) => {
     setPlayed((prev) => (prev.has(row.hanzi) ? prev : new Set(prev).add(row.hanzi)));
+    if (!heardRecorded.current.has(row.key)) {
+      heardRecorded.current.add(row.key);
+      recordSentenceHeard(noteId, row.key);
+    }
+  };
 
   const playRow = useCallback(
     (row: ListenRow, state: ListenRowState) => {
@@ -227,7 +269,7 @@ export function ListenContext({
   const autoplayedRef = useRef(false);
   const cacheKnown = online || rows.every((r) => !r.audioUrl || r.audioUrl in cached);
   useEffect(() => {
-    if (!autoplay || autoplayedRef.current || !loaded || !cacheKnown) return;
+    if (!autoplay || autoplayedRef.current || !loaded || !pick || !cacheKnown) return;
     autoplayedRef.current = true;
     onAutoplayed?.();
     const choice = listenAutoplay(true, states);
@@ -237,7 +279,7 @@ export function ListenContext({
       (onAutoplayWord ?? onPlayWord)();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoplay, loaded, cacheKnown]);
+  }, [autoplay, loaded, pick, cacheKnown]);
 
 
   const playWord = () => {
@@ -296,10 +338,15 @@ export function ListenContext({
     setError(null);
     const forNote = noteId;
     try {
-      const stored = await generateAndStoreSentenceSet(noteId, { count: moreSentencesCount(listenNaturalCount(rows)), keepExisting: true });
+      const stored = await generateAndStoreSentenceSet(noteId, { count: moreSentencesCount(listenNaturalCount(allRows)), keepExisting: true });
       if (noteRef.current !== forNote) return;
+      // The new sentences join this showing after the ones already up (they are all unheard).
+      const before = new Set(allRows.map((r) => r.key));
+      const fresh = listenContextRows(noteId, cardSentence, stored).filter((r) => !before.has(r.key) && !r.contrived).map((r) => r.key);
       setSentences(stored);
-      track('study.listen_more_sentences', { before: rows.length, after: listenContextRows(noteId, cardSentence, stored).length });
+      setAdded((prev) => [...prev, ...fresh]);
+      setPick((prev) => (prev ? { ...prev, fresh: new Set([...prev.fresh, ...fresh]) } : prev));
+      track('study.listen_more_sentences', { before: rows.length, after: rows.length + fresh.length });
     } catch (err) {
       console.error('[ListenContext] More sentences failed:', err);
       if (noteRef.current === forNote) setError(COPY.moreFailed);
@@ -323,8 +370,15 @@ export function ListenContext({
               const fetched = clueEnglish[row.key];
               const english = row.translation
                 ?? (fetched === 'busy' ? '…' : fetched === 'failed' ? COPY.translationOffline : fetched ?? null);
+              const isNew = !heard && !!pick?.fresh.has(row.key);
               return (
-                <li key={row.key} className={`listen-row listen-row--${state}${heard ? ' listen-row--played' : ''}`} data-testid="listen-row">
+                <li
+                  key={row.key}
+                  className={`listen-row listen-row--${state}${heard ? ' listen-row--played' : ''}`}
+                  data-testid="listen-row"
+                  data-key={row.key}
+                  data-fresh={isNew ? 'true' : undefined}
+                >
                   <div className="listen-row-line">
                     <button
                       type="button"
@@ -336,6 +390,7 @@ export function ListenContext({
                     >
                       <span className="listen-row-icon" aria-hidden="true">{isRowPlaying ? '■' : '▶'}</span>
                       <span className="listen-row-num">{i + 1}</span>
+                      {isNew && <span className="listen-row-new" title={COPY.newSentence} aria-label={COPY.newSentence} data-testid="listen-row-new" />}
                       <span className="listen-row-status">
                         {wait
                           ? SENTENCE_AUDIO_COMING_LABEL
@@ -372,7 +427,7 @@ export function ListenContext({
             })}
           </ol>
         </>
-      ) : loaded ? (
+      ) : pick ? (
         <p className="listen-context-empty">{COPY.noSentences}</p>
       ) : null}
 

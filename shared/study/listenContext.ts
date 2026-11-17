@@ -363,6 +363,8 @@ export const LISTEN_CONTEXT_COPY = {
   promptAnyway: 'Play the word anyway',
   promptSentence: 'Play a sentence',
   noSentences: 'No example sentences yet.',
+  /** The dot on a sentence never heard in context before (until it is played). */
+  newSentence: 'New sentence',
   /** EN on the card's own sentence when the note has no English and it can't be fetched now. */
   translationOffline: 'Translation needs a connection',
 } as const;

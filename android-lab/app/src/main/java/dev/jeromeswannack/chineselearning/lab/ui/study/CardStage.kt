@@ -120,6 +120,7 @@ import dev.jeromeswannack.chineselearning.lab.ui.fx.SparkBurst
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Palette
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 import dev.jeromeswannack.chineselearning.lab.ui.kit.PrimaryPill
@@ -266,7 +267,9 @@ fun CardStage(
         if (!autoplay) return@LaunchedEffect
         if (view.card.cardType == CardTypes.AUDIO_TO_HANZI && !revealed) {
             delay(250)
-            val rows = listenRows(currentView)
+            // The showing's sentences are picked once the heard history is read (below; a moment at most).
+            kotlinx.coroutines.withTimeoutOrNull(2_000) { androidx.compose.runtime.snapshotFlow { listen.shownKeys }.first { it != null } }
+            val rows = listenShown(currentView, listen)
             val states = listenStates(rows, currentView, currentUi.aiAvailable)
             when (val a = ListenContext.autoplay(true, states)) {
                 is ListenContext.Autoplay.Sentence -> listenPlay(rows[a.index], states[a.index], listen, actions, this, isCurrent)
@@ -315,6 +318,23 @@ fun CardStage(
         if (!ok) dev.jeromeswannack.chineselearning.lab.data.sentences.SentencePracticeStore.markEmpty()
     }
     val noteStats = remember(sentenceEvents, note.id) { sentenceEvents?.let { SentenceHistory.stats(it, note.id) } }
+    // Listen in context (ListenContextUi.kt, core ListenContext.pick): this showing's sentences — fresh ones first,
+    // shuffled with the showing's seed — picked once the heard history is known, then frozen; each one played is
+    // recorded once (a `heard` event); a showing leaving fewer than four unheard asks for more in the background.
+    SideEffect {
+        listen.onHeard = if (labApp == null) null else { key -> dev.jeromeswannack.chineselearning.lab.data.sentences.SentencePracticeStore.recordHeard(labApp, note.id, key) }
+    }
+    LaunchedEffect(view.presentation, noteStats != null) {
+        val stats = noteStats ?: return@LaunchedEffect
+        if (view.card.cardType != CardTypes.AUDIO_TO_HANZI || listen.shownKeys != null) return@LaunchedEffect
+        val shownStore = dev.jeromeswannack.chineselearning.lab.data.sentences.ListenShownStore
+        freezeListenPick(currentView, listen, stats, shownStore.last(labApp, note.id)) { pick ->
+            if (pick.rows.isNotEmpty()) shownStore.remember(labApp, note.id, pick.rows.map { it.key })
+            dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("study.listen_context_shown", ListenContext.shownProps(pick))
+            val want = ListenContext.topUpWant(pick.unheardLeft)
+            if (want != null && labApp != null) dev.jeromeswannack.chineselearning.lab.data.sentences.SentencePracticeStore.requestMore(labApp, note.id, want.reason, want.count)
+        }
+    }
     val sentencesByEar by StudyPrefs.get(appCtx).sentencesByEar.collectAsState()
     // The listening card's round asks only for the English sentences that carry the word (core SentenceRound.pickListen).
     val listenRound = view.card.cardType == CardTypes.AUDIO_TO_HANZI

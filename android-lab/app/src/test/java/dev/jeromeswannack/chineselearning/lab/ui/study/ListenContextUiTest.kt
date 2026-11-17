@@ -19,13 +19,15 @@ import dev.jeromeswannack.chineselearning.lab.testing.LabScreenshotTest
 import dev.jeromeswannack.chineselearning.lab.testing.Samples
 import dev.jeromeswannack.chineselearning.lab.ui.theme.LabTheme
 import org.junit.Assert.assertEquals
+import org.junit.After
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 
 /**
- * "Listen in context" — the listening card's question side (docs/STUDY_SESSION.md): the note's
- * sentences as audio-only rows (the card sentence first, no Chinese on screen, EN = only the
- * English), "▶ The word" at the bottom with "Try the sentences first?" before any sentence was
+ * "Listen in context" — the listening card's question side (docs/STUDY_SESSION.md): a few of the
+ * note's sentences, picked fresh and shuffled per showing (core ListenContext.pick, the seed pinned
+ * here), as audio-only rows (no Chinese on screen, EN = only the English, a dot on never-heard ones), "▶ The word" at the bottom with "Try the sentences first?" before any sentence was
  * heard, the first sentence auto-played, offline rows without a clip, + More sentences, and the
  * `study.listen_context` numbers on reveal. Screenshots `study-listen-*`.
  */
@@ -47,6 +49,14 @@ class ListenContextUiTest : LabScreenshotTest() {
         return CardView(card, note, sentences, CardScheduler.intervalPreviews(state, now), emptyList(), 1, "HSK 3", true, cachedClips = cached)
     }
 
+    @Before fun pinSeed() { ListenSeeds.fixed = "ui-test" }
+    @After fun unpinSeed() { ListenSeeds.fixed = null }
+
+    /** The showing's rows in their order (the pinned seed, nothing heard yet). */
+    private fun order(v: CardView = view()): List<ListenContext.Row> = ListenContext.pick(listenRows(v), emptyMap(), "ui-test", v.note.hanzi).rows
+    private fun indexOf(key: String, v: CardView = view()) = order(v).indexOfFirst { it.key == key }
+    private val clueKey = "clue:${Samples.note.id}"
+
     private fun actions() = StudyActions(
         onPlay = { key, text -> played += key to text },
         onPlayWord = { wordPlays++ },
@@ -65,21 +75,26 @@ class ListenContextUiTest : LabScreenshotTest() {
         compose.onRoot().captureRoboImage("screenshots/$name.png")
     }
 
-    @Test fun audioOnlyRowsCardSentenceFirst() {
+    @Test fun audioOnlyRowsFreshAndShuffled() {
         screen()
-        // The card sentence + three set rows; none of the Chinese, pinyin or English on screen.
-        assertEquals(4, compose.onAllNodesWithTag(LISTEN_ROW_TAG).fetchSemanticsNodes().size)
+        // The card sentence + the two natural set rows (the contrived one never comes), in the showing's order;
+        // none of the Chinese, pinyin or English on screen; all three new.
+        assertEquals(3, compose.onAllNodesWithTag(LISTEN_ROW_TAG).fetchSemanticsNodes().size)
+        assertEquals(setOf(clueKey, "s1", "s2"), order().map { it.key }.toSet())
+        assertEquals(3, compose.onAllNodesWithTag(LISTEN_NEW_TAG).fetchSemanticsNodes().size)
         compose.onNodeWithText(ListenContext.Copy.HEADING.uppercase()).assertExists()
         compose.onNodeWithText("你周末打算做什么？", substring = true).assertDoesNotExist()
         compose.onNodeWithText("我打算学中文。", substring = true).assertDoesNotExist()
         compose.onNodeWithText("What are you planning", substring = true).assertDoesNotExist()
         shot("study-listen-01-question")
-        // ▶ row 1 plays the card sentence's clip and marks it heard.
-        compose.onNodeWithContentDescription("Sentence 1").performClick()
+        // ▶ on the card sentence's row plays its clip, marks it heard and takes its dot away.
+        val clue = indexOf(clueKey) + 1
+        compose.onNodeWithContentDescription("Sentence $clue").performClick()
         assertEquals(clueClip to "你周末打算做什么？", played.single())
-        compose.onNodeWithContentDescription("Sentence 1, played").assertExists()
-        // EN on row 2: just its English.
-        compose.onAllNodesWithTag(LISTEN_EN_TAG)[1].performClick()
+        compose.onNodeWithContentDescription("Sentence $clue, played").assertExists()
+        assertEquals(2, compose.onAllNodesWithTag(LISTEN_NEW_TAG).fetchSemanticsNodes().size)
+        // EN on s1's row: just its English.
+        compose.onAllNodesWithTag(LISTEN_EN_TAG)[indexOf("s1")].performClick()
         compose.onNodeWithText("I plan to study Chinese.").assertExists()
         compose.onNodeWithText("我打算学中文。", substring = true).assertDoesNotExist()
         shot("study-listen-03-after-a-sentence")
@@ -102,8 +117,8 @@ class ListenContextUiTest : LabScreenshotTest() {
         )
         compose.setContent { LabTheme(dark = true) { StudyScreen(ui, playingKey = null, actions = acts, autoplay = false) } }
         compose.mainClock.advanceTimeBy(600)
-        assertEquals(4, compose.onAllNodesWithTag(LISTEN_EN_TAG).fetchSemanticsNodes().size)
-        compose.onAllNodesWithTag(LISTEN_EN_TAG)[0].performClick()
+        assertEquals(3, compose.onAllNodesWithTag(LISTEN_EN_TAG).fetchSemanticsNodes().size)
+        compose.onAllNodesWithTag(LISTEN_EN_TAG)[indexOf(clueKey, v)].performClick()
         compose.mainClock.advanceTimeBy(600)
         assertEquals(listOf("你周末打算做什么？"), asked)
         compose.onNodeWithText("What are you planning to do this weekend?").assertExists()
@@ -118,7 +133,7 @@ class ListenContextUiTest : LabScreenshotTest() {
         val ui = StudyUi(StudyPhase.Showing(v), Samples.counts, SessionStats(), online = false)
         compose.setContent { LabTheme { StudyScreen(ui, playingKey = null, actions = actions(), autoplay = false) } }
         compose.mainClock.advanceTimeBy(600)
-        compose.onAllNodesWithTag(LISTEN_EN_TAG)[0].performClick()
+        compose.onAllNodesWithTag(LISTEN_EN_TAG)[indexOf(clueKey, v)].performClick()
         compose.mainClock.advanceTimeBy(600)
         compose.onNodeWithText(ListenContext.Copy.TRANSLATION_OFFLINE).assertExists()
     }
@@ -146,25 +161,34 @@ class ListenContextUiTest : LabScreenshotTest() {
         screen()
         compose.onNodeWithTag(PLAY_WORD_TAG).performScrollTo().performClick()
         compose.onNodeWithText(ListenContext.Copy.PROMPT_SENTENCE).performClick()
-        assertEquals(clueClip, played.single().first)
+        // The first row of the showing (s2 has no clip yet: the device voice while it is made).
+        assertEquals(order().first().audioUrl, played.single().first)
         assertEquals(0, wordPlays)
         compose.onNodeWithText(ListenContext.Copy.PROMPT_TITLE).assertDoesNotExist()
     }
 
     @Test fun autoplayIsTheFirstSentence() {
         screen(autoplay = true)
-        assertEquals(clueClip to "你周末打算做什么？", played.firstOrNull())
+        // The first row of the showing with a clip.
+        val first = order().indexOfFirst { it.audioUrl != null }
+        assertEquals(order()[first].let { it.audioUrl to it.hanzi }, played.firstOrNull())
         assertEquals(0, wordPlays)
-        compose.onNodeWithContentDescription("Sentence 1, played").assertExists()
+        compose.onNodeWithContentDescription("Sentence ${first + 1}, played").assertExists()
+    }
+
+    @Test fun aNewOrderEveryShowing() {
+        val orders = (1..12).map { n -> ListenContext.pick(listenRows(view()), emptyMap(), "showing-$n", Samples.note.hanzi).rows.map { it.key } }
+        assertTrue(orders.toSet().size > 2)
+        assertTrue(orders.any { it.first() != clueKey })
     }
 
     @Test fun offlineOnlyCachedClipsPlay() {
         screen(online = false, cached = setOf(s1Clip))
-        compose.onNodeWithContentDescription("Sentence 1").assertIsNotEnabled()
-        compose.onNodeWithContentDescription("Sentence 3").assertIsNotEnabled()
-        assertTrue(compose.onAllNodesWithText(ListenContext.Copy.UNAVAILABLE).fetchSemanticsNodes().size == 3)
+        compose.onNodeWithContentDescription("Sentence ${indexOf(clueKey) + 1}").assertIsNotEnabled()
+        compose.onNodeWithContentDescription("Sentence ${indexOf("s2") + 1}").assertIsNotEnabled()
+        assertTrue(compose.onAllNodesWithText(ListenContext.Copy.UNAVAILABLE).fetchSemanticsNodes().size == 2)
         compose.onNodeWithTag(LISTEN_MORE_TAG).assertDoesNotExist()
-        compose.onNodeWithContentDescription("Sentence 2").performClick()
+        compose.onNodeWithContentDescription("Sentence ${indexOf("s1") + 1}").performClick()
         assertEquals(s1Clip, played.single().first)
         shot("study-listen-04-offline")
     }
@@ -180,7 +204,7 @@ class ListenContextUiTest : LabScreenshotTest() {
 
     @Test fun darkQuestion() {
         screen(dark = true)
-        compose.onNodeWithContentDescription("Sentence 2").performClick()
+        compose.onNodeWithContentDescription("Sentence ${indexOf("s1") + 1}").performClick()
         compose.onAllNodesWithTag(LISTEN_EN_TAG)[0].performClick()
         shot("study-listen-05-dark")
     }
