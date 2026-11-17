@@ -83,10 +83,11 @@ class NavRulesTest {
         assertEquals(TabId.STUDENTS, NavRules.activeTab(NavRules.tabsFor(withStudents), "/connections/1"))
     }
 
-    /** The learner's ✦ Claude tab (Jerome, Nov 2026): /claude, between Chats and Progress; learners only. */
-    @Test fun claudeTabIsTheLearnersOnly() {
-        assertEquals(NavRules.CLAUDE, NavRules.tabsFor(NavRole())[2])
-        assertEquals("/claude", NavRules.CLAUDE.to)
+    /** The learner's ＋ Add tab (docs/ADD_TAB.md): /add, between Chats and Progress; learners only. */
+    @Test fun addTabIsTheLearnersOnly() {
+        assertEquals(NavRules.ADD, NavRules.tabsFor(NavRole())[2])
+        assertEquals("/add", NavRules.ADD.to)
+        assertEquals("Add", NavRules.ADD.label)
         listOf(NavRole(hasStudents = true), NavRole(hasStudents = true, isTutorOnly = true), NavRole(isTutorAccount = true)).forEach { role ->
             assertFalse(role.toString(), NavRules.tabsFor(role).any { it.id == TabId.ADD })
         }

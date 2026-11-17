@@ -450,7 +450,9 @@ export function AddPage() {
     track('add.open', {});
     preloadSegmenter();
   }, []);
-  useEffect(() => saveResults(results), [results]);
+  useEffect(() => {
+    saveResults(results);
+  }, [results]);
   // A photo's object URL goes when another photo replaces it (or the page closes) — the photo is never kept.
   const photoUrl = photo?.url;
   useEffect(() => () => {

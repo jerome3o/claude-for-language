@@ -48,6 +48,7 @@ class NavStackTest {
             ) {}
             composable(Routes.route("/chats/claude/{id}")) {}
             composable(Routes.route("/claude")) {}
+            composable(Routes.route("/add")) {}
             composable(Routes.route("/connections")) {}
             composable(Routes.route("/progress")) {}
             composable(Routes.route("/more")) {}
