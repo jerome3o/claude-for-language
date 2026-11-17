@@ -1,6 +1,5 @@
 package dev.jeromeswannack.chineselearning.lab.ui.study
 
-import dev.jeromeswannack.chineselearning.lab.data.api.choiceCorrection
 import dev.jeromeswannack.chineselearning.lab.ui.kit.studyCardTransition
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
@@ -401,7 +400,6 @@ fun StudyRoute(
                 passActions?.onPassUndo?.invoke()
             },
             answerCheck = { input -> app.repo.api.checkLessonAnswer(input, app.cache, app.online.value) },
-            choiceCorrection = { input -> app.repo.api.choiceCorrection(input, app.cache, app.online.value) },
         ),
         pass = pass,
     )
