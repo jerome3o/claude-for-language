@@ -75,6 +75,10 @@ class ExerciseEnv(
     val sentenceFeedback: suspend (words: List<String>, task: String?, sentence: String) -> SentenceFeedback = { _, _, _ -> throw java.io.IOException("offline") },
     /** Claude's check of a self-assessed answer (device cache, then the API); throws when there is none (AnswerCheckViews.kt). */
     val answerCheck: AnswerCheckFn = { throw dev.jeromeswannack.chineselearning.lab.data.api.AnswerCheckUnavailable("offline", offline = true) },
+    /** A "which sentence is wrong?" choice's correction for an older lesson (device cache, then the API); throws offline / busy (core ChoiceMistake). */
+    val choiceCorrection: suspend (dev.jeromeswannack.chineselearning.lab.core.ChoiceMistake.Input) -> dev.jeromeswannack.chineselearning.lab.data.api.ChoiceCorrectionReply = {
+        throw dev.jeromeswannack.chineselearning.lab.data.api.AnswerCheckUnavailable("offline", offline = true)
+    },
     /** 💬 Ask about this: one follow-up reply about a checked answer; throws offline / busy. */
     val askAboutAnswer: suspend (
         input: dev.jeromeswannack.chineselearning.lab.core.AnswerCheckInput,

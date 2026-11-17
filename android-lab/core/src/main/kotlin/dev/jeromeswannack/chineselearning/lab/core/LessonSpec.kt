@@ -65,6 +65,8 @@ data class ChoiceExercise(
     val options: List<LessonSentence> = emptyList(),
     val correct: Int = 0,
     val explanation: String? = null,
+    /** A "which sentence is wrong?" choice: the right version of the wrong option — spoken instead of it (ChoiceMistake). */
+    val correction: LessonSentence? = null,
 ) : LessonExercise {
     override val type get() = "choice"
 }
@@ -387,7 +389,8 @@ object Lessons {
                 LessonPatterns.noteView(ex.body, ex.sentences, ex.patterns)?.let { texts += LessonPatternIntro.texts(it) }
             }
             is ScrambleExercise -> texts += ex.correctOrder.joinToString("")
-            is ChoiceExercise -> ex.options.forEach { texts += it.hanzi }
+            // Every option but a "which is wrong?" choice's mistake, then its correction (ChoiceMistake).
+            is ChoiceExercise -> texts += ChoiceMistake.ttsTexts(ex)
             is TranslateExercise -> texts += ex.referenceHanzi
             is MatchExercise -> ex.pairs.forEach { texts += it.hanzi }
             is DescribeImageExercise -> texts += ex.referenceHanzi

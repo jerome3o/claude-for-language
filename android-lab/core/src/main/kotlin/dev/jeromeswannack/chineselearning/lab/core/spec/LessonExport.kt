@@ -7,6 +7,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import dev.jeromeswannack.chineselearning.lab.core.ChoiceMistake
 import dev.jeromeswannack.chineselearning.lab.core.JudgeGap
 import dev.jeromeswannack.chineselearning.lab.core.LessonJson
 import dev.jeromeswannack.chineselearning.lab.core.LessonPattern
@@ -143,6 +144,9 @@ object LessonExport {
 
     private fun optionAt(ex: JsonObject, index: Int?): JsonObject? = index?.let { objs(ex, "options").getOrNull(it) }
 
+    /** A choice's own `correction` with non-blank hanzi (shared/lesson/choiceMistake.ts `specChoiceCorrection`). */
+    private fun choiceCorrection(ex: JsonObject): JsonObject? = o(ex, "correction")?.takeIf { JsJson.trim(str(it["hanzi"]) ?: "").isNotEmpty() }
+
     private fun intAt(o: JsonObject, k: String): Int? = num(o[k])?.toInt()
 
     /** The answer key entry for an exercise, or null when it has none. */
@@ -155,7 +159,8 @@ object LessonExport {
         "choice" -> {
             val c = intAt(ex, "correct") ?: 0
             val op = optionAt(ex, c)
-            "${letter(c)}. ${s(op, "hanzi")}${if (t(op, "english")) " — ${s(op, "english")}" else ""}${if (t(ex, "explanation")) " (${s(ex, "explanation")})" else ""}"
+            val fix = choiceCorrection(ex)
+            "${letter(c)}. ${s(op, "hanzi")}${if (t(op, "english")) " — ${s(op, "english")}" else ""}${if (fix != null) " → correct: ${JsJson.trim(str(fix["hanzi"])!!)}" else ""}${if (t(ex, "explanation")) " (${s(ex, "explanation")})" else ""}"
         }
         "translate" -> "${s(ex, "reference_hanzi")}${if (t(ex, "reference_pinyin")) " (${s(ex, "reference_pinyin")})" else ""}"
         "match" -> objs(ex, "pairs").joinToString("; ") { "${s(it, "hanzi")} = ${s(it, "english")}" }
@@ -275,7 +280,8 @@ object LessonExport {
                 objs(ex, "sentences").forEach(::addSentence)
             }
             "translate" -> add(ex["reference_hanzi"], ex["english"], ex["reference_pinyin"])
-            "choice" -> addSentence(optionAt(ex, intAt(ex, "correct")))
+            // The answer — or for a "which is wrong?" choice its correction, never the mistake (core ChoiceMistake).
+            "choice" -> addSentence(if (choiceCorrection(ex) != null || ChoiceMistake.questionAsksForWrong(str(ex["question"]))) choiceCorrection(ex) else optionAt(ex, intAt(ex, "correct")))
             "scramble" -> add(JsJson.s(a(ex, "correct_order").joinToString("") { JsJson.jsString(it) }), ex["english"])
             "describe_image" -> add(ex["reference_hanzi"], ex["reference_english"], ex["reference_pinyin"])
             "speak" -> addSentence(o(ex, "example"))

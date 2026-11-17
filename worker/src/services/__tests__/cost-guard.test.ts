@@ -58,6 +58,7 @@ describe('which requests count', () => {
     expect(costGroupFor('POST', '/api/transcribe/live')).toBe('ai');
     expect(costGroupFor('POST', '/api/notes/n1/ask')).toBe('ai');
     expect(costGroupFor('POST', '/api/lessons/answer-check/ask')).toBe('ai');
+    expect(costGroupFor('POST', '/api/lessons/choice-correction')).toBe('ai');
     expect(costGroupFor('POST', '/api/practice/tts')).toBe('tts');
     expect(costGroupFor('POST', '/api/audio-lessons')).toBe('jobs');
     expect(costGroupFor('POST', '/api/readers/generate')).toBe('jobs');

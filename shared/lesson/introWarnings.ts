@@ -5,6 +5,7 @@
  * authoring Claudes get them back to fix, the editor shows them.
  */
 import type { CustomLessonSpec, ConversationExerciseSpec, LessonExercise } from './types';
+import { choiceCorrectionWarnings } from './choiceMistake';
 
 /** Han characters + digits only, so punctuation / spacing differences don't hide a quote. */
 function core(s: string): string {
@@ -59,4 +60,12 @@ export function conversationIntroWarnings(spec: CustomLessonSpec): string[] {
     });
   });
   return warnings;
+}
+
+/**
+ * Every soft warning of a lesson (saved anyway; the editor shows them, the MCP tools hand them back to fix): spoiler
+ * intros and "which one is wrong?" choices without their correction (shared/lesson/choiceMistake.ts).
+ */
+export function lessonSoftWarnings(spec: CustomLessonSpec): string[] {
+  return [...conversationIntroWarnings(spec), ...choiceCorrectionWarnings(spec)];
 }

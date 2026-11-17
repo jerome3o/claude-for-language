@@ -10,6 +10,7 @@ import { CARD_TYPE_ORD } from './models';
 import { guidFor } from './hash';
 import type { CustomLessonSpec, LessonSentence } from '@shared/lesson';
 import { fillGap } from '@shared/lesson/types';
+import { choiceSayAgainSentence } from '@shared/lesson/choiceMistake';
 
 // ============ Types ============
 
@@ -254,9 +255,12 @@ export function lessonToAnki(spec: CustomLessonSpec, options: LessonToAnkiOption
           if (ex.example) collector.sentence(ex.example.hanzi, ex.example.pinyin, ex.example.english);
           break;
         // Options and listening prompts can be single words (minimal pairs):
-        case 'choice':
-          collector.auto(ex.options[ex.correct]);
+        case 'choice': {
+          // A "which is wrong?" choice: its correction, never the mistake (shared/lesson/choiceMistake.ts).
+          const said = choiceSayAgainSentence(ex);
+          if (said) collector.auto(said);
           break;
+        }
         case 'listen_choice':
           collector.auto(ex.audio);
           break;

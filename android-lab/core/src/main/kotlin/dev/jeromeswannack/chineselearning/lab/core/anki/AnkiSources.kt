@@ -2,6 +2,7 @@ package dev.jeromeswannack.chineselearning.lab.core.anki
 
 import dev.jeromeswannack.chineselearning.lab.core.CustomLessonSpec
 import dev.jeromeswannack.chineselearning.lab.core.ChoiceExercise
+import dev.jeromeswannack.chineselearning.lab.core.ChoiceMistake
 import dev.jeromeswannack.chineselearning.lab.core.ConversationExercise
 import dev.jeromeswannack.chineselearning.lab.core.DescribeImageExercise
 import dev.jeromeswannack.chineselearning.lab.core.DictationExercise
@@ -260,7 +261,8 @@ object AnkiSources {
                     is ScrambleExercise -> c.sentence(ex.correctOrder.joinToString(""), null, ex.english)
                     is DescribeImageExercise -> c.sentence(ex.referenceHanzi, ex.referencePinyin, ex.referenceEnglish)
                     is SpeakExercise -> ex.example?.let { c.sentence(it.hanzi, it.pinyin, it.english) }
-                    is ChoiceExercise -> c.auto(ex.options.getOrNull(ex.correct))
+                    // A "which is wrong?" choice: its correction, never the mistake (ChoiceMistake).
+                    is ChoiceExercise -> c.auto(ChoiceMistake.sayAgainSentence(ex))
                     is ListenChoiceExercise -> c.auto(ex.audio)
                     is ListenTranslateExercise -> c.auto(ex.audio)
                     is SentenceMakingExercise -> {
