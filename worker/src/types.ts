@@ -38,7 +38,7 @@ export interface Env {
   CARD_CHECK_QUEUE?: Queue<import('./services/card-check').CardCheckMessage>;
   /** Sentence Coach replies in the background (services/coach-replies.ts). */
   /** Coach replies `{ messageId }` and Claude thread turns `{ kind: 'claude_turn', messageId }` (the watchdog). */
-  COACH_REPLY_QUEUE?: Queue<import('./services/coach-replies').CoachReplyMessage | import('./services/claude-agent/thread-turn').ClaudeTurnQueueMessage>;
+  COACH_REPLY_QUEUE?: Queue<import('./services/coach-replies').CoachReplyMessage | import('./services/claude-agent/thread-turn').ClaudeTurnQueueMessage | import('./services/lesson-requests').LessonRequestQueueMessage>;
   RECORDING_CHECK_QUEUE?: Queue<import('./services/recording-checks').RecordingCheckMessage>;
   /** 成语 Idioms (beta): one generated entry per idiom (services/idioms.ts, docs/IDIOMS.md). */
   IDIOM_QUEUE?: Queue<import('./services/idioms').IdiomQueueMessage>;
@@ -558,7 +558,7 @@ export interface DeckStats {
   total_notes: number;
   total_cards: number;
   cards_due: number;
-  cards_mastered: number; // interval > 21 days
+  cards_mastered: number; // Review with stability > 21 days (shared/progress/mastery.ts)
   average_ease: number;
 }
 
@@ -799,7 +799,12 @@ export interface StudentProgress {
   user: Pick<User, 'id' | 'email' | 'name' | 'picture_url'>;
   stats: {
     total_cards: number;
+    /** = due_today (the name older readers know). */
     cards_due_today: number;
+    /** The student's study queue today: reviews due + the new cards their budget gives (their Home's Study button). */
+    due_today: number;
+    /** Learning + review cards due today — no new cards. */
+    reviews_due: number;
     cards_studied_today: number;
     cards_studied_this_week: number;
     average_accuracy: number;
@@ -808,7 +813,11 @@ export interface StudentProgress {
     id: string;
     name: string;
     total_notes: number;
+    /** This deck's own session today: reviews due + the new cards the budget gives it. */
     cards_due: number;
+    /** This deck's learning + review cards due today. */
+    reviews_due: number;
+    /** Review with stability > 21 days (shared/progress/mastery.ts). */
     cards_mastered: number;
   }>;
 }

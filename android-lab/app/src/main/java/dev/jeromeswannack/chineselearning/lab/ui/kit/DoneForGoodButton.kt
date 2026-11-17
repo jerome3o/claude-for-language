@@ -26,7 +26,7 @@ const val DONE_FOR_GOOD_TAG = "done-for-good"
 /**
  * "✓ Done for good · don't bring it back" — under the four rating buttons of a finished mini
  * lesson or graded reader (the web's RatingButtons `onDoneForGood`): finished (counts as Good
- * for the record) and never scheduled again (shared/study/revisit.ts). A quiet full-width
+ * for the record) and never offered again (a legacy `revisit_events` retire). A quiet full-width
  * outline, so it never competes with the ratings.
  */
 @Composable

@@ -134,10 +134,12 @@ test('Hard mode: the read take is checking on the question, then ≈ Nearly with
   await shot(page, 'read-take-04-hard-checking');
   release();
   await expect(feedback).toHaveAttribute('data-result', 'close', { timeout: 15000 });
-  // Slim: Claude's verdict as the line's chip, what differs, his take marked — no explanation.
+  // Slim: Claude's verdict as the line's chip, what differs, his take marked — then ONE why sentence (Claude's reason;
+  // Jerome: "one sentence as to why my answer is also okay or why it's wrong"), anything more behind "Explain more ›".
   await expect(page.getByTestId('hard-sentence-check')).toBeVisible();
   await expect(page.getByTestId('answer-diff-line')).toHaveText('≈ Almost · 语 instead of 文');
-  await expect(feedback).not.toContainText('same meaning');
+  await expect(page.getByTestId('answer-why-text')).toHaveText('You said 英语 — the card has 英文 (same meaning).');
+  await expect(page.getByTestId('answer-why-detail')).toHaveCount(0);
   await expect(page.getByTestId('hard-try-again')).toBeVisible();
   await shot(page, 'read-take-05-hard-close');
 });

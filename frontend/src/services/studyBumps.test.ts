@@ -148,6 +148,29 @@ describe('study bumps on the device', () => {
       expect((await db.studyBumps.where('note_id').equals('n-bank').first())?.planned).toBe(true);
     });
 
+    it('an unstarted word whose clip is still being made: its listening card with "Start new words by ear" (the default), the lead card with it off', async () => {
+      // Regression (Nov 2026): a word added from a sentence breakdown has no clip for a few seconds.
+      await db.notes.update('n-bank', { audio_url: null });
+      try {
+        const out = await bumpNotes(['n-bank'], 'explorer');
+        expect(out.results[0]).toMatchObject({ kind: 'listening', cardTypes: ['audio_to_hanzi'] });
+        expect((await getStudyQueue()).dueCards.map(c => c.id)).toEqual(['c-bank-a']);
+        await clearBump('n-bank');
+        localStorage.setItem('newCardOrder', JSON.stringify({ new_words_by_ear: false }));
+        const off = await bumpNotes(['n-bank'], 'explorer');
+        expect(off.results[0]).toMatchObject({ kind: 'lead', cardTypes: ['hanzi_to_meaning'] });
+      } finally {
+        localStorage.removeItem('newCardOrder');
+      }
+    });
+
+    it('a word "+ Add as card" just made, not synced down yet: planned here as an unstarted word — its listening card', async () => {
+      const out = await bumpNotes(['n-new'], 'explorer', new Map([['n-new', '右侧']]), { justCreated: new Set(['n-new']) });
+      expect(out.results[0]).toMatchObject({ kind: 'listening', cardTypes: ['audio_to_hanzi'], added: true });
+      expect(out.message).toBe('⚡ Listening card of 右侧 added to today');
+      expect(await db.studyBumps.where('note_id').equals('n-new').first()).toMatchObject({ card_types: ['audio_to_hanzi'], planned: true, pending: 'add' });
+    });
+
     it('a note not on this device goes up without a plan (the server applies the rule)', async () => {
       const out = await bumpNotes(['n-elsewhere'], 'mcp', new Map([['n-elsewhere', '想到']]));
       expect(out.added).toEqual(['n-elsewhere']);

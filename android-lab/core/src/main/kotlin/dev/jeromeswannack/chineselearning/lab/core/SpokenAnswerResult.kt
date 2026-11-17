@@ -148,7 +148,10 @@ object SpokenAnswerResult {
             }
             State.CLOSE, State.WRONG -> {
                 val verdict = if (result.state == State.CLOSE) "Close." else "Didn’t match."
-                "$head $verdict${if (result.chip != chip(result.state)) " ${result.chip}." else ""}"
+                // Each marked character by name: the marks are colour only.
+                val named = listOf(Mark.WRONG to "Wrong", Mark.TONE to "Tone off", Mark.EXTRA to "Extra", Mark.MISSING to "Missing")
+                    .mapNotNull { (m, name) -> marked(m).takeIf { it.isNotEmpty() }?.let { " $name: $it." } }.joinToString("")
+                "$head $verdict${if (result.chip != chip(result.state)) " ${result.chip}." else ""}$named"
             }
         }
     }

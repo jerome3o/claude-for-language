@@ -278,26 +278,10 @@ button.you-said-round:focus-visible {
   margin-right: 0.2rem;
   vertical-align: -0.15em;
 }
-/* Character marks — a shape as well as a colour: written differently = yellow + dotted underline,
-   not in the answer = red + solid underline; the words around a contained answer quiet. */
+/* Character marks — COLOUR ONLY (the slim answer diff's language, AnswerDiff.css; Jerome, Nov 2026: no boxes, no
+   tints, no underlines): the words around a contained answer quiet; written differently ("Sounded right") counts as
+   right, so no mark — the chip says it in words. */
 .spoken-mark--plain { color: var(--color-text-light); }
-.spoken-mark--differs {
-  padding: 0 0.1em;
-  border-radius: 4px;
-  background: var(--color-partial-strong);
-  color: var(--color-partial-ink);
-  text-decoration: underline dotted 2px;
-  text-underline-offset: 0.18em;
-}
-.spoken-mark--wrong {
-  color: var(--result-wrong-ink);
-  text-decoration: underline solid 2px;
-  text-underline-offset: 0.18em;
-}
-:root[data-theme='dark'] .spoken-mark--differs {
-  background: color-mix(in srgb, var(--color-partial) 22%, transparent);
-  color: var(--color-partial);
-}
 /* The row's one sentence for a screen reader (the visible parts are aria-hidden). */
 .spoken-result-sr {
   position: absolute;
@@ -312,41 +296,10 @@ button.you-said-round:focus-visible {
 }
 
 
-/* The slim answer diff's marks on the "You said" row (shared/cards/answer-diff.ts; AnswerDiff.css has the tokens):
-   wrong = rose + thick solid underline, tone off = lemon wavy underline, extra = yellow highlight in a solid box,
-   missing = the answer's character, muted, in a dashed slot. */
-.spoken-mark--wrong {
-  color: var(--adiff-wrong, #be123c);
-  background: var(--adiff-wrong-tint, rgba(244, 63, 94, 0.14));
-  border-radius: 3px;
-  text-decoration: underline solid var(--adiff-wrong, #be123c);
-  text-decoration-thickness: 3px;
-}
-:root[data-theme='dark'] .spoken-mark--wrong { color: var(--adiff-wrong, #fb7185); }
-.spoken-mark--tone {
-  border-radius: 3px;
-  background: var(--adiff-tone-tint, rgba(250, 204, 21, 0.18));
-  text-decoration: underline wavy var(--adiff-tone, #a16207);
-  text-decoration-thickness: 1.5px;
-  text-underline-offset: 0.22em;
-  text-decoration-skip-ink: none;
-}
-.spoken-mark--extra {
-  padding: 0 0.06em;
-  border-radius: 3px;
-  color: var(--adiff-extra-ink, #713f12);
-  background: var(--adiff-extra-bg, #fde68a);
-  border-radius: 3px;
-  /* A solid box, never a strike: a line through 了 reads as 子. */
-  box-shadow: inset 0 0 0 1.5px var(--adiff-extra-ink, #713f12);
-}
-.spoken-mark--missing {
-  display: inline-block;
-  margin: 0 0.06em;
-  padding: 0 0.08em;
-  line-height: 1.15;
-  color: var(--color-text-light);
-  opacity: 0.85;
-  border: 1.5px dashed currentColor;
-  border-radius: 3px;
-}
+/* The slim answer diff's marks on the "You said" row (shared/cards/answer-diff.ts; tokens index.css `--mark-*`):
+   the character in its mark's colour — wrong rose, tone off amber, extra violet, missing = the answer's character in
+   grey. Nothing else. */
+.spoken-mark--wrong { color: var(--mark-wrong); }
+.spoken-mark--tone { color: var(--mark-tone); }
+.spoken-mark--extra { color: var(--mark-extra); }
+.spoken-mark--missing { color: var(--mark-missing); }

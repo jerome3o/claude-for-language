@@ -314,6 +314,7 @@ export function SentencePractiseOutcome({ practise, row, full, onPlayModel, spea
             accepted={claude.check.verdict === 'correct' || claude.check.verdict === 'acceptable'}
             verdict={ANSWER_DIFF_VERDICT[claude.check.verdict]}
             headline={claude.check.headline}
+            check={claude.check}
             onPlayModel={onPlayModel}
             // Right in other words: the round's own "✓ Right — worded differently" title is the line.
             hideLine={claude.check.verdict === 'correct' || claude.check.verdict === 'acceptable'}
@@ -346,7 +347,7 @@ export function SentencePractiseOutcome({ practise, row, full, onPlayModel, spea
 
 /**
  * Claude's verdict on a translate take, slim (docs/STUDY_SESSION.md "Answer feedback: one line and a diff"): one
- * line with its chip and his take marked against the sentence — no headline paragraph, no tips, no fix.
+ * line with its chip, his take marked against the sentence, and ONE why sentence (its tips behind "Explain more ›").
  */
 function TranslateVerdict({ check, said, model }: { check: AnswerCheck; said: string; model: string }) {
   return (
@@ -358,6 +359,8 @@ function TranslateVerdict({ check, said, model }: { check: AnswerCheck; said: st
         accepted={check.verdict === 'correct' || check.verdict === 'acceptable'}
         verdict={ANSWER_DIFF_VERDICT[check.verdict]}
         headline={check.headline}
+        check={check}
+        whySurface="sentence_translate"
       />
     </div>
   );

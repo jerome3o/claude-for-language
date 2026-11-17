@@ -153,7 +153,3 @@ class AnswerCheckScreenshots : LabScreenshotTest() {
         assertEquals("almost", a.tries?.first()?.check?.verdict)
     }
 }
-
-private object ItemScheduleSamples {
-    val previews = dev.jeromeswannack.chineselearning.lab.core.ItemSchedule.previews(dev.jeromeswannack.chineselearning.lab.core.RevisitState.INITIAL)
-}

@@ -6,7 +6,11 @@
  * come the way I normally get purple cards").
  *
  *   - an UNSTARTED word (no card reviewed) → a CARD-LEVEL bump (bumps.ts `card_types`) of ONE card: its
- *     listening card (audio_to_hanzi) when the note has audio and a NEW listening card; else its lead card
+ *     listening card (audio_to_hanzi) when the note has a NEW listening card and either has audio or "Start
+ *     new words by ear" is on (`newWordsByEar` — the same rule the regular pool's lead card follows, lead-card.ts,
+ *     which never waits for the clip: a word just added from a sentence breakdown / the explorer has no clip for
+ *     a few seconds while the server makes it, and the study card says "Audio coming…" and asks for it at
+ *     interactive priority; before Nov 2026 such a word was bumped with its TEXT card); else its lead card
  *     without the listening option (lead-card.ts: meaning_to_hanzi for a word of characters he knows with
  *     "English → Chinese" on, else hanzi_to_meaning). Its other cards wait (bumps.ts `pocketSiblingIds`)
  *     and, once that card is reviewed, arrive through the purple (secondary) pool within the daily budget;
@@ -48,6 +52,11 @@ export interface StudyTodayInput {
   started: boolean;
   /** The note has its word clip (a listening card can be played). */
   hasAudio: boolean;
+  /**
+   * "Start new words by ear" is on (new-card-order.ts `new_words_by_ear`, a missing value = off here so older
+   * callers keep their rule): an UNSTARTED word's listening card leads even before its clip exists.
+   */
+  newWordsByEar?: boolean;
   /** "English → Chinese" applies: the setting is on and every character is known (lead-card.ts). Asked only when needed. */
   knownCharactersLead?: () => boolean;
   /** The word's long-term choice and whether its deck is in daily review (long-term.ts). */
@@ -68,7 +77,7 @@ export function studyTodayPlan(input: StudyTodayInput): StudyTodayPlan {
   const longTerm = isLongTerm(input.longTermPref ?? null, input.deckInReview, false)
     ? undefined
     : prefForToggle(true, input.deckInReview);
-  if (input.hasAudio && newTypes.has(EAR_LEAD_CARD_TYPE)) return { kind: 'listening', cardTypes: [EAR_LEAD_CARD_TYPE], longTerm };
+  if ((input.hasAudio || input.newWordsByEar === true) && newTypes.has(EAR_LEAD_CARD_TYPE)) return { kind: 'listening', cardTypes: [EAR_LEAD_CARD_TYPE], longTerm };
   let lead: string | undefined;
   if (newTypes.has(KNOWN_CHARACTERS_LEAD_CARD_TYPE) && input.knownCharactersLead?.()) lead = KNOWN_CHARACTERS_LEAD_CARD_TYPE;
   else if (newTypes.has(DEFAULT_LEAD_CARD_TYPE)) lead = DEFAULT_LEAD_CARD_TYPE;

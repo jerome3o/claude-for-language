@@ -306,11 +306,11 @@ fun YourAnswer(text: String, exact: Boolean, label: String = "Your answer", badg
             Text(text, fontSize = 20.sp, color = Lab.colors.ink)
         } else {
             // The slim answer diff, at once (core AnswerDiff; docs/STUDY_SESSION.md "Answer feedback: one line and a
-            // diff"): his answer lined up with the model answer — wrong rose, extra yellow in a solid box, missing muted in
-            // a dashed slot, tone off wavy — and ONE line under it that says what differs.
+            // diff"): his answer lined up with the model answer, colour only — wrong rose, tone off amber, extra violet,
+            // missing = the model's character in grey — and ONE line under it that says what differs.
             val diff = androidx.compose.runtime.remember(text, model) { dev.jeromeswannack.chineselearning.lab.core.AnswerDiff.of(text, model) }
             val line = dev.jeromeswannack.chineselearning.lab.core.AnswerDiff.summary(diff)
-            dev.jeromeswannack.chineselearning.lab.ui.study.DiffMarkedText(diff.parts.map { dev.jeromeswannack.chineselearning.lab.ui.study.DiffCell(it.text, it.kind) }, 20.sp, tag = "lesson-marked-answer")
+            dev.jeromeswannack.chineselearning.lab.ui.study.DiffMarkedText(diff.parts.map { dev.jeromeswannack.chineselearning.lab.ui.study.DiffCell(it.text, it.kind) }, 20.sp, tag = "lesson-marked-answer", label = dev.jeromeswannack.chineselearning.lab.core.AnswerDiff.label(diff, line))
             Text(line, fontSize = 13.sp, color = Lab.colors.muted, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 2.dp).testTag("lesson-answer-diff-line"))
         }
         // A neutral line (core LessonFeedback.answerMarks): e.g. the model answer's characters in another order.

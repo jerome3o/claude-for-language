@@ -35,11 +35,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.jeromeswannack.chineselearning.lab.core.LessonRevision
-import dev.jeromeswannack.chineselearning.lab.core.Revisit
-import dev.jeromeswannack.chineselearning.lab.core.RevisitState
 import dev.jeromeswannack.chineselearning.lab.core.ExerciseTypes
 import dev.jeromeswannack.chineselearning.lab.core.Js
-import dev.jeromeswannack.chineselearning.lab.core.LessonSchedule
 import dev.jeromeswannack.chineselearning.lab.core.Lessons
 import dev.jeromeswannack.chineselearning.lab.core.StudyCutoff
 import dev.jeromeswannack.chineselearning.lab.data.lessons.LessonEntry
@@ -116,17 +113,6 @@ fun learnChip(learn: LessonRevision.State, cutoff: StudyCutoff): Pair<String, an
 
 /** "Done for good" — the web's grey `retired` chip. */
 val RetiredGrey = androidx.compose.ui.graphics.Color(0xFF6B7280)
-
-/** The chip and its colour for a "revisit later" state (Mini Lessons and Readers lists). */
-fun revisitChip(s: RevisitState, cutoff: StudyCutoff): Pair<String, androidx.compose.ui.graphics.Color> {
-    val label = Revisit.chip(s, cutoff.ts)
-    return label to when {
-        s.isRetired -> RetiredGrey
-        s.isNew -> Palette.New
-        LessonSchedule.isUpNext(s, cutoff) -> Palette.Hard
-        else -> Palette.Good
-    }
-}
 
 /**
  * `/lessons` — the web's MiniLessonsPage: To do (a run in progress, revisions due, new lessons),

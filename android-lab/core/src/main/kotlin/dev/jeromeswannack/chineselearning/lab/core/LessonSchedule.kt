@@ -1,20 +1,15 @@
 package dev.jeromeswannack.chineselearning.lab.core
 
-import java.time.Instant
 import java.time.ZoneId
 import kotlin.random.Random
 
 /**
- * Mini lessons and graded readers in the study session — ports of
- * frontend/src/services/custom-lesson-study.ts (getDueCustomLessons, lessonRevisitsToday),
- * services/reader-study.ts (pickTodaysReader, readersReadToday) and the lesson / reader
- * branches of selectNextItem in hooks/useStudySession.ts.
+ * Graded readers in the study session — ports of services/reader-study.ts (pickTodaysReader,
+ * readersReadToday) and the reader branch of selectNextItem in hooks/useStudySession.ts.
  *
- * Lessons come back on the "revisit later" schedule ([Revisit], shared/study/revisit.ts): the
- * rating after finishing sets the gap (Again 1 day · Hard 2 · Good 14 · Easy 42, growing each
- * later visit), "Done for good" retires one; NEW lessons are paced per local DAY ("New lessons a
- * day", default 1). Graded readers are read ONCE ([DailyReader], shared/study/daily-reader.ts):
- * one unread story a day, never a repeat. State is replayed from the events — never stored.
+ * Graded readers are read ONCE ([DailyReader], shared/study/daily-reader.ts): one unread story a
+ * day, never a repeat. Mini lessons are not part of the session (Oct 2026): they revise until right
+ * first time ([LessonRevision]); the old "revisit later" schedule and its settings are gone.
  */
 
 /** A lesson completion or reader review, as the schedule sees it. Null rating = Good (legacy). */
@@ -38,107 +33,6 @@ data class ScheduledItem(
     val retired: Boolean get() = state.isRetired
     /** `rowDueMs`: when it comes back (0 when unknown). */
     val dueMs: Long get() = state.dueMs ?: 0L
-}
-
-object ItemSchedule {
-    /** An item's whole history in the shared shape (`revisitHistory`): finishes + its marks. */
-    fun history(events: List<ItemEvent>, marks: List<RevisitMark> = emptyList()): List<RevisitEvent> =
-        events.map { RevisitEvent.rating(it.id, it.at, it.rating) } + marks.map { RevisitEvent(it.id, it.createdAt, it.action) }
-
-    /** `computeLessonState` / `computeReaderState`: replay the history with the account's gaps. */
-    fun state(events: List<ItemEvent>, marks: List<RevisitMark> = emptyList(), settings: RevisitSettings = Revisit.DEFAULT): RevisitState =
-        Revisit.computeState(history(events, marks), settings)
-
-    /** The rating buttons' labels ("1 day", "2 wk", "6 wk") for an item as it stands. */
-    fun previews(state: RevisitState, settings: RevisitSettings = Revisit.DEFAULT): List<IntervalPreview> = Revisit.buttonPreviews(state, settings)
-}
-
-object LessonSchedule {
-    /** `LESSON_MIX_INTERVAL`: a lesson is offered after this many card reviews. */
-    const val MIX_INTERVAL = 8
-
-    /**
-     * `getDueCustomLessons`: revisits due by the cutoff, most overdue first, at most
-     * [Revisit.MAX_LESSON_REVISITS_PER_DAY] a day minus [revisitedToday] (`pickRevisitsForToday`;
-     * they never count against the new-lesson budget), then NEW lessons oldest first
-     * (`pickNewLessonsForToday`): [newPerDay] ("New lessons a day", default 1) minus the lessons
-     * [introducedToday] (first-ever finish today — [introducedToday]). Done-for-good lessons and
-     * lessons assigned one-off only (homework) never join the rotation.
-     */
-    fun dueLessons(
-        lessons: List<ScheduledItem>,
-        oneOffOnly: Set<String>,
-        cutoff: StudyCutoff,
-        revisitedToday: Int = 0,
-        introducedToday: Int = 0,
-        newPerDay: Int = Revisit.DEFAULT.newLessonsPerDayInt,
-    ): List<ScheduledItem> {
-        val pool = lessons.filter { it.id !in oneOffOnly && !it.retired }
-        val fresh = Revisit.pickNewForToday(pool.filter { it.queue == CardQueue.NEW }, { it.id }, { it.createdAt }, introducedToday, newPerDay)
-        val due = Revisit.pickForToday(pool.filter { it.queue != CardQueue.NEW }.map { it to it.state }, cutoff.ts, revisitedToday)
-        return due + fresh
-    }
-
-    /**
-     * `pickTodaysLessons` (shared/study/revisit.ts) — today's mini lessons in session order, the ONE
-     * rule the session, Home's Today and today's lesson list use: due revisits (capped per day),
-     * then NEW homework lessons with a pass ([homeworkPass], `both`) on top of the daily place,
-     * then the queue's NEW lessons ("New lessons a day" minus those introduced today, homework
-     * finishes not counted; [startedToday] keep their place). One-off-only and Done-for-good out.
-     * Unlockable lessons ([LessonUnlock]): [locked] never appear; [unlocked] NEW ones come right
-     * after the revisits, on top of the daily place (finishing one doesn't use it up).
-     */
-    fun todaysLessons(
-        lessons: List<ScheduledItem>,
-        events: List<ItemEvent>,
-        dayStartMs: Long,
-        cutoff: StudyCutoff,
-        oneOffOnly: Set<String>,
-        homeworkPass: Set<String>,
-        startedToday: Set<String> = emptySet(),
-        revisitedToday: Int = 0,
-        newPerDay: Int = Revisit.DEFAULT.newLessonsPerDayInt,
-        locked: Set<String> = emptySet(),
-        unlocked: Set<String> = emptySet(),
-    ): List<ScheduledItem> {
-        val pool = lessons.filter { it.id !in oneOffOnly && !it.retired && it.id !in locked }
-        val introduced = Revisit.newLessonsIntroducedToday(events.map { it.itemId to it.at }, dayStartMs, oneOffOnly + homeworkPass + unlocked + locked)
-        val byCreated = compareBy<ScheduledItem>({ it.createdAt }, { it.id })
-        val wanted = pool.filter { it.queue == CardQueue.NEW && it.id in unlocked }.sortedWith(byCreated)
-        val homework = pool.filter { it.queue == CardQueue.NEW && it.id in homeworkPass && it.id !in unlocked }.sortedWith(byCreated)
-        val fresh = Revisit.pickNewForToday(pool.filter { it.queue == CardQueue.NEW && it.id !in homeworkPass && it.id !in unlocked }, { it.id }, { it.createdAt }, introduced, newPerDay, startedToday)
-        val due = Revisit.pickForToday(pool.filter { it.queue != CardQueue.NEW }.map { it to it.state }, cutoff.ts, revisitedToday)
-        return due + wanted + homework + fresh
-    }
-
-    /** `newLessonsToday`: lessons first finished on today's LOCAL date (one-off homework left out). */
-    fun introducedToday(events: List<ItemEvent>, nowMs: Long, zone: ZoneId, exclude: Set<String> = emptySet()): Int {
-        val dayStart = Instant.ofEpochMilli(nowMs).atZone(zone).toLocalDate().atStartOfDay(zone).toInstant().toEpochMilli()
-        return Revisit.newLessonsIntroducedToday(events.map { it.itemId to it.at }, dayStart, exclude)
-    }
-
-    /**
-     * `lessonRevisitsToday`: how many lessons were REVISITED today — finished on today's LOCAL
-     * date after an earlier finish (any lesson: the web counts every completion event).
-     */
-    fun revisitsToday(events: List<ItemEvent>, nowMs: Long, zone: ZoneId): Int {
-        val today = Instant.ofEpochMilli(nowMs).atZone(zone).toLocalDate()
-        val first = HashMap<String, String>()
-        for (e in events) {
-            val f = first[e.itemId]
-            if (f == null || e.at < f) first[e.itemId] = e.at
-        }
-        val revisited = HashSet<String>()
-        for (e in events) {
-            val local = runCatching { Instant.ofEpochMilli(Js.parseDate(e.at)).atZone(zone).toLocalDate() }.getOrNull()
-            if (local == today && e.at > (first[e.itemId] ?: "")) revisited += e.itemId
-        }
-        return revisited.size
-    }
-
-    /** Mini Lessons page "Up next": new, or due by the cutoff (not retired). */
-    fun isUpNext(state: RevisitState, cutoff: StudyCutoff): Boolean =
-        state.isNew || (state.isScheduled && (state.dueMs ?: 0L) <= cutoff.ts)
 }
 
 object ReaderSchedule {
@@ -180,7 +74,7 @@ sealed interface SessionItem {
 object SessionMix {
     /**
      * `selectNextItem` with lessons and readers: learning cards due now → a lesson break
-     * (every [LessonSchedule.MIX_INTERVAL] reviews) → the cards (StudyQueue.selectNext) →
+     * ([lessonBreakDue]; the session passes no lessons since Oct 2026) → the cards (StudyQueue.selectNext) →
      * lessons left over → graded readers close out the session. "⚡ Study it today" cards
      * ([bumpedCardIds]) are mixed with the reviews inside StudyQueue.selectNext (Bumps.mixBumpedCard).
      */
@@ -201,10 +95,12 @@ object SessionMix {
         leadCards: Map<String, String> = emptyMap(),
         /** "Start new words by ear" (BuiltQueue.newWordsByEar). */
         newWordsByEar: Boolean = false,
+        /** New words bumped during this session (core BumpNext): their lead card comes next. */
+        nextUpIds: List<String> = emptyList(),
     ): SessionItem? {
         val learningDueNow = queue.any { CardQueue.isLearning(it.queue) && it.state.dueTimestamp.let { d -> d != null && d != 0L && d <= nowMs } }
-        if (lessonBreakDue && lessons.isNotEmpty() && !learningDueNow) return SessionItem.Lesson(lessons[0])
-        StudyQueue.selectNext(queue, reviewedNoteIds, recentNoteIds, lastRatedCardId, nowMs, cutoff, random, bumpedCardIds, leadCards, newWordsByEar)?.let { return SessionItem.Card(it) }
+        if (lessonBreakDue && lessons.isNotEmpty() && !learningDueNow && BumpNext.pickNextUp(queue, nextUpIds) { it.id } == null) return SessionItem.Lesson(lessons[0])
+        StudyQueue.selectNext(queue, reviewedNoteIds, recentNoteIds, lastRatedCardId, nowMs, cutoff, random, bumpedCardIds, leadCards, newWordsByEar, nextUpIds)?.let { return SessionItem.Card(it) }
         if (lessons.isNotEmpty()) return SessionItem.Lesson(lessons[0])
         return nextReader(readers, lastRatedReaderId, nowMs, cutoff, random)?.let { SessionItem.Reader(it) }
     }

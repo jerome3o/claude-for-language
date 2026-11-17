@@ -72,6 +72,7 @@ export function CardTieIn({
     try {
       const out = await addCardToSourceDeck(key, c, 'explorer');
       track('explorer.add_card', { kind, source_deck: true, deck_key: key });
+      if (explorer.source === 'add') track('add.word_added', { via: 'card' });
       invalidateKnownHanzi();
       setAdded({ ...out, hanzi: c.hanzi });
     } catch (e) {
@@ -109,6 +110,7 @@ export function CardTieIn({
               label="⚡ Study it today"
               onBumped={(m) => {
                 track('explorer.bump', { kind });
+                if (explorer.source === 'add') track('add.word_added', { via: 'bump' });
                 setBumpMsg(m);
               }}
             />
@@ -134,8 +136,10 @@ export function CardTieIn({
               source="explorer"
               label="⚡ Study it today"
               hanziById={new Map([[shownAdded.noteId, shownAdded.hanzi]])}
+              justCreated
               onBumped={(m) => {
                 track('explorer.bump', { kind, just_added: true });
+                if (explorer.source === 'add') track('add.word_added', { via: 'bump' });
                 setBumpMsg(m);
               }}
             />

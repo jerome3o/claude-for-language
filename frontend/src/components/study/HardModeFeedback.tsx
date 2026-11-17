@@ -176,6 +176,8 @@ export function HardModeFeedback({ result, said, spoken, roundFollows, differenc
         expectedLabel={DIFFERENCE_CARD}
         accepted
         verdict={verdict}
+        check={check}
+        whySurface="hard_mode"
         saidLabel={spoken ? ANSWER_DIFF_YOU_SAID : ANSWER_DIFF_YOUR_ANSWER}
         expectedTestId="difference-model"
         saidTestId="difference-said"
@@ -224,6 +226,8 @@ export function HardModeFeedback({ result, said, spoken, roundFollows, differenc
             expected={answer.hanzi}
             showExpected={false}
             headline={check?.headline}
+            check={check}
+            whySurface="hard_mode"
             verdict={verdict ?? ANSWER_DIFF_VERDICT[result]}
             saidLabel={spoken ? ANSWER_DIFF_YOU_SAID : ANSWER_DIFF_YOUR_ANSWER}
           />
@@ -302,6 +306,8 @@ function SentenceAnswerFirst({ result, view, answer, said, difference, check, ch
           onPlayExpected={onPlayAnswer}
           accepted={view.accepted || (!check && result === 'right' && !!difference)}
           headline={check?.headline}
+          check={check}
+          whySurface="hard_mode"
           verdict={view.checking ? null : checkVerdict(check) ?? (result === 'right' || result === 'close' || result === 'wrong' ? ANSWER_DIFF_VERDICT[result] : null)}
           expectedTestId="difference-model"
           saidTestId="difference-said"

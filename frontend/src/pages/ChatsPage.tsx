@@ -382,16 +382,16 @@ export function ChatsPage() {
     track('chats.context_info', { context_kind: item?.thread?.context.kind ?? 'practice', action: 'show' });
   };
 
-  const sendToClaude = async (text: string, intent: ClaudeIntent, spoken: boolean) => {
+  const sendToClaude = async (text: string, intent: ClaudeIntent, spoken: boolean, chip = false) => {
     const msg = text.trim();
     if (!msg || sending) return;
     setSending(true);
     setSendError(null);
     try {
       const res = await startClaudeThread({ context: { kind: 'general' }, text: msg, intent, language });
-      track('chats.compose_send', { intent, offline: res.queued, spoken });
-      track('claude.message_send', { context_kind: 'general', intent, offline: res.queued, chip: false, spoken });
-      setDraft('');
+      track('chats.compose_send', { intent, offline: res.queued, spoken, chip });
+      track('claude.message_send', { context_kind: 'general', intent, offline: res.queued, chip, spoken });
+      if (!chip) setDraft('');
       navigate(`/chats/claude/${encodeURIComponent(res.threadId)}?source=chats`, { state: { from: '/chats' } });
     } catch (err) {
       setSendError(err);
@@ -487,6 +487,7 @@ export function ChatsPage() {
             online={isOnline}
             compact={teacher}
             openRequest={composeRequest}
+            onChip={(c) => void sendToClaude(c.question, 'ask', false, true)}
           />
         </div>
       </div>

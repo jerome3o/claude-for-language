@@ -79,8 +79,8 @@ function DeckCard({
   const [menuOpen, setMenuOpen] = useState(false);
   const dragging = drag.dragId === deck.id;
   const statsQuery = useQuery({
-    queryKey: ['deckStats', deck.id],
-    queryFn: () => getDeckStats(deck.id),
+    queryKey: ['deckStats', deck.id, 'mastery'],
+    queryFn: () => getDeckStats(deck.id, { due: false }),
     retry: false,
     staleTime: 60000,
   });

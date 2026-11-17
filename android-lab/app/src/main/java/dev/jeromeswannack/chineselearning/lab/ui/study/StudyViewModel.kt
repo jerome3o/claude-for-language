@@ -75,6 +75,13 @@ class StudyViewModel(
     private var recentNoteIds: List<String> = emptyList()
     /** "⚡ Study it today": the pocket's cards still to rate this session (core Bumps.kt), and who bumped which note. */
     private var bumpedCardIds: MutableSet<String> = HashSet()
+    /**
+     * New words bumped DURING this session (core BumpNext — shared/decks/bump-next.ts): their lead card is the
+     * very next card, in the order bumped; a card leaves once rated. [seenBumps] = note id → the bump time
+     * already taken into account (the pocket when the queue loaded, then each one handled here).
+     */
+    private var nextUpIds: List<String> = emptyList()
+    private var seenBumps: MutableMap<String, Long> = HashMap()
     /** Unseen notes whose first card is meaning_to_hanzi (every character known, core LeadCard). */
     /** Which card each unseen note starts with when not hanzi_to_meaning ("by ear", known characters — LeadCard.kt). */
     private var leadCards: Map<String, String> = emptyMap()
@@ -164,7 +171,7 @@ class StudyViewModel(
     }
 
     private fun nextItem(lastRatedCardId: String?) =
-        extras.next(queue, reviewedNoteIds, recentNoteIds, lastRatedCardId, System.currentTimeMillis(), cutoff, random, bumpedCardIds, leadCards, newWordsByEar)
+        extras.next(queue, reviewedNoteIds, recentNoteIds, lastRatedCardId, System.currentTimeMillis(), cutoff, random, bumpedCardIds, leadCards, newWordsByEar, nextUpIds)
 
     /** "Flashcards done ✓ — Today's story left · Continue / Later" (celebrates the cards once a day). */
     private fun showExtrasBreak() {
@@ -225,6 +232,11 @@ class StudyViewModel(
             _ui.update { it.copy(showExplainer = pass == null && none && !studyPrefs.explainerSeen) }
         }
         viewModelScope.launch { load(resetRecent = true) }
+        // "⚡ Study it today" during the session (core BumpNext): every local change (a bump written here, a sync
+        // bringing a just-added word's cards or Claude's bump_cards) — new bump rows join THIS session.
+        if (practice == null && pass == null) viewModelScope.launch {
+            repo.dataVersion.collect { runCatching { takeSessionBumps() }.onFailure { android.util.Log.w("StudyViewModel", "session bumps", it) } }
+        }
         // Home paints the session's numbers the moment Study is left (0 after "All done"), never
         // the counts it worked out before the session (core HomeCounts, docs/STUDY_SESSION.md "Back on Home").
         if (practice == null && pass == null) viewModelScope.launch {
@@ -418,6 +430,10 @@ class StudyViewModel(
         bumpedCardIds = built.bumped.mapTo(HashSet()) { it.id }
         leadCards = built.leadCards
         newWordsByEar = built.newWordsByEar
+        // The pocket as the queue saw it: bumps made from now on are "during the session" (core BumpNext).
+        nextUpIds = emptyList()
+        seenBumps = withContext(Dispatchers.IO) { dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.active(repo.dao) }
+            .associateTo(HashMap()) { it.noteId to Js.parseDate(it.createdAt) }
         // Usage analytics: once per visit to Study with cards to do.
         if (analyticsStartedAt == null && queue.isNotEmpty()) {
             analyticsStartedAt = now
@@ -436,7 +452,7 @@ class StudyViewModel(
             val id = dev.jeromeswannack.chineselearning.lab.core.StudyResume.cardId(point, today(), scope, queue.map { it.id })
             val card = id?.let { i -> queue.firstOrNull { it.id == i } }
             if (point != null && card != null) {
-                present(card, CardStartState(flipped = point.revealed, answer = point.answer, elapsedMs = dev.jeromeswannack.chineselearning.lab.core.StudyResume.elapsedMs(point), roundOpen = point.roundOpen && !point.revealed, sentencesRight = point.sentencesRight, feedbackOpen = point.feedbackOpen && !point.revealed, gaveUp = point.gaveUp, roundLog = point.roundLog))
+                present(card, CardStartState(flipped = point.revealed, answer = point.answer, elapsedMs = dev.jeromeswannack.chineselearning.lab.core.StudyResume.elapsedMs(point), roundOpen = point.roundOpen && !point.revealed, sentencesRight = point.sentencesRight, feedbackOpen = point.feedbackOpen && !point.revealed, gaveUp = point.gaveUp, roundLog = point.roundLog, listenShown = point.listenShown))
                 return
             }
         }
@@ -563,6 +579,7 @@ class StudyViewModel(
             spokenText = prev.spokenText, spokenReviewed = prev.spokenReviewed, practiceSaid = prev.practiceSaid,
             roundOpen = prev.roundOpen && !revealed, sentencesRight = prev.sentencesRight,
             feedbackOpen = prev.feedbackOpen && !revealed, gaveUp = prev.gaveUp, roundLog = prev.roundLog,
+            listenShown = prev.listenShown,
         )
         progress = p
         progressPresentation = presentation
@@ -615,6 +632,19 @@ class StudyViewModel(
         saveResumePoint()
     }
 
+    /** A listening card's "Listen in context" rows as this showing offered them (resume point; core AnswerOrder). */
+    fun onCardListen(presentation: Int, listenShown: List<String>) {
+        val v = currentView() ?: return
+        if (v.presentation != presentation) return
+        val prev = (if (progressPresentation == presentation) progress else null) ?: v.start
+        val p = prev.copy(listenShown = listenShown)
+        if (p == prev) return
+        progress = p
+        progressPresentation = presentation
+        setViewStart(presentation, p)
+        saveResumePoint()
+    }
+
     /** The card type on screen (analytics from the screen). */
     fun currentCardType(): String? = currentView()?.card?.cardType
 
@@ -631,7 +661,7 @@ class StudyViewModel(
         val p = (if (progressPresentation == v.presentation) progress else null) ?: v.start
         val end = leftAt ?: System.currentTimeMillis()
         dayStore.saveResumePoint(
-            dev.jeromeswannack.chineselearning.lab.core.StudyResume.Point(today(), scope, v.card.id, p.flipped, p.answer, (end - shownAt).coerceAtLeast(0), p.roundOpen && !p.flipped, p.sentencesRight, p.feedbackOpen && !p.flipped, p.gaveUp, p.roundLog),
+            dev.jeromeswannack.chineselearning.lab.core.StudyResume.Point(today(), scope, v.card.id, p.flipped, p.answer, (end - shownAt).coerceAtLeast(0), p.roundOpen && !p.flipped, p.sentencesRight, p.feedbackOpen && !p.flipped, p.gaveUp, p.roundLog, p.listenShown),
         )
     }
 
@@ -977,6 +1007,7 @@ class StudyViewModel(
             val onScreen = (_ui.value.phase as? StudyPhase.Showing)?.view?.card?.id
             queue.removeAll { it.id in ids }
             bumpedCardIds.removeAll(ids)
+            nextUpIds = nextUpIds - ids
             if (undo?.card?.id in ids) { undo = null; _ui.update { it.copy(canUndo = false) } }
             _ui.update { it.copy(toast = message, counts = StudyQueue.counts(queue, reviewedNoteIds)) }
             toastJob?.cancel()
@@ -1011,6 +1042,7 @@ class StudyViewModel(
         val onScreen = (_ui.value.phase as? StudyPhase.Showing)?.view?.card?.id
         queue.removeAll { it.id in gone }
         bumpedCardIds.removeAll(gone)
+        nextUpIds = nextUpIds - gone
         if (undo?.card?.id in gone) { undo = null; _ui.update { it.copy(canUndo = false) } }
         _ui.update { it.copy(toast = outcome.message, forgetUndoable = true, counts = StudyQueue.counts(queue, reviewedNoteIds)) }
         toastJob?.cancel()
@@ -1900,6 +1932,59 @@ class StudyViewModel(
         _ui.update { it.copy(counts = StudyQueue.counts(queue, reviewedNoteIds)) }
     }
 
+    /**
+     * "⚡ Study it today" DURING the session (core BumpNext — shared/decks/bump-next.ts; Jerome, Nov 2026: "Don't add
+     * the new card to the mix straight away … it would be good if that blue card appeared straight away"): every
+     * bump row written while the session is open — the sentence breakdown → explorer → "+ Add as card" → ⚡, any ⚡,
+     * Ask Claude's bump_cards — puts its cards in THIS session: an unstarted word's lead card as the very next card
+     * (in the order bumped), the rest into the ⚡ mix. A word just added waits for the sync that brings its cards.
+     * ⚡ on the word's other cards in ⋯ (source study_card) adds its own cards ([addBumpedCards], sibling spacing).
+     * Port of useStudySession's takeSessionBumps.
+     */
+    private suspend fun takeSessionBumps() {
+        if (loadedDay.isEmpty()) return
+        val rows = withContext(Dispatchers.IO) { dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.active(repo.dao) }
+            .filter { it.source != "study_card" }
+        val fresh = rows.filter { r -> seenBumps[r.noteId].let { seen -> seen == null || Js.parseDate(r.createdAt) > seen + 1000 } }
+            .sortedBy { Js.parseDate(it.createdAt) }
+        if (fresh.isEmpty()) return
+        var changed = false
+        for (row in fresh) {
+            val cards = withContext(Dispatchers.IO) { repo.dao.cardsOfNotes(listOf(row.noteId)) }
+            if (cards.isEmpty()) continue // not on this phone yet: the next sync brings it
+            val createdMs = Js.parseDate(row.createdAt)
+            seenBumps[row.noteId] = createdMs
+            if (deckId != null && cards[0].deckId != deckId) continue
+            val (spans, held) = withContext(Dispatchers.IO) {
+                repo.dao.reviewSpans(cards.map { it.id }) to dev.jeromeswannack.chineselearning.lab.data.holds.HoldStore.heldIds(repo.dao)
+            }
+            val queueCards = cards.map { it.toQueueCard() }
+            val pocket = dev.jeromeswannack.chineselearning.lab.core.Bumps.bumpedCardsForNote(
+                queueCards,
+                dev.jeromeswannack.chineselearning.lab.core.QueueBump(row.noteId, createdMs, dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.parseCardTypes(row.cardTypes)),
+                spans.associate { it.cardId to Js.parseDate(it.lastAt) },
+                spans.associate { it.cardId to Js.parseDate(it.firstAt) },
+                cutoff.ts,
+            ).filter { it.id !in held }
+            val started = row.noteId in reviewedNoteIds || cards.any { it.queue != CardQueue.NEW }
+            val nearby = currentView()?.card?.noteId == row.noteId ||
+                row.noteId in recentNoteIds.takeLast(dev.jeromeswannack.chineselearning.lab.core.Bumps.BUMP_SIBLING_GAP)
+            val plan = dev.jeromeswannack.chineselearning.lab.core.BumpNext.sessionPlan(pocket, started, nearby, newWordsByEar) { it.cardType }
+            for (c in pocket) {
+                bumpedCardIds += c.id
+                if (queue.none { it.id == c.id }) queue += c
+            }
+            plan.next?.let { n ->
+                if (n.id !in nextUpIds) {
+                    nextUpIds = nextUpIds + n.id
+                    app.analytics.track("study.bump_next", mapOf("card_type" to n.cardType, "source" to row.source))
+                }
+            }
+            if (pocket.isNotEmpty()) changed = true
+        }
+        if (changed) _ui.update { it.copy(counts = StudyQueue.counts(queue, reviewedNoteIds)) }
+    }
+
     /** Typed answer checked (or the answer revealed): feedback only, nothing recorded yet. */
     fun onRevealed(verdict: AnswerKey.Verdict?) {
         currentView()?.let { v ->
@@ -1969,6 +2054,7 @@ class StudyViewModel(
             undo = UndoSnapshot(eventId, card, snapshotQueue, snapshotReviewed, snapshotRecent, before, wasBumped = card.id in bumpedCardIds)
             val wasBumped = card.id in bumpedCardIds || queue.any { it.noteId == card.noteId && it.id in bumpedCardIds }
             bumpedCardIds.remove(card.id)
+            nextUpIds = nextUpIds - card.id
             queue.removeAll { it.id == card.id }
             // "Don't show a word's other card types on the same day" (core CardHolds): the word's NEW /
             // REVIEW siblings wait until tomorrow — not for a ⚡ bumped word.
