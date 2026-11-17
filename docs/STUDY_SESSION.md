@@ -513,8 +513,8 @@ learning card due now ("Card Selection Priority" above). One rule, `shared/decks
   deck caps, long-term choice, "English → Chinese" from D1; `kinds` in the reply). A device's card-level / planned
   item is stored exactly as sent. The toast says what happened (`studyTodayMessage`): "⚡ Listening card of 银行
   added to today", "⚡ 1 card of 银行 added to today", the whole note "⚡ 银行 will come first in today’s study"; a
-  single word's button shows "⚡ Listening card today ✓". **"Practise this word other ways…"** (below) is an explicit
-  choice of card types and keeps its own rule.
+  single word's button shows "⚡ Listening card today ✓". **⚡ on one of the word's other cards in ⋯** (below) is an
+  explicit choice of a card type and keeps its own rule.
 - **During a session — the new word comes next** (Nov 2026, Jerome: "Don't add the new card to the mix straight
   away. I think it would be good if that blue card appeared straight away"; `shared/decks/bump-next.ts`, Lab core
   `BumpNext.kt`, parity-tested by `parity/fixtures/bump-next.ts`). Every bump row written while a session is open —
@@ -526,7 +526,7 @@ learning card due now ("Card Selection Priority" above). One rule, `shared/decks
   before learning cards due now: he just asked for it, and they're still there one card later); several words
   bumped on one card come next in the order bumped. Never instead of the card on screen. A just-added word waits
   for the sync that brings its cards. Its other cards, a **started** word's bumped card, and a bump of the note on
-  screen / just rated (`BUMP_SIBLING_GAP`) join the ⚡ mix as before; "Practise this word other ways…" (source
+  screen / just rated (`BUMP_SIBLING_GAP`) join the ⚡ mix as before; ⚡ on one of the word's other cards in ⋯ (source
   `study_card`) adds its own cards with the sibling spacing. Bumps made outside a session (Home, deck pages) are
   mixed as before when a session starts. Analytics `study.bump_next`.
 - **Which cards (a whole-note bump)** — of the note's cards not reviewed since the bump: every NEW card, every card
@@ -555,25 +555,63 @@ learning card due now ("Card Selection Priority" above). One rule, `shared/decks
   every word of a sentence; the MCP server has `bump_cards`, `list_bumped_cards`,
   `clear_bumped_card` and the tutor's `bump_student_cards`.
 
-### Other card types — "Practise this word other ways…" (a card-level bump)
+### The word's other cards in ⋯ (status + a card-level bump)
 
-Jerome: "I've got the hanzi → spoken card and think 'I'd love to remember this when I think of the
-English too' — let me send the other version of this card into the current session. And the
-listening version, if I struggle to hear it." On the answer side, **⋯ → 🔀 Practise this word other
-ways…** (the flashcard session only, when the note has another card) opens a small sheet
-(`components/study/OtherCardTypesSheet.tsx`, Lab `ui/study/OtherCardsSheet.kt`; rules
-`shared/decks/other-card-types.ts`, Lab `OtherCardTypes.kt`, parity-tested):
+Jerome (Nov 2026): "On the answer side of cards, maybe in the dot menu, I'd like to quickly see the status of
+the other variants of this card … one for each other card type, with a little symbol to show the card type. If I
+click on it, it gives me another menu that lets me bump / study today … indication of whether it's not started
+yet, in the queue, or how well you know it." (Before, Oct 2026: "I've got the hanzi → spoken card and think 'I'd
+love to remember this when I think of the English too' — let me send the other version of this card into the
+current session.")
 
-- one row per card type of the note, card-type order — **Read → meaning** · **English → 汉字** ·
-  **Listen → 汉字** — with its state: *this card*, *new*, *⚡ in today’s study*, *due today*,
-  *in review, due in 12 days* / *learning, due tomorrow* (days = ceil((due − today's cutoff) / 24 h));
-- a NEW sibling offers **⚡ Add to today** (the first one is ticked when the sheet opens); a started
-  sibling not due yet offers **Review it early today** (one early review, like the bump's); a card
-  already due today, or already in today's pocket, offers nothing; a word with a whole-note bump has
-  nothing to add; multi-select, pinned **⚡ Add N to today** + Close; after adding: "⚡ English → 汉字
-  comes up in a few cards", then the sheet closes.
+**The top row of the card's ⋯ sheet** is one tile per OTHER card of the note, in card-type order — **读 Read** ·
+**写 Write** · **听 Listen** (the card hub's names) — each with a status line, a three-step strength bar and the
+whole tile a 44px+ target (web `components/study/SiblingCards.tsx`, Lab `ui/study/SiblingCardsUi.kt`; rules
+`shared/decks/sibling-status.ts`, Lab core `SiblingStatus.kt`, parity-tested by
+`android-lab/parity/fixtures/sibling-status.ts`). Everything is computed on the device from the card's replayed
+state, the holds and today's study — offline like the rest of the card:
 
-Adding is a **card-level bump**: the same `study_bumps` row with `card_types` (migration 0134, JSON;
+| Status | Line | When |
+|---|---|---|
+| Suspended / Snoozed | "Suspended" · "Snoozed until 25 Nov" | an active hold (`holdStatusLabel`) — first, whatever the state |
+| Leech | "Leech · missed 9×" | a started card with 8+ lapses (`isLeech`) |
+| Not started | "Not started" | NEW, not in today's study |
+| New · in today's queue | "New · in today’s queue" | NEW and in the session's queue, the ⚡ pocket or Up next's picks |
+| Learning | "Learning · due today" / "Learning · next in 3d" | learning / relearning |
+| Due today | "Due today" / "⚡ In today’s study" | a review due by the study day's end (the 4 am rollover — at 00:44 a card due at 02:00 is today's, one due at 05:00 is "next in 1d"), or bumped early |
+| Review | "Review · next in 12d" | in review, stability ≤ 21 days |
+| Known | "Known · next in 3mo" | in review, stability > 21 days (the deck page's "mastered" / Progress's "known") |
+
+"next in" = ceil((due − the study day's end) / 24 h) days: `12d` under 60 days, then `3mo`, then `2y`. The strength
+bar is the mastery tier (`masteryLevel`): 0 new · 1 learning (or stability ≤ 7 d) · 2 familiar (≤ 21 d) · 3 known.
+Colour never carries it alone (the text says it, the bar counts steps): a known card's steps use the result "right"
+colour, a leech's the result "close" (needs work) one, everything else neutral ink (`SiblingCards.css` is in the
+result-colour guard). A card type the word doesn't have (an old note without audio has no listening card) is a
+dashed, disabled tile: "No listening card (no audio)".
+
+**A tap opens that card's small sheet**: its type + the word, the status and the bar, then
+- **⚡ Study it today** — a card-level bump of exactly that card type (below): a NEW card into today, a started card
+  not due yet reviewed early ("⚡ Study it today (review early)"). Already in today / already due / held → disabled
+  with the reason ("Already in today’s study", "Already due today", "Suspended — unsuspend it first"). After it:
+  "✓ English → 汉字 comes up in a few cards" (in the session; "… added to today" from the tutor-notes practice), and
+  the tile says "New · in today’s queue";
+- **💤 Snooze… / ⏸️ Suspend…** — the existing hold sheets for THAT card (This card only / All card types of this
+  word), or **▶ Unsuspend / ⏰ Wake now** for a held one (a due card rejoins today's session);
+- **↺ Forget this card…** — a started card only, the existing warning sheet, Undo on the toast;
+- **📇 Open card details** — the card hub, scrolled to that card (`/cards/:noteId#card-<type>`; Lab: the hub).
+
+**Where**: the regular session, the tutor-notes practice (no hold / forget there, as before) and the homework pass —
+where the tiles show the status only: the pass has its own ⚡ on the answer side (`shared/homework/pass-bump.ts`),
+so the sheet offers no ⚡, holds or forget there. Analytics `study.sibling_open { card_type, status }`,
+`study.sibling_action { card_type, action: bump | snooze | suspend | unsuspend | wake | forget | details }`.
+
+**"Practise this word other ways…" is folded into the tiles** (Nov 2026): it listed the same card types with their
+state and sent ticked ones into today through the same card-level bump; with at most two other cards, a tile + ⚡
+does each in two taps, and the ⋯ list is one row shorter. The sheet (`OtherCardTypesSheet`, Lab `OtherCardsSheet`)
+is gone; `shared/decks/other-card-types.ts` keeps the labels / copy the tiles reuse, and its events
+(`study.other_card_types(_open)`) are marked replaced.
+
+⚡ Study it today from a tile is a **card-level bump**: the same `study_bumps` row with `card_types` (migration 0134, JSON;
 NULL = the whole note as before; Lab Room v10 `cardTypes`). The pocket then holds exactly those card
 types of the note, each until it is reviewed since the bump, whatever its state (a NEW card over the
 budget, a due card first, a started card its early review); done when every chosen card has been
@@ -588,8 +626,7 @@ The cards join **the current session at once** (`useStudySession.addBumpedCards`
 (the last 5 rated notes) holds them while anything else is available, and a bumped card never jumps
 the queue while its note is among the last 3 rated (`pickBumpedCard`, `BUMP_SIBLING_GAP`). From its
 first review the card follows FSRS like any other — no events are invented. Analytics
-`study.other_card_types_open { from_type }`, `study.other_card_types { types, from_type, count, early }`
-(types joined with `/`); the bump itself is `study.bump_added` with `source: 'study_card'`.
+`study.sibling_action { card_type, action: 'bump' }`; the bump itself is `study.bump_added` with `source: 'study_card'`.
 
 **The homework pass's ⚡ is a card-level bump too** (docs/HOMEWORK.md §3, `shared/homework/pass-bump.ts`): on a
 word not started yet it bumps ONE card — the listening card (else the lead card when the note has no clip) — and

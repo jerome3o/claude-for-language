@@ -1154,6 +1154,9 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     publishSessionCounts({ day: studyToday(at), at, deckId: deckId ?? null, remaining: counts, byDeck, bumpedNotes });
   }, [enabled, isLoading, counts, queue, bumpedCardIds, deckId]);
 
+  // Every card in today's queue (the ⋯ menu's other-card tiles: "New · in today's queue").
+  const queueCardIds = useMemo<ReadonlySet<string>>(() => new Set(queue.map(c => c.id)), [queue]);
+
   const { card: currentCard, note: currentNote, deck: currentDeck } = currentCardState;
   const currentReader = currentCardState.reader ?? null;
   const currentGrammar = currentCardState.grammar ?? null;
@@ -1407,6 +1410,8 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     canUndo,
     /** "⚡ Study it today" pocket cards still to show (the card badge reads it). */
     bumpedCardIds,
+    /** Every card in today's queue (the ⋯ menu's other-card tiles). */
+    queueCardIds,
     /** The resume point of the card on screen, for its first render only (null otherwise). */
     resume,
 

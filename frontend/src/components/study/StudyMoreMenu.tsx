@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, type ReactNode } from 'react';
 
 /** One row in the ⋯ sheet. */
 export interface StudyMenuItem {
@@ -23,11 +23,14 @@ export function StudyMoreMenu({
   open,
   items,
   footer,
+  top,
   onClose,
 }: {
   open: boolean;
   items: StudyMenuItem[];
   footer?: string | null;
+  /** The sheet's top row (the word's other cards, components/study/SiblingCards.tsx); gets the close. */
+  top?: (close: () => void) => ReactNode;
   onClose: () => void;
 }) {
   useEffect(() => {
@@ -46,6 +49,7 @@ export function StudyMoreMenu({
       <div className="study-sheet-backdrop" onClick={onClose} role="presentation" />
       <div className="study-sheet" role="menu" aria-label="More card actions" data-testid="study-more-menu">
         <div className="study-sheet-grip" aria-hidden="true" />
+        {top?.(onClose)}
         {items.map((item) => (
           <button
             key={item.key}
