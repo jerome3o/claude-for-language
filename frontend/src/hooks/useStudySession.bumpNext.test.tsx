@@ -127,6 +127,7 @@ describe('⚡ during a session: the new word comes next', () => {
   it('several words bumped on one card come next in the order bumped', async () => {
     await mount();
     await act(async () => { await bumpNotes(['n-w2'], 'explorer'); });
+    await new Promise((r) => setTimeout(r, 5));
     await act(async () => { await bumpNotes(['n-w1'], 'ask_claude'); });
     await vi.waitFor(() => expect(latest.bumpedCardIds.has('w1-a') && latest.bumpedCardIds.has('w2-a')).toBe(true));
     await act(async () => { await latest.rateCard(2, 3_000); });
