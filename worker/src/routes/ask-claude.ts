@@ -2,6 +2,11 @@
  * Ask Claude on the study card (docs/STUDY_SESSION.md "Ask Claude"). Mounted under /api in
  * index.ts after the auth middleware.
  *
+ * LEGACY — installed builds from before the card's Claude thread (current apps go through
+ * `/api/claude/threads`, routes/claude-threads.ts). Each Q&A is written into the card's thread, its only
+ * store (`note_questions` is frozen); the `/note-questions/:id` routes find it there
+ * (services/claude-agent/card-questions.ts).
+ *
  *   POST /notes/:id/ask                    { question, context?, conversationHistory?, language?: 'zh'|'en', quick? }
  *                                          → 201 the Q&A (+ toolResults, readOnlyToolCalls, question_check_pending)
  *   GET  /note-questions/:id               one Q&A (shaped: words, translations, the question's check)
@@ -28,7 +33,8 @@ import type { Env } from '../types';
 import * as db from '../db/queries';
 import { askTurns, runClaudeTurn } from '../services/claude-agent';
 import { applyCardActions } from '../services/claude-agent/apply';
-import { appendCardQuestion } from '../services/claude-agent/backfill';
+import { appendCardQuestion, questionMessageId } from '../services/claude-agent/backfill';
+import { generateId } from '../services/cards';
 import { rememberThread } from '../services/claude-agent/memory';
 import { parseAskLanguage, turnLanguage } from '@shared/study/askClaude';
 import { cachedConversationTTS } from '../services/tts-cache';
@@ -110,15 +116,12 @@ askClaude.post('/notes/:id/ask', async (c) => {
 
     // Claude's changes (already approved by being asked for): edit / add / delete the card, a mini lesson.
     const toolResults = await applyCardActions(c.env, userId, note, toolActions, c.executionCtx);
-    const created = await db.createNoteQuestion(c.env.DB, id, question, answer, language);
-    const row = created as unknown as NoteQuestionRow;
-    // The same Q&A in the card's Claude thread (docs/CHAT.md "Claude threads"; older apps keep this route).
-    c.executionCtx.waitUntil(
-      appendCardQuestion(c.env.DB, userId, note, row)
-        // Claude memory: the card thread's summary once the Q&A is in it (never in the answer's way).
-        .then((threadId) => (threadId ? rememberThread(c.env, threadId) : undefined))
-        .catch((err) => console.error('[ask] thread dual-write failed', row.id, err instanceof Error ? err.message : err)),
-    );
+    // The Q&A goes into the card's Claude thread — its only store (note_questions is frozen); `row.id` is
+    // the id the old app keeps for `/note-questions/:id` (the messages' legacy_id).
+    const row: NoteQuestionRow = { id: generateId(), note_id: id, question, answer, asked_at: new Date().toISOString(), answer_lang: language };
+    const threadId = await appendCardQuestion(c.env.DB, userId, note, row);
+    // Claude memory: the card thread's summary once the Q&A is in it (never in the answer's way).
+    if (threadId) c.executionCtx.waitUntil(rememberThread(c.env, threadId).catch(() => undefined));
 
     // 🎧 Listen first: the answer's clip, made in the background — never waited for.
     const listening = typeof body.listening === 'boolean' ? body.listening : settings.listening;
@@ -133,12 +136,12 @@ askClaude.post('/notes/:id/ask', async (c) => {
       const r = await within(checking, CHECK_GRACE_MS);
       if (r.done) {
         if (r.value) {
-          await storeQuestionCheck(c.env.DB, row.id, r.value);
+          await storeQuestionCheck(c.env.DB, questionMessageId(row.id), r.value);
           row.question_check = JSON.stringify(r.value);
         }
       } else {
         pending = true;
-        c.executionCtx.waitUntil(checking.then((v) => (v ? storeQuestionCheck(c.env.DB, row.id, v) : undefined)).catch(() => undefined));
+        c.executionCtx.waitUntil(checking.then((v) => (v ? storeQuestionCheck(c.env.DB, questionMessageId(row.id), v) : undefined)).catch(() => undefined));
       }
     }
 

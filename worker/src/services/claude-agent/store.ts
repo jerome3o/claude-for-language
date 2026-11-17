@@ -699,11 +699,6 @@ export async function reopenTurn(db: D1Database, messageId: string): Promise<boo
   return (res.meta?.changes ?? 0) > 0;
 }
 
-export async function setMessageLegacyId(db: D1Database, ids: string[], legacyId: string): Promise<void> {
-  if (ids.length === 0) return;
-  await db.prepare(`UPDATE coach_messages SET legacy_id = ? WHERE id IN (${ids.map(() => '?').join(',')}) AND legacy_id IS NULL`).bind(legacyId, ...ids).run();
-}
-
 // ---------- Memory (memory.ts; migration 0145) ----------
 
 /** What a thread's summary is written from: the thread and its finished messages, in order. */

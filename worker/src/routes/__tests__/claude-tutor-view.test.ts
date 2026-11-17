@@ -162,6 +162,22 @@ describe('the tutor’s view of her student’s Claude chats', () => {
     expect(hub.body.questions.map((q) => q.id)).toEqual(['q1']);
   });
 
+  it("the learner's own older endpoints read his card threads too (note_questions is frozen): the copied row's id, then a newer turn's message id", async () => {
+    w.setUser(STUDENT);
+    await w.call('GET', '/api/claude/threads'); // copies the older chats in
+    // A question asked through the threads (never in note_questions).
+    await db.batch([
+      insertMessageStatement(db, { id: 'nq-q1-u2', threadId: 'nq-q1', role: 'user', content: '那“行走”呢？', intent: 'ask', createdAt: '2026-10-01 10:05:00' }),
+      insertMessageStatement(db, { id: 'nq-q1-a2', threadId: 'nq-q1', role: 'assistant', content: '读 xíng。', answerLang: 'zh', createdAt: '2026-10-01 10:05:01' }),
+    ]);
+    const mine = await w.call<{ questions: Array<{ id: string; answer: string }>; total: number }>('GET', '/api/me/claude-chats');
+    expect(mine.body.questions.map((q) => [q.id, q.answer])).toEqual([['nq-q1-u2', '读 xíng。'], ['q1', '这里读 háng。']]);
+    expect(mine.body.total).toBe(2);
+    const hub = await w.call<{ questions: Array<{ id: string }> }>('GET', '/api/notes/n1/hub');
+    expect(hub.body.questions.map((q) => q.id)).toEqual(['nq-q1-u2', 'q1']);
+    expect(db.rows('SELECT id FROM note_questions')).toEqual([{ id: 'q1' }]);
+  });
+
   it('"Asked Claude today": visible chats he wrote in since the start of his day', async () => {
     await w.call('GET', '/api/relationships/rel-1/claude-threads'); // copies the older chats in
     expect(await tutorThreadsActiveSince(db, STUDENT, '2000-01-01T00:00:00.000Z')).toBe(1);

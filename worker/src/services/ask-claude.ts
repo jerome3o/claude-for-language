@@ -1,11 +1,12 @@
 /**
  * Ask Claude on the study card, immersion edition (docs/STUDY_SESSION.md "Ask Claude"):
- * the stored Q&A row (`note_questions`) shaped for the apps, and the learning tools the
- * conversation borrows from the tutor chat — word chips (the reader words splitter,
- * `segmentReaderText`), Translate (`translateChineseText`) and the background "Check my
- * Chinese" of the learner's own question (the chat's auto-check: `defaultAutoChecker` +
- * `normalizeAutoCheck`, the same `chat_auto_check` switch). Nothing is re-implemented here:
- * each piece is the chat's, pointed at a `note_questions` row.
+ * the account's settings, the background "Check my Chinese" of the learner's own question (the
+ * chat's auto-check: `defaultAutoChecker` + `normalizeAutoCheck`, the same `chat_auto_check`
+ * switch), the 🎧 clip — and, for installed builds from before the card's Claude thread, the old
+ * one-Q&A shape (`AskQuestionView`) with its word chips / Translate. A Q&A lives in its card
+ * thread (claude-agent/card-questions.ts — `note_questions` is frozen): a translation or a check is
+ * written onto the thread's messages; word chips are made on request and not kept (current apps
+ * make them on the device).
  */
 
 import type { Env } from '../types';
@@ -23,10 +24,11 @@ import { StructuredCallError } from './structured-call';
 import { defaultSegment, type Segment } from './chat/messages';
 import { defaultAutoChecker, normalizeAutoCheck, type AutoChecker } from './chat/auto-check';
 import { HAN, WORDS_MAX_CHARS } from './chat/words';
+import { findCardQuestion, type CardQuestionDetail } from './claude-agent/card-questions';
 
 export type AskPart = 'answer' | 'question';
 
-/** A `note_questions` row as stored (migration 0116 adds the immersion columns). */
+/** One Q&A as the old `note_questions` row carried it (now read from its card thread). */
 export interface NoteQuestionRow {
   id: string;
   note_id: string;
@@ -81,17 +83,9 @@ export function shapeNoteQuestion(row: NoteQuestionRow): AskQuestionView {
   };
 }
 
-/** The row, if its note is in one of the caller's decks. */
-export async function loadOwnedQuestion(db: D1Database, id: string, userId: string): Promise<NoteQuestionRow> {
-  const row = await db
-    .prepare(
-      `SELECT q.* FROM note_questions q
-         JOIN notes n ON n.id = q.note_id
-         JOIN decks d ON d.id = n.deck_id
-        WHERE q.id = ? AND d.user_id = ?`,
-    )
-    .bind(id, userId)
-    .first<NoteQuestionRow>();
+/** One of the caller's Q&As by the id an older app holds (card-questions.ts). */
+export async function loadOwnedQuestion(db: D1Database, id: string, userId: string): Promise<CardQuestionDetail> {
+  const row = await findCardQuestion(db, userId, id);
   if (!row) throw new AskClaudeError('Question not found', 404);
   return row;
 }
@@ -117,8 +111,6 @@ export async function ensureAskWords(
   const row = await loadOwnedQuestion(env.DB, id, userId);
   const text = textOf(row, part);
   if (!text || !HAN.test(text)) return { words: null, cached: false };
-  const stored = parseReaderWords(part === 'answer' ? row.answer_words : row.question_words, text);
-  if (stored) return { words: stored, cached: true };
   if (text.length > WORDS_MAX_CHARS) throw new AskClaudeError('This text is too long to split into words', 400);
   const segment = deps.segment === undefined ? defaultSegment(env) : deps.segment;
   if (!segment) throw new AskClaudeError('AI is not configured', 503);
@@ -130,9 +122,6 @@ export async function ensureAskWords(
     const retryable = !(err instanceof StructuredCallError) || err.retryable;
     throw new AskClaudeError('Could not split this into words just now — try again', retryable ? 503 : 502);
   }
-  const col = part === 'answer' ? 'answer_words' : 'question_words';
-  const src = part === 'answer' ? 'answer' : 'question';
-  await env.DB.prepare(`UPDATE note_questions SET ${col} = ? WHERE id = ? AND ${src} = ?`).bind(JSON.stringify(words), id, text).run();
   return { words, cached: false };
 }
 
@@ -169,8 +158,8 @@ export async function ensureAskTranslation(
     const retryable = !(err instanceof StructuredCallError) || err.retryable;
     throw new AskClaudeError("Couldn't translate that just now — try again", retryable ? 503 : 502);
   }
-  const col = part === 'answer' ? 'answer_translation' : 'question_translation';
-  await env.DB.prepare(`UPDATE note_questions SET ${col} = ? WHERE id = ?`).bind(translation, id).run();
+  const messageId = part === 'answer' ? row.answer_message_id : row.question_message_id;
+  await env.DB.prepare(`UPDATE coach_messages SET translation = ? WHERE id = ?`).bind(translation, messageId).run();
   return { translation, cached: false };
 }
 
@@ -245,9 +234,9 @@ export async function checkAskQuestion(
   }
 }
 
-/** Store a check on the row (only while the question is still the text checked). */
-export async function storeQuestionCheck(db: D1Database, id: string, result: AutoCheckResult): Promise<void> {
-  await db.prepare('UPDATE note_questions SET question_check = ? WHERE id = ? AND question = ?').bind(JSON.stringify(result), id, result.text).run();
+/** Store a check on the question's thread message (only while it is still the text checked). */
+export async function storeQuestionCheck(db: D1Database, messageId: string, result: AutoCheckResult): Promise<void> {
+  await db.prepare('UPDATE coach_messages SET auto_check = ? WHERE id = ? AND content = ?').bind(JSON.stringify(result), messageId, result.text).run();
 }
 
 /** The conversation so far as the check's context lines (who said what, short). */

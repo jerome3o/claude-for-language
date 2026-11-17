@@ -119,16 +119,15 @@ describe('Claude threads backfill', () => {
     expect(threadIds(db).filter((id) => id.startsWith('nq-'))).toEqual(['nq-q1', 'nq-q3', 'nq-q4']);
   });
 
-  it("Ask's dual-write: within 30 min of the card thread's last message it joins it, later it starts a new one", async () => {
+  it("the legacy Ask route's Q&A (its only store is the thread): within 30 min of the card thread's last message it joins it, later it starts a new one", async () => {
     await backfillClaudeThreads(db, U);
-    db.raw.run("INSERT INTO note_questions (id, note_id, question, answer, asked_at) VALUES ('q5', 'n1', 'q5?', 'a5', '2026-10-02 09:20:00')");
     expect(await appendCardQuestion(db, U, { id: 'n1', hanzi: '银行' }, { id: 'q5', question: 'q5?', answer: 'a5', asked_at: '2026-10-02 09:20:00' })).toBe('nq-q3');
     // Again: already there.
     expect(await appendCardQuestion(db, U, { id: 'n1', hanzi: '银行' }, { id: 'q5', question: 'q5?', answer: 'a5', asked_at: '2026-10-02 09:20:00' })).toBe('nq-q3');
-    db.raw.run("INSERT INTO note_questions (id, note_id, question, answer, asked_at) VALUES ('q6', 'n1', 'q6?', 'a6', '2026-10-02 11:00:00')");
     expect(await appendCardQuestion(db, U, { id: 'n1', hanzi: '银行' }, { id: 'q6', question: 'q6?', answer: 'a6', asked_at: '2026-10-02 11:00:00' })).toBe('nq-q6');
     expect((await getThreadMessages(db, 'nq-q3')).map((m) => m.legacy_id)).toEqual(['q3', 'q3', 'q5', 'q5']);
-    // A forced re-run agrees with the dual-write (same grouping rule): nothing new.
+    // note_questions is frozen: nothing was written there, and a forced re-run copies nothing new.
+    expect(count(db, "SELECT COUNT(*) FROM note_questions WHERE id IN ('q5', 'q6')")).toBe(0);
     const before = count(db, 'SELECT COUNT(*) FROM coach_messages');
     await backfillClaudeThreads(db, U);
     expect(count(db, 'SELECT COUNT(*) FROM coach_messages')).toBe(before);
@@ -149,8 +148,11 @@ describe('Claude threads backfill', () => {
     expect((await getThreadMessages(db, 'md-md1')).map((m) => m.content)).toEqual(['去过是什么意思？', '过 = have done before.', '再给我一个例子', '我去过北京。']);
   });
 
-  it('a user nobody has backfilled: the dual-write leaves the copy to the backfill', async () => {
-    expect(await appendCardQuestion(db, U, { id: 'n1', hanzi: '银行' }, { id: 'q1', question: 'x', answer: 'y' })).toBeNull();
+  it('a user nobody has backfilled: the older rows are copied first, then the new Q&A joins its thread', async () => {
+    expect(await appendCardQuestion(db, U, { id: 'n1', hanzi: '银行' }, { id: 'q9', question: 'x', answer: 'y', asked_at: '2026-10-02 09:30:00' })).toBe('nq-q3');
     expect(db.rows('SELECT claude_threads_backfilled_at IS NOT NULL AS done FROM users WHERE id = ?', [U])).toEqual([{ done: 1 }]);
+    expect((await getThreadMessages(db, 'nq-q3')).map((m) => m.legacy_id)).toEqual(['q3', 'q3', 'q9', 'q9']);
+    // An id the app already holds is found again.
+    expect(await appendCardQuestion(db, U, { id: 'n1', hanzi: '银行' }, { id: 'q1', question: 'x', answer: 'y' })).toBe('nq-q1');
   });
 });

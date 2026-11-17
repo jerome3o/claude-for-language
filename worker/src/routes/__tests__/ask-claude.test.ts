@@ -3,7 +3,8 @@
  * the answer language (default Chinese, the account setting, the request's choice, an explicit
  * "in English"), the Chinese prompt with the learner's known words, Markdown taken out of a
  * Chinese answer, tools still applied, the question's auto-check (stored, the switch, quick
- * chips, English questions), word chips + translation made on request and cached, ownership.
+ * chips, English questions), word chips + translation made on request, ownership — every Q&A in
+ * the card's Claude thread (note_questions is frozen; an older row resolves through its copy).
  * Claude is faked: the ask agent loop through the harness's client seam (`createAnthropicClient`), everything else below
  * `structuredCall` (the real retry / validate logic runs).
  */
@@ -34,6 +35,7 @@ vi.mock('../../services/tts-cache', () => ({ cachedConversationTTS: (...args: un
 
 const { default: askClaude } = await import('../ask-claude');
 const { ASK_CLAUDE_SPEED, ASK_CLAUDE_VOICE } = await import('@shared/study/askClaude');
+const { noteQuestionRows } = await import('../../services/claude-agent/card-questions');
 
 const ME = 'user-1';
 const OTHER = 'user-2';
@@ -116,8 +118,29 @@ describe('Ask Claude (immersion)', () => {
     expect(r.body.answer_lang).toBe('zh');
     expect(r.body.answer).toBe('银行就是放钱的地方。\n\n・银：钱\n・行：店\n\n例句：我去银行。');
     expect(r.body.answer_words).toBeNull();
-    const row = db.raw.exec("SELECT answer, answer_lang FROM note_questions")[0].values[0];
-    expect(row).toEqual([r.body.answer, 'zh']);
+    // The card's Claude thread is its only store (note_questions is frozen); the id is the messages' legacy id.
+    expect(db.raw.exec('SELECT COUNT(*) FROM note_questions')[0].values[0][0]).toBe(0);
+    const msgs = db.raw.exec('SELECT m.role, m.content, m.answer_lang, c.context_kind, c.context_ref FROM coach_messages m JOIN coach_conversations c ON c.id = m.conversation_id WHERE m.legacy_id = ? ORDER BY m.role DESC', [r.body.id])[0].values;
+    expect(msgs).toEqual([
+      ['user', '这个词怎么用？', null, 'card', 'n-1'],
+      ['assistant', r.body.answer, 'zh', 'card', 'n-1'],
+    ]);
+    // The older apps' history reads it back from there.
+    expect(await noteQuestionRows(db, ME, 'n-1')).toEqual([expect.objectContaining({ id: r.body.id, question: '这个词怎么用？', answer: r.body.answer, answer_lang: 'zh' })]);
+    expect((await as(ME)('GET', `/api/note-questions/${r.body.id}`)).body).toMatchObject({ id: r.body.id, answer: r.body.answer });
+  });
+
+  it("a question an older app stored in note_questions still resolves by its id (served from the copied thread)", async () => {
+    db.raw.run("INSERT INTO note_questions (id, note_id, question, answer, asked_at, answer_lang) VALUES ('old-q', 'n-1', '银行怎么读？', 'yínháng', '2026-09-01 10:00:00', 'zh')");
+    const got = await as(ME)('GET', '/api/note-questions/old-q');
+    expect(got.status).toBe(200);
+    expect(got.body).toMatchObject({ id: 'old-q', question: '银行怎么读？', answer: 'yínháng', answer_lang: 'zh' });
+    const t = await as(ME)('POST', '/api/note-questions/old-q/translate', { part: 'question' });
+    expect(t.body).toEqual({ translation: 'A bank is where money is kept.', cached: false });
+    // Kept on the thread's message, never on the frozen row.
+    expect(db.raw.exec("SELECT question_translation FROM note_questions WHERE id = 'old-q'")[0].values[0][0]).toBeNull();
+    expect((await as(ME)('GET', '/api/note-questions/old-q')).body.question_translation).toBe('A bank is where money is kept.');
+    expect((await as(OTHER)('GET', '/api/note-questions/old-q')).status).toBe(404);
   });
 
   it('the account setting, the request and an explicit "in English" pick English', async () => {
@@ -207,14 +230,15 @@ describe('Ask Claude (immersion)', () => {
     expect(r.body.answer).toBe('好的，我改了卡片。');
   });
 
-  it('word chips and the translation are made on request, cached on the row, and owner-only', async () => {
+  it('word chips are made on request, the translation too and kept on the thread, owner-only', async () => {
     answerFor = () => textReply('银行');
     const r = await as(ME)('POST', '/api/notes/n-1/ask', { question: 'hi', quick: true });
     const id = r.body.id;
     const w1 = await as(ME)('POST', `/api/note-questions/${id}/words`, { part: 'answer' });
     expect(w1.body).toEqual({ words: [{ text: '银行', pinyin: 'yínháng', gloss: 'bank' }], cached: false });
+    // Not kept (current apps make word chips on the device): made again.
     const w2 = await as(ME)('POST', `/api/note-questions/${id}/words`, { part: 'answer' });
-    expect(w2.body.cached).toBe(true);
+    expect(w2.body.cached).toBe(false);
     // The question has no Chinese: no chips, no Claude call.
     const q = await as(ME)('POST', `/api/note-questions/${id}/words`, { part: 'question' });
     expect(q.body.words).toBeNull();
@@ -224,7 +248,7 @@ describe('Ask Claude (immersion)', () => {
     expect((await as(ME)('POST', `/api/note-questions/${id}/translate`, { part: 'question' })).status).toBe(400);
     expect((await as(ME)('POST', `/api/note-questions/${id}/words`, { part: 'nope' })).status).toBe(400);
     const got = await as(ME)('GET', `/api/note-questions/${id}`);
-    expect(got.body.answer_words).toHaveLength(1);
+    expect(got.body.answer_words).toBeNull();
     expect(got.body.answer_translation).toBe('A bank is where money is kept.');
     expect((await as(OTHER)('GET', `/api/note-questions/${id}`)).status).toBe(404);
     expect((await as(OTHER)('POST', `/api/note-questions/${id}/words`, { part: 'answer' })).status).toBe(404);

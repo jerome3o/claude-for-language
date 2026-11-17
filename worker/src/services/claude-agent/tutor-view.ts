@@ -8,7 +8,7 @@
  * never the check of his own Chinese, client ids, leases, the summary / memory, nor — the other way
  * round — anything of hers (her private student profile is never read here).
  *
- * Callers: routes/claude-tutor-view.ts, routes/claude-chats.ts (the older `/claude-chats` + the card hub's
+ * Callers: routes/claude-tutor-view.ts, card-questions.ts (the older `/claude-chats` + the card hub's
  * questions for the tutor, served from visible card threads), routes/tutor-dashboard.ts (Asked Claude today).
  */
 import type { TutorClaudeMessage, TutorClaudeThread } from '@shared/claude/api';
@@ -199,100 +199,6 @@ export async function getTutorThread(db: D1Database, studentId: string, threadId
       tool_results: m.tool_results ?? null,
       created_at: sqliteToIso(m.created_at),
     })),
-  };
-}
-
-/** The older `/claude-chats` row shape (one Q&A on a card). */
-export interface TutorCardQuestion {
-  id: string;
-  note_id: string;
-  question: string;
-  answer: string;
-  asked_at: string;
-  hanzi: string;
-  pinyin: string;
-  english: string;
-  deck_id: string;
-  deck_name: string;
-}
-
-interface CardQuestionRow extends Omit<TutorCardQuestion, 'answer'> {
-  legacy_id: string | null;
-  answer: string | null;
-}
-
-/**
- * The tutor's `/claude-chats` and card hub `questions` for apps from before the thread view: the
- * VISIBLE card threads' questions, each with the reply after it, in the old row shape (the old id —
- * the note_questions id — where the question came from there). Newest first; `before` = an asked_at.
- */
-export async function tutorCardQuestions(
-  db: D1Database,
-  studentId: string,
-  opts: { limit?: number; before?: string | null; noteId?: string | null } = {},
-): Promise<{ questions: TutorCardQuestion[]; next_cursor: string | null; total: number }> {
-  await ensureClaudeThreadsBackfilled(db, studentId).catch((err) => console.error('[tutor-view] backfill failed', err instanceof Error ? err.message : err));
-  const visibility = await getTutorVisibility(db, studentId);
-  const limit = Math.min(Math.max(Math.floor(opts.limit ?? 100), 1), 500);
-  const where = [
-    'c.user_id = ?1',
-    'd.user_id = ?1',
-    'c.deleted_at IS NULL',
-    "c.context_kind = 'card'",
-    tutorVisibleSql(visibility),
-    "u.role = 'user'",
-    "u.status IS NULL AND u.content != ''",
-  ];
-  const params: unknown[] = [studentId];
-  if (opts.noteId) {
-    params.push(opts.noteId);
-    where.push(`c.context_ref = ?${params.length}`);
-  }
-  const from = `FROM coach_messages u
-    JOIN coach_conversations c ON c.id = u.conversation_id
-    JOIN notes n ON n.id = c.context_ref
-    JOIN decks d ON d.id = n.deck_id`;
-  const countSql = `SELECT COUNT(*) AS n ${from} WHERE ${where.join(' AND ')}`;
-  const countParams = [...params];
-  if (opts.before) {
-    params.push(opts.before.replace('T', ' ').replace(/(\.\d+)?Z$/, ''));
-    where.push(`u.created_at < ?${params.length}`);
-  }
-  params.push(limit + 1);
-  const [rows, total] = await db.batch<Record<string, unknown>>([
-    db
-      .prepare(
-        `SELECT u.id, u.legacy_id, u.content AS question, u.created_at AS asked_at, c.context_ref AS note_id,
-                (SELECT a.content FROM coach_messages a
-                  WHERE a.conversation_id = u.conversation_id AND a.role = 'assistant' AND a.status IS NULL AND a.content_type = 'text'
-                    AND (a.created_at > u.created_at OR (a.created_at = u.created_at AND a.rowid > u.rowid))
-                  ORDER BY a.created_at ASC, a.rowid ASC LIMIT 1) AS answer,
-                n.hanzi, n.pinyin, n.english, d.id AS deck_id, d.name AS deck_name
-           ${from}
-          WHERE ${where.join(' AND ')}
-          ORDER BY u.created_at DESC, u.rowid DESC LIMIT ?${params.length}`,
-      )
-      .bind(...params),
-    db.prepare(countSql).bind(...countParams),
-  ]);
-  const all = ((rows.results ?? []) as unknown as CardQuestionRow[]).map((r) => ({
-    id: r.legacy_id || r.id,
-    note_id: r.note_id,
-    question: r.question,
-    answer: r.answer ?? '',
-    asked_at: sqliteToIso(r.asked_at),
-    hanzi: r.hanzi,
-    pinyin: r.pinyin,
-    english: r.english,
-    deck_id: r.deck_id,
-    deck_name: r.deck_name,
-  }));
-  const hasMore = all.length > limit;
-  const page = hasMore ? all.slice(0, limit) : all;
-  return {
-    questions: page.filter((q) => q.answer),
-    next_cursor: hasMore ? page[page.length - 1].asked_at : null,
-    total: Number((total.results?.[0] as { n?: number } | undefined)?.n ?? page.length),
   };
 }
 
