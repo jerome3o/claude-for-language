@@ -248,7 +248,15 @@ fun SentenceRoundPage(
     // The history wasn't read yet (the first card of a run): picked as soon as it is.
     LaunchedEffect(roundRows, stats != null) { if (picked == null) picked = pickNow() }
     val latestPicked by rememberUpdatedState(onPicked)
-    LaunchedEffect(picked) { picked?.let { p -> latestPicked(p.map { it.id }) } }
+    // The card hears each pick once (the first one from the effect, a listen → read fallback at once).
+    val reportedPick = remember { arrayOfNulls<List<String>>(1) }
+    fun reportPicked(p: List<SentenceRound.Exercise>) {
+        val ids = p.map { it.id }
+        if (reportedPick[0] == ids) return
+        reportedPick[0] = ids
+        latestPicked(ids)
+    }
+    LaunchedEffect(picked) { picked?.let { reportPicked(it) } }
     fun hidden(key: String) = stats?.get(SentenceHistory.key(key))?.hidden != null
     val exercises = picked.orEmpty().filter { !hidden(it.key) }
     val visibleKeys = rows.filter { !hidden(it.key) }.map { it.key }
@@ -306,8 +314,8 @@ fun SentenceRoundPage(
         val now = picked ?: return
         if (now.none { it.id == ex.id }) return
         val next = now.map { if (it.id == ex.id) SentenceRound.asRead(it) else it }
-        // (The new ids reach the card through the picked effect above.)
         picked = next
+        reportPicked(next)
         Analytics.track("study.sentence_listen", mapOf("fallback" to true, "where" to where))
     }
     fun playListen(ex: SentenceRound.Exercise, speed: Double) {
