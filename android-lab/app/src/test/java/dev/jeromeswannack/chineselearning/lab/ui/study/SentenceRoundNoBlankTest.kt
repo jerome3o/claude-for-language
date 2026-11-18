@@ -147,10 +147,27 @@ class SentenceRoundNoBlankTest : LabScreenshotTest() {
         assertEquals(listOf(cardRowKey("n1")), asked)
     }
 
-    /** Screenshot: the listening round of 暗示 on its first frame (Lab dark) — the exercises are there at once. */
+    /**
+     * Screenshot: the study card opening the listening round of 暗示 (Lab dark) while the English fetch of the card's
+     * sentence still hangs — the exercises are there on the first frame; shot 100 ms in (the old round showed
+     * "Get any 0 of these 0 right" for the whole fetch, ~1 s).
+     */
     @Test fun shotListeningRoundFirstFrameDark() {
-        round(sentenceRows(view()), translate = { awaitCancellation() }, dark = true)
+        prefs.setHardMode("all")
+        val actions = StudyActions(sentences = SentenceActions(translate = { awaitCancellation() }))
+        compose.mainClock.autoAdvance = false
+        compose.setContent {
+            LabTheme(dark = true) {
+                StudyScreen(
+                    StudyUi(StudyPhase.Showing(view()), Samples.counts, SessionStats(reviews = 5, correct = 4), canUndo = true, online = true),
+                    playingKey = null, actions = actions, cardStart = CardStartState(roundOpen = true), autoplay = false, sentencePractisePreview = previewSentencePractise(),
+                )
+            }
+        }
         assertTrue(exercises() > 0)
+        assertEquals(0, zeroLine())
+        compose.mainClock.advanceTimeBy(100)
+        assertEquals(1, count(SentenceRoundTags.INTRO))
         compose.onRoot().captureRoboImage("screenshots/sentence-round-no-blank-listening-dark.png")
     }
 }

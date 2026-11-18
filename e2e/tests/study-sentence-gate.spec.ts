@@ -157,6 +157,22 @@ async function setHardMode(page: Page, mode: 'off' | 'red' | 'all') {
   await page.addInitScript((m) => {
     try { localStorage.setItem('sentence-gate-v1', m); } catch { /* ignore */ }
   }, mode);
+  // Jerome (Nov 2026): the round must never flash an empty "Get any 0 of these 0 right" before its exercises —
+  // record whether that line (or a round with no exercises in it) ever reached the page.
+  await page.addInitScript(() => {
+    const w = window as unknown as { __roundBlank?: boolean };
+    w.__roundBlank = false;
+    new MutationObserver(() => {
+      const round = document.querySelector('[data-testid="sentence-round"]');
+      if (!round) return;
+      if ((round.textContent ?? '').includes('of these 0')) w.__roundBlank = true;
+    }).observe(document, { childList: true, subtree: true, characterData: true });
+  });
+}
+
+/** Never "Get any 0 of these 0 right" on the round (see setHardMode). */
+async function expectRoundNeverBlank(page: Page) {
+  expect(await page.evaluate(() => (window as unknown as { __roundBlank?: boolean }).__roundBlank)).toBe(false);
 }
 
 const API = process.env.E2E_API_URL || 'http://localhost:8787';
@@ -222,6 +238,8 @@ test('hard mode: a wrong answer → Try again → right → the round; Skip → 
   await expect(exercises.nth(1)).not.toContainText(SET[0].hanzi);
   await expect(page.getByTestId('sentence-round-counter')).toContainText('0 / 2');
   await expect(round).not.toContainText('Good and Easy stay greyed');
+  await expect(page.getByTestId('sentence-round-intro')).toHaveText('Get any 2 of these 4 right');
+  await expectRoundNeverBlank(page);
   await shot(page, 'hard-04-round');
   // Skip is quiet and asks first: Keep going stays, Skip goes to the answer.
   await page.getByTestId('sentence-round-skip').click();
@@ -628,6 +646,8 @@ test('hard mode on the listening card: checked first, then a round of "Say it in
   await expect(exercises).toHaveCount(3);
   await expect(page.locator('[data-testid="sentence-round-exercise"][data-mode="read"]')).toHaveCount(0);
   await expect(exercises.first()).toContainText(CLUE.translation);
+  await expect(page.getByTestId('sentence-round-intro')).toContainText('Get any 2 of these 3 right');
+  await expectRoundNeverBlank(page);
   await shot(page, 'hard-09-listening-round');
 });
 
