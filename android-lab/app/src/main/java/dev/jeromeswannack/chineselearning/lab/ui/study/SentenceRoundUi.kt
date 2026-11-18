@@ -94,6 +94,62 @@ object SentenceRoundTags {
     const val SELF_RIGHT = "listen-round-self-right"
     const val SELF_WRONG = "listen-round-self-wrong"
     const val SELF_CHECK_NOTE = "listen-round-self-check"
+    const val INTRO = "sentence-round-intro"
+    const val LOADING = "sentence-round-loading"
+}
+
+/** How long the round may take to pick before its skeleton rows show (a quick pick shows nothing at all). */
+const val ROUND_LOADING_DELAY_MS = 150L
+
+/** The round still picking (its history not read yet): two quiet skeleton rows after [ROUND_LOADING_DELAY_MS]. */
+@Composable
+private fun RoundLoadingRows(listen: Boolean) {
+    var show by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { delay(ROUND_LOADING_DELAY_MS); show = true }
+    if (!show) return
+    Column(
+        Modifier.fillMaxWidth().padding(top = 6.dp).testTag(SentenceRoundTags.LOADING)
+            .semantics { contentDescription = "Loading the sentences" },
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        if (listen) Text(SentenceRound.LISTEN_LEAD, color = Lab.colors.muted, fontSize = 14.sp)
+        repeat(2) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(Modifier.fillMaxWidth(0.4f).height(14.dp).clip(RoundedCornerShape(7.dp)).background(Lab.colors.cardBorder))
+                Box(Modifier.fillMaxWidth(0.9f).height(18.dp).clip(RoundedCornerShape(9.dp)).background(Lab.colors.cardBorder))
+                Box(Modifier.fillMaxWidth(0.7f).height(18.dp).clip(RoundedCornerShape(9.dp)).background(Lab.colors.cardBorder))
+            }
+        }
+    }
+}
+
+/**
+ * The listening round's card sentence with no English on the note (MCP-added / older notes): its English, looked
+ * up while the QUESTION is up — the device's copy, else fetched online ([translate]; the first time a Claude call
+ * server-side) — so the round has it the moment it opens and never waits for it. The rows come back with it
+ * filled in once it is there (the card's sentence count, and so whether the round opens, follow).
+ */
+@Composable
+fun rememberRoundClueEnglish(
+    showing: Any?,
+    enabled: Boolean,
+    rows: List<SentenceRow>,
+    cachedTranslation: suspend (SentenceRow) -> String?,
+    translate: (suspend (SentenceRow) -> String)?,
+    online: Boolean,
+): List<SentenceRow> {
+    var english by remember(showing) { mutableStateOf<Pair<String, String>?>(null) }
+    val clue = rows.firstOrNull { SentenceRound.isCardSentenceKey(it.key) && it.translation.isNullOrBlank() }
+    val latestCached by rememberUpdatedState(cachedTranslation)
+    val latestTranslate by rememberUpdatedState(translate)
+    LaunchedEffect(showing, enabled, clue?.key, clue?.hanzi, online) {
+        if (!enabled || clue == null || english?.first == clue.key) return@LaunchedEffect
+        val t = runCatching { latestCached(clue) }.getOrNull()
+            ?: latestTranslate?.takeIf { online }?.let { f -> runCatching { f(clue) }.getOrNull() }
+        if (!t.isNullOrBlank()) english = clue.key to t
+    }
+    val e = english ?: return rows
+    return remember(rows, e) { rows.map { if (it.key == e.first && it.translation.isNullOrBlank()) it.copy(translation = e.second) else it } }
 }
 
 /** The round's exercises over the card's sentence rows and his history of them (core [SentenceRound.pick]). */
@@ -168,38 +224,39 @@ fun SentenceRoundPage(
     /** Screenshot tests: listen exercises already answered (exercise id → take). */
     initialListenTakes: Map<String, ListenTake> = emptyMap(),
 ) {
-    // The listening round asks for English sentences: the card's own one, with no English on the note, is
-    // looked up first (the device's copy, else fetched online) so it can be one.
-    var clueEnglish by remember { mutableStateOf<Pair<String, String>?>(null) }
-    var clueLooked by remember { mutableStateOf(!listen) }
-    LaunchedEffect(listen, rows) {
-        if (!listen || clueLooked) return@LaunchedEffect
-        val clue = rows.firstOrNull { SentenceRound.isCardSentenceKey(it.key) && it.translation.isNullOrBlank() }
-        if (clue != null) {
-            val t = runCatching { cachedTranslation(clue) }.getOrNull()
-                ?: if (online && translate != null) runCatching { translate(clue) }.getOrNull() else null
-            if (!t.isNullOrBlank()) clueEnglish = clue.key to t
+    // The listening round asks for English sentences: the card's own one, with no English on the note, is looked
+    // up by the card while the question is up ([rememberRoundClueEnglish]) — never here: the round used to wait for
+    // that fetch (a Claude call the first time, ~1 s; up to the HTTP timeout on a bad line) with nothing on screen
+    // but "Get any 0 of these 0 right". The rows come in with whatever English is known by now.
+    val roundRows = rows
+    // Picked ONCE per showing (from the history as it stood): a take written meanwhile never reshuffles it. The data
+    // is on the phone, so the pick is made in the FIRST composition — the round's first frame has its exercises.
+    fun pickNow(): List<SentenceRound.Exercise>? {
+        val st = stats ?: return null
+        val fromLog = if (initialIds.isEmpty()) null else SentenceRound.exercisesFromLog(
+            roundRows.map { it.toRoundSentence() }, initialIds,
+        ) { st[SentenceHistory.key(it)]?.hidden != null }
+        if (fromLog != null) return fromLog
+        if (listen) return SentenceRound.pickListen(roundRows.map { it.toRoundSentence() }, word, st)
+        val heard = roundRows.map { r ->
+            val url = r.audioUrl
+            r.toRoundSentence(audio = !url.isNullOrBlank() && (online || hasClip(url)))
         }
-        clueLooked = true
+        return SentenceRound.pick(heard, st, byEar = byEar, online = online, cardHanzi = word)
     }
-    val roundRows = remember(rows, clueEnglish) { clueEnglish?.let { (k, t) -> rows.map { if (it.key == k) it.copy(translation = t) else it } } ?: rows }
-    // Picked ONCE per showing (from the history as it stood): a take written meanwhile never reshuffles it.
-    var picked by remember { mutableStateOf<List<SentenceRound.Exercise>?>(null) }
-    LaunchedEffect(roundRows, stats != null, clueLooked) {
-        if (picked == null && stats != null && clueLooked) {
-            val fromLog = if (initialIds.isEmpty()) null else SentenceRound.exercisesFromLog(
-                roundRows.map { it.toRoundSentence() }, initialIds,
-            ) { stats[SentenceHistory.key(it)]?.hidden != null }
-            val heard = roundRows.map { r ->
-                val url = r.audioUrl
-                r.toRoundSentence(audio = !url.isNullOrBlank() && (online || hasClip(url)))
-            }
-            val next = fromLog ?: if (listen) SentenceRound.pickListen(roundRows.map { it.toRoundSentence() }, word, stats)
-                else SentenceRound.pick(heard, stats, byEar = byEar, online = online, cardHanzi = word)
-            picked = next
-            onPicked(next.map { it.id })
-        }
+    var picked by remember { mutableStateOf(pickNow()) }
+    // The history wasn't read yet (the first card of a run): picked as soon as it is.
+    LaunchedEffect(roundRows, stats != null) { if (picked == null) picked = pickNow() }
+    val latestPicked by rememberUpdatedState(onPicked)
+    // The card hears each pick once (the first one from the effect, a listen → read fallback at once).
+    val reportedPick = remember { arrayOfNulls<List<String>>(1) }
+    fun reportPicked(p: List<SentenceRound.Exercise>) {
+        val ids = p.map { it.id }
+        if (reportedPick[0] == ids) return
+        reportedPick[0] = ids
+        latestPicked(ids)
     }
+    LaunchedEffect(picked) { picked?.let { reportPicked(it) } }
     fun hidden(key: String) = stats?.get(SentenceHistory.key(key))?.hidden != null
     val exercises = picked.orEmpty().filter { !hidden(it.key) }
     val visibleKeys = rows.filter { !hidden(it.key) }.map { it.key }
@@ -252,14 +309,13 @@ fun SentenceRoundPage(
     val replays = remember { HashMap<String, Int>() }
     val slowUsed = remember { HashSet<String>() }
     val activeListen = SentenceRound.listenActiveId(exercises, listenTakes.keys, chosenListen)
-    val latestPicked by rememberUpdatedState(onPicked)
     /** The clip won't play here after all: the same sentence, read (the round keeps its place). */
     fun listenFallback(ex: SentenceRound.Exercise) {
         val now = picked ?: return
         if (now.none { it.id == ex.id }) return
         val next = now.map { if (it.id == ex.id) SentenceRound.asRead(it) else it }
         picked = next
-        latestPicked(next.map { it.id })
+        reportPicked(next)
         Analytics.track("study.sentence_listen", mapOf("fallback" to true, "where" to where))
     }
     fun playListen(ex: SentenceRound.Exercise, speed: Double) {
@@ -449,7 +505,15 @@ fun SentenceRoundPage(
                     Text("🎯 ${SentenceRound.TITLE}", Modifier.weight(1f).semantics { heading() }, color = Lab.colors.ink, fontSize = 19.sp, fontWeight = FontWeight.Bold)
                     if (progress.needed > 0) RoundCounter(progress)
                 }
-                Text(if (listen) SentenceRound.listenIntro(progress, exercises.size) else SentenceRound.intro(progress, exercises.size), color = Lab.colors.muted, fontSize = 14.sp)
+                // Never "Get any 0 of these 0 right": the line comes with the exercises. Still reading the history (rare —
+                // it is read once per run): quiet skeleton rows, and only after a beat, so a quick read shows nothing.
+                when {
+                    picked == null -> RoundLoadingRows(listen)
+                    exercises.isNotEmpty() -> Text(
+                        if (listen) SentenceRound.listenIntro(progress, exercises.size) else SentenceRound.intro(progress, exercises.size),
+                        Modifier.testTag(SentenceRoundTags.INTRO), color = Lab.colors.muted, fontSize = 14.sp,
+                    )
+                }
                 if (selfCheck) Text(SentenceRound.LISTEN_SELF_CHECK_NOTE, Modifier.testTag(SentenceRoundTags.SELF_CHECK_NOTE), color = Lab.colors.muted, fontSize = 14.sp)
                 if (coming) SentencesComingNote()
                 if (!selfCheck && !CoachPractise.micEnabled(practise.dictation.blocked)) {

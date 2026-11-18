@@ -3340,6 +3340,7 @@ export function StudyCard({
               questionIsChinese={card.card_type !== 'meaning_to_hanzi'}
               sentences={roundSentenceRows}
               kind={listenRound ? 'listen' : 'card'}
+              stats={roundStats}
               word={card.note.hanzi}
               right={gateKeys}
               onRight={onSentenceRight}

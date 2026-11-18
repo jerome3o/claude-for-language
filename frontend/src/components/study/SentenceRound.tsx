@@ -35,6 +35,7 @@ import {
   exercisesFromLog,
   pickListenRoundExercises,
   listenRoundIntro,
+  LISTEN_ROUND_LEAD,
   sentenceRoundProgress as roundProgressOf,
   LISTEN_ROUND_SELF_CHECK_NOTE,
   LISTEN_ROUND_SHOW_CHINESE,
@@ -72,6 +73,7 @@ import {
   moreSentencesWanted,
   sentencesComingShown,
   type SentenceHideReason,
+  type SentenceStats,
 } from '@shared/study/sentenceHistory';
 import { hideSentence, recordSentenceAttempt, requestMoreSentences, unhideSentence, useSentenceStats } from '../../services/sentencePractice';
 import { useLongPress } from '../chat/useLongPress';
@@ -220,14 +222,23 @@ interface SentenceRoundProps {
   kind?: 'card' | 'listen';
   /** The card's word (the listening round's sentences carry it). */
   word?: string;
+  /**
+   * His practice history of these sentences as the card already read it (StudyPage reads it while the question is
+   * up): the round picks on its first render instead of waiting for its own read (a blank beat otherwise).
+   */
+  stats?: Map<string, SentenceStats> | null;
 }
 
 /** Set rows whose missing clip was already asked for in this session. */
 const askedClips = new Set<string>();
 
-export function SentenceRound({ showingKey, noteId, question, questionIsChinese, sentences, right, onRight, onDone, onSkip, initialIds, onPicked, onResult, doneCheer, where = 'session', kind = 'card', word = '' }: SentenceRoundProps) {
+/** How long the round may take to pick before its skeleton rows show (a quick pick shows nothing at all). */
+export const ROUND_LOADING_DELAY_MS = 150;
+
+export function SentenceRound({ showingKey, noteId, question, questionIsChinese, sentences, right, onRight, onDone, onSkip, initialIds, onPicked, onResult, doneCheer, where = 'session', kind = 'card', word = '', stats: preloadedStats = null }: SentenceRoundProps) {
   const listen = kind === 'listen';
-  const stats = useSentenceStats(noteId);
+  // Live (a take or a hide updates it); the card's copy until the round's own read lands.
+  const stats = useSentenceStats(noteId) ?? preloadedStats;
   const { isOnline } = useNetwork();
   // Sentences by ear (Settings → Study, on by default): the read slots become listen exercises where the
   // sentence can be heard — a clip, streamed online or on the device offline (shared/study/sentenceRound.ts).
@@ -255,17 +266,32 @@ export function SentenceRound({ showingKey, noteId, question, questionIsChinese,
   }, [byEar, isOnline, sentences]);
   // The exercises are picked ONCE per showing (from the history as it stood): a take written meanwhile
   // must not reshuffle the round under his finger. A sentence hidden now leaves it.
-  const [picked, setPicked] = useState<RoundExercise[] | null>(null);
-  useEffect(() => {
-    if (picked || !sentences || !stats) return;
-    if (needCacheCheck && !cachedClips) return;
+  // The data is on the device, so the pick is made on the FIRST render when it can be (the round's first frame has
+  // its exercises); else as soon as the sentences / history / offline clip check are in.
+  const pickNow = (clips: Record<string, boolean> | null): RoundExercise[] | null => {
+    if (!sentences || !stats) return null;
+    if (needCacheCheck && !clips) return null;
     const hidden = (key: string) => !!stats.get(sentenceHistoryKey(key))?.hidden;
-    const withAudio = sentences.map((s) => ({ ...s, audio: !!s.audio_url && (isOnline || !!cachedClips?.[s.audio_url]) }));
-    const next = (initialIds?.length ? exercisesFromLog(sentences, initialIds, hidden) : null)
+    const withAudio = sentences.map((s) => ({ ...s, audio: !!s.audio_url && (isOnline || !!clips?.[s.audio_url]) }));
+    return (initialIds?.length ? exercisesFromLog(sentences, initialIds, hidden) : null)
       ?? (listen ? pickListenRoundExercises(sentences, word, stats) : pickRoundExercises(withAudio, stats, { byEar, online: isOnline, cardHanzi: word }));
-    setPicked(next);
-    onPicked?.(next.map((e) => e.id));
+  };
+  const [picked, setPicked] = useState<RoundExercise[] | null>(() => pickNow(null));
+  useEffect(() => {
+    if (picked) return;
+    const next = pickNow(cachedClips);
+    if (next) setPicked(next);
   }, [picked, sentences, stats, cachedClips]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (picked) onPicked?.(picked.map((e) => e.id));
+  }, [picked]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Still picking: quiet skeleton rows, only after a beat (a quick pick shows nothing at all).
+  const [slowPick, setSlowPick] = useState(false);
+  useEffect(() => {
+    if (picked) return;
+    const t = setTimeout(() => setSlowPick(true), ROUND_LOADING_DELAY_MS);
+    return () => clearTimeout(t);
+  }, [picked]);
   const isHidden = (key: string) => !!stats?.get(sentenceHistoryKey(key))?.hidden;
   const exercises = useMemo(() => (picked ?? []).filter((e) => !isHidden(e.key)), [picked, stats]); // eslint-disable-line react-hooks/exhaustive-deps
   const visibleKeys = useMemo(() => (sentences ?? []).filter((s) => !isHidden(s.key)).map((s) => s.key), [sentences, stats]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -490,7 +516,6 @@ export function SentenceRound({ showingKey, noteId, question, questionIsChinese,
     setPicked((prev) => {
       if (!prev) return prev;
       const next = prev.map((e) => (e.id === ex.id ? exerciseAsRead(e) : e));
-      onPicked?.(next.map((e) => e.id));
       return next;
     });
     track('study.sentence_listen', { fallback: true, where });
@@ -732,11 +757,21 @@ export function SentenceRound({ showingKey, noteId, question, questionIsChinese,
           </div>
         )}
       </header>
-      {sentences == null || picked == null ? (
-        <p className="sentence-round-intro">Loading sentences…</p>
-      ) : (
-        <p className="sentence-round-intro">{listen ? listenRoundIntro(progress, exercises.length) : sentenceRoundIntro(progress, exercises.length)}</p>
-      )}
+      {/* Never "Get any 0 of these 0 right": the line comes with the exercises (none → straight to the answer). */}
+      {picked == null ? (
+        slowPick && (
+          <div className="sentence-round-loading" data-testid="sentence-round-loading" role="status" aria-label="Loading the sentences">
+            {listen && <p className="sentence-round-intro">{LISTEN_ROUND_LEAD}</p>}
+            {[0, 1].map((i) => (
+              <div key={i} className="sentence-round-skeleton" aria-hidden="true">
+                <span /><span /><span />
+              </div>
+            ))}
+          </div>
+        )
+      ) : exercises.length > 0 ? (
+        <p className="sentence-round-intro" data-testid="sentence-round-intro">{listen ? listenRoundIntro(progress, exercises.length) : sentenceRoundIntro(progress, exercises.length)}</p>
+      ) : null}
       {blockNote && <p className="sentence-round-blocked" role="status">{blockNote}</p>}
       {coming && <p className="sentence-round-coming" role="status" data-testid="sentences-coming">{SENTENCES_COMING_NOTE}</p>}
       {cheer && (

@@ -984,3 +984,58 @@ describe('tapping a word of an answered row', () => {
     expect(explorer.open).toHaveBeenCalledWith(expect.objectContaining({ hanzi: '银行', sentence: '我去银行。' }), expect.objectContaining({ source: 'sentence_round' }));
   });
 });
+
+/**
+ * No blank beat (Jerome, Nov 2026: "I get this blank page for a little while … then after a second, it loads"): the
+ * round's data is on the device, so its FIRST render has the exercises; "Get any 0 of these 0 right" never shows; a
+ * round with no exercises goes straight to the answer; a slow history read shows skeleton rows only after a beat.
+ */
+describe('the round is ready at once', () => {
+  const ROWS = [
+    { key: 'n1-card', hanzi: '我去银行取钱。', pinyin: 'Wǒ qù yínháng qǔ qián.', translation: 'I go to the bank to get money.', audio_url: null },
+    { key: 's1', hanzi: '我去银行。', pinyin: 'Wǒ qù yínháng.', translation: 'I go to the bank.', audio_url: null },
+    { key: 's2', hanzi: '银行在哪儿？', pinyin: 'Yínháng zài nǎr?', translation: 'Where is the bank?', audio_url: null },
+  ];
+  async function direct(opts: { sentences: typeof ROWS | null; stats?: Map<string, never> | null; kind?: 'card' | 'listen'; onDone?: () => void }) {
+    const { SentenceRound } = await import('./SentenceRound');
+    // A synchronous render: what the first frame shows.
+    act(() => root.render(
+      <SentenceRound
+        showingKey="c1" noteId="n1" question="银行" questionIsChinese sentences={opts.sentences} right={[]}
+        onRight={vi.fn()} onDone={opts.onDone ?? vi.fn()} onSkip={vi.fn()} kind={opts.kind} word="银行"
+        stats={opts.stats === undefined ? new Map() : opts.stats}
+      />,
+    ));
+  }
+
+  it("the first render has its exercises with the card's history — before the round's own read lands", async () => {
+    // The round's own live read hasn't answered yet; the card's copy is enough.
+    history.stats = null as never;
+    await direct({ sentences: ROWS, kind: 'listen' });
+    expect(all('sentence-round-exercise').length).toBeGreaterThan(0);
+    expect(host.textContent).not.toContain('of these 0');
+    expect(all('sentence-round-intro')).toHaveLength(1);
+    expect(all('sentence-round-loading')).toHaveLength(0);
+  });
+
+  it('no exercises at all: straight to the answer, never "Get any 0 of these 0 right"', async () => {
+    const onDone = vi.fn();
+    await direct({ sentences: [], kind: 'listen', onDone });
+    expect(host.textContent).not.toContain('of these 0');
+    expect(all('sentence-round-intro')).toHaveLength(0);
+    await flush();
+    expect(onDone).toHaveBeenCalledTimes(1);
+    expect(host.textContent).not.toContain('of these 0');
+  });
+
+  it('the history still being read: nothing for a beat, then skeleton rows — never "0 of these 0"', async () => {
+    vi.useFakeTimers();
+    history.stats = null as never;
+    await direct({ sentences: ROWS, stats: null, kind: 'listen' });
+    expect(host.textContent).not.toContain('of these 0');
+    expect(all('sentence-round-loading')).toHaveLength(0);
+    act(() => { vi.advanceTimersByTime(200); });
+    expect(all('sentence-round-loading')).toHaveLength(1);
+    expect(host.textContent).not.toContain('of these 0');
+  });
+});

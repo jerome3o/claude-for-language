@@ -2184,6 +2184,16 @@ round** before the answer — like Worldle, a ladder of harder questions about t
   Lab: back on the round returns to the question (its count kept).
 - Practice only: no review event, no recording kept. Offline the 🎤 is off (transcription needs a
   connection) and the round says so — Skip is the way on.
+- **The round is ready at once** (Jerome, Nov 2026: "I get this blank page for a little while, and then after a
+  second, it loads"): everything the pick needs is on the device — the sentences and his practice history are read by
+  the card while the question is up — so the exercises are picked on the round's **first render** (web: the card's
+  `roundStats` passed as `stats`, picked in the state initialiser; Lab: picked in the first composition). The Lab's
+  listening round used to fetch the English of a card sentence that had none (`/api/sentences/:id/translate` — a
+  Claude call the first time, ~1 s; up to the HTTP timeout on a bad line) BEFORE picking, showing only "Get any 0 of
+  these 0 right" meanwhile; that lookup now runs on the question side. The intro line comes with the exercises —
+  **never "0 of these 0"**; still picking (the history not read yet — the first card of a run) shows quiet skeleton
+  rows only after 150 ms (`ROUND_LOADING_DELAY_MS`); no exercises at all → straight to the answer. Tests:
+  `SentenceRound.test.tsx` ("the round is ready at once"), Lab `SentenceRoundNoBlankTest`.
 - Rules: `shared/study/sentenceRound.ts` (`roundSentences`, `pickRoundExercises`, `sentenceRoundOpens`,
   `sentenceRoundProgress` + the words), Lab `core/…/SentenceRound.kt`, parity-tested
   (`parity/fixtures/sentence-round.ts`). Web `components/study/SentenceRound.tsx` (`useRoundSentences`,
@@ -2204,7 +2214,9 @@ steps for them. Maybe I should just get a few English sentences that I need to s
   LEAST in translate mode first (`compareLeastKnown`; ties: list order), shown easiest → harder
   (`pickListenRoundExercises`, `listenRoundSentenceCount`, shared/study/sentenceRound.ts; Lab
   `SentenceRound.pickListen`, parity-tested in `parity/fixtures/sentence-history.ts`). The card's own sentence with no
-  English on the note is looked up first (the device's copy, else fetched online, cached by text).
+  English on the note is looked up **while the question is up** (the device's copy, else fetched online, cached by
+  text — web `useRoundSentences(…, { fetchMissingEnglish })`, Lab `rememberRoundClueEnglish` in CardStage); the round
+  never waits for it — it picks with the English known when it opens (see "The round is ready at once").
 - He hears the sentences on the question (Listen in context), then says each English one in Chinese: the round's
   translate take (live words, the device rule incl. homophones, then the lesson answer check online — correct /
   acceptable count). **Any two right** (min(2, exercises)), the same counter, cheer, confetti and the answer side's

@@ -323,7 +323,7 @@ fun CardStage(
     val practise = practisePreview ?: rememberSentencePractise(view.presentation)
     // A resumed showing: what was already right (the round's exercises / the rows) still counts.
     remember(practise) { if (practise.rightKeys.isEmpty() && start.sentencesRight.isNotEmpty()) practise.rightKeys.addAll(start.sentencesRight); 0 }
-    val roundRows = remember(view.presentation, view.sentences, note.sentenceClue, note.sentenceClueTranslation) { sentenceRows(view) }
+    val baseRoundRows = remember(view.presentation, view.sentences, note.sentenceClue, note.sentenceClueTranslation) { sentenceRows(view) }
     // Practice per sentence (data/sentences/SentencePracticeStore, core SentenceHistory): the round prefers
     // what he knows least, hidden sentences never come; every judged take is recorded (not the pass).
     val labApp = appCtx as? dev.jeromeswannack.chineselearning.lab.LabApp
@@ -357,6 +357,12 @@ fun CardStage(
     val sentencesByEar by StudyPrefs.get(appCtx).sentencesByEar.collectAsState()
     // The listening card's round asks only for the English sentences that carry the word (core SentenceRound.pickListen).
     val listenRound = view.card.cardType == CardTypes.AUDIO_TO_HANZI
+    // Its card sentence with no English on the note is looked up NOW, while the question is up — so the round,
+    // when it opens, is ready at once (it used to fetch it first and show "Get any 0 of these 0 right" meanwhile).
+    val roundRows = rememberRoundClueEnglish(
+        view.presentation, enabled = listenRound && hardApplies, rows = baseRoundRows,
+        cachedTranslation = actions.sentences.cachedTranslation, translate = actions.sentences.translate, online = ui.aiAvailable,
+    )
     val sentenceCount = if (listenRound) SentenceRound.listenSentenceCount(roundRows.map { it.toRoundSentence() }, note.hanzi, noteStats)
         // A row that IS the card's own text never comes in the round (core SentenceRound.isCardHanziSentence).
         else SentenceRound.roundSentenceCount(roundRows.map { it.toRoundSentence() }, noteStats, note.hanzi)
