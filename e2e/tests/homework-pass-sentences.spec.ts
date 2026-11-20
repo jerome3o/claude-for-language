@@ -110,6 +110,8 @@ test('the pass sentence: reveal, breakdown, add a word — and nothing is record
               construction: '喜欢 + a whole activity: 在课上和学生互动.',
             }),
             cached_at: Date.now(),
+            // TEXT_EXPLANATION_VERSION (services/sentence-sets.ts): a breakdown cached since the worker checks its pinyin.
+            v: 2,
           });
           tx.oncomplete = () => { db.close(); resolve(); };
           tx.onerror = () => reject(tx.error);
