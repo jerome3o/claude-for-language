@@ -74,7 +74,6 @@ const CARDS = `(SELECT id FROM cards WHERE note_id IN ${NOTES})`;
 const READERS = `(SELECT id FROM graded_readers WHERE user_id = ?1)`;
 const CALLS = `(SELECT id FROM calls WHERE created_by = ?1 OR relationship_id IN ${REL})`;
 const PIECES = `(SELECT id FROM call_recording_pieces WHERE call_id IN ${CALLS} OR user_id = ?1)`;
-const HOMEWORK = `(SELECT id FROM homework_assignments WHERE tutor_id = ?1 OR student_id = ?1 OR reader_id IN ${READERS})`;
 const CONVERSATIONS = `(SELECT id FROM conversations WHERE relationship_id IN ${REL})`;
 const MESSAGES = `(SELECT id FROM messages WHERE conversation_id IN ${CONVERSATIONS} OR sender_id = ?1)`;
 const LESSONS = `(SELECT id FROM custom_lessons WHERE user_id = ?1)`;
@@ -114,12 +113,7 @@ export const DELETE_STEPS: Array<{ label: string; sql: string }> = [
   { label: 'card_flags', sql: `DELETE FROM card_flags WHERE student_id = ?1 OR tutor_id = ?1 OR relationship_id IN ${REL}` },
   { label: 'deck_check_jobs', sql: `DELETE FROM deck_check_jobs WHERE user_id = ?1 OR deck_owner_id = ?1 OR relationship_id IN ${REL}` },
   { label: 'tutor_note_jobs', sql: `DELETE FROM tutor_note_jobs WHERE tutor_id = ?1 OR student_id = ?1 OR relationship_id IN ${REL}` },
-  { label: 'notifications', sql: `DELETE FROM notifications WHERE user_id = ?1 OR relationship_id IN ${REL} OR homework_id IN ${HOMEWORK}` },
-
-  // Legacy reader homework.
-  { label: 'homework_feedback', sql: `DELETE FROM homework_feedback WHERE tutor_id = ?1 OR homework_id IN ${HOMEWORK}` },
-  { label: 'homework_recordings', sql: `DELETE FROM homework_recordings WHERE homework_id IN ${HOMEWORK}` },
-  { label: 'homework_assignments', sql: `DELETE FROM homework_assignments WHERE id IN ${HOMEWORK}` },
+  { label: 'notifications', sql: `DELETE FROM notifications WHERE user_id = ?1 OR relationship_id IN ${REL}` },
   { label: 'tutor_review_requests', sql: `DELETE FROM tutor_review_requests WHERE student_id = ?1 OR tutor_id = ?1 OR relationship_id IN ${REL} OR note_id IN ${NOTES}` },
 
   // Study history.
@@ -349,8 +343,6 @@ async function collectR2Keys(db: D1Database, userId: string): Promise<string[]> 
     `SELECT r2_key AS k FROM lesson_note_files WHERE lesson_note_id IN (SELECT id FROM lesson_notes WHERE user_id = ?1)`,
     `SELECT audio_key AS k FROM audio_lessons WHERE user_id = ?1`,
     `SELECT image_url AS k FROM roleplay_messages WHERE session_id IN (SELECT id FROM roleplay_sessions WHERE user_id = ?1)`,
-    `SELECT audio_url AS k FROM homework_recordings WHERE homework_id IN ${HOMEWORK}`,
-    `SELECT audio_feedback_url AS k FROM homework_feedback WHERE tutor_id = ?1 OR homework_id IN ${HOMEWORK}`,
     `SELECT replace(screenshot_url, '/api/feature-requests/screenshot/', '') AS k FROM feature_requests WHERE user_id = ?1 AND screenshot_key IS NULL`,
     // In-app feedback screenshots (docs/FEEDBACK.md).
     `SELECT screenshot_key AS k FROM feature_requests WHERE user_id = ?1`,

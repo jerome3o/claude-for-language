@@ -423,7 +423,8 @@ Nothing to convert: every deck / lesson / reader already sent IS long-term (`fsr
 working unchanged; `shared_decks`, the library assign and `share-reader` stay as they are. Assignments are
 created only from now on (new API, Send homework, drafts, the MCP send tools). Old session-notes jobs (`review = 0`) keep
 auto-sending; `submit_session_notes` is unchanged. Migration `0073_homework.sql` only adds the two tables (named `assignments` / `assignment_events` because the
-unused legacy reader-homework table `homework_assignments` of migration 0024 still exists; it is left alone),
+unused legacy reader-homework table `homework_assignments` of migration 0024 still existed; it and its
+`homework_recordings` / `homework_feedback` children were dropped in migration 0157),
 `tutor_lesson_log.title` and `tutor_note_jobs.review / plan / chat / assigned_at`.
 
 ## 7. Decisions (Jerome, 27 Sep 2026)
