@@ -62,6 +62,8 @@ import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 
 class AddActions(
     val onMethod: (String) -> Unit = {},
+    /** The word box started listening for the 🎤 / 🗣 tap that opened it ([AddUi.listenBox]). */
+    val onListened: () -> Unit = {},
     /** 📷: the camera, at once. */
     val onTakePhoto: () -> Unit = {},
     /** 🖼 a photo already on the phone. */
@@ -155,7 +157,7 @@ private fun WordCard(ui: AddUi, actions: AddActions, voicePreview: VoiceDictatio
         )
         ui.photo?.takeIf { ui.method == AddMethod.PHOTO }?.let { PhotoResult(it, actions) }
         val method = ui.method
-        if (method != null && method != AddMethod.PHOTO) key(ui.boxKey) { WordBox(method, actions, voicePreview, ui.lookupBusy) }
+        if (method != null && method != AddMethod.PHOTO) key(ui.boxKey) { WordBox(method, actions, voicePreview, ui.lookupBusy, listenNow = ui.listenBox == ui.boxKey) }
         if (ui.lookupBusy) Muted("Finding the Chinese…")
         ui.lookupError?.let { ErrorText(it) }
         ui.typedLine?.let { line -> WordLine(line, primary = true, onLookUp = { w, p, g -> actions.onLookUp(w, p, g, line) }) }
@@ -309,7 +311,7 @@ private fun Chip(text: String, fontSize: androidx.compose.ui.unit.TextUnit, prim
 // ---------------- typed / spoken ----------------
 
 @Composable
-private fun WordBox(method: String, actions: AddActions, voicePreview: VoiceDictationUi?, busy: Boolean) {
+private fun WordBox(method: String, actions: AddActions, voicePreview: VoiceDictationUi?, busy: Boolean, listenNow: Boolean) {
     var value by remember { mutableStateOf("") }
     val lang = if (method == AddMethod.SAY_EN) "en" else "zh"
     val placeholder = if (method == AddMethod.SAY_EN) "An English word — \"bank\", \"to queue\"…" else "A word in Chinese, pinyin or English"
@@ -320,8 +322,14 @@ private fun WordBox(method: String, actions: AddActions, voicePreview: VoiceDict
             val controller = rememberVoiceDictation("add_word", lang, if (method == AddMethod.TYPE) "type" else null)
             val ui by controller.ui.collectAsState()
             val va = rememberVoiceFirstActions(controller, value, onFill = { value = it }) { a -> actions.onSubmitWord(a) }
-            // 🎤 / 🗣 straight away: the button he tapped WAS "say it".
-            LaunchedEffect(Unit) { if (method != AddMethod.TYPE) va.say() }
+            // 🎤 / 🗣 straight away ONLY for the tap that opened this box (the button he tapped WAS "say it"). Coming
+            // back to the tab with the method still picked shows the idle box: nothing records until he taps 🎤.
+            LaunchedEffect(Unit) {
+                if (listenNow && method != AddMethod.TYPE) {
+                    actions.onListened()
+                    va.say()
+                }
+            }
             VoiceTextFieldContent(ui = ui, value = value, onValueChange = { value = it }, actions = va, submitLabel = "Look it up", placeholder = placeholder, lang = lang, enabled = !busy, compact = true)
         }
     }
