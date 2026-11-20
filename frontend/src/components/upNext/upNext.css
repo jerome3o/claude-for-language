@@ -1,4 +1,54 @@
-/* "Up next" page (components/upNext/UpNextBoard.tsx, pages/UpNextPage.tsx). Mobile first. */
+/* "Up next" page (components/upNext/UpNextBoard.tsx, pages/UpNextPage.tsx). Mobile first.
+
+   Colours are tokens, one set per theme (Lab twin: ui/upnext/UpNextScreen.kt UpNextLight / UpNextDark). Jerome, Nov
+   2026: "The Up next page doesn't look very good on dark mode" — the Lab app drew the ⚡ Today rows as a hard-coded
+   cream card with the dark theme's near-white words on it. The web is light-only today; the dark set applies under
+   data-theme="dark" (index.css) so the page is ready when it gets one. */
+:root {
+  --upnext-row-bg: #fafafa;
+  --upnext-lifted-bg: #fff;
+  --upnext-hover: #f3f4f6;
+  --upnext-indigo: #4338ca;
+  --upnext-indigo-ink: #3730a3;
+  --upnext-indigo-soft: #eef2ff;
+  --upnext-indigo-border: #c7d2fe;
+  --upnext-indigo-line: #6366f1;
+  --upnext-violet: #7c3aed;
+  --upnext-pinyin: #4b5563;
+  --upnext-icon: #4b5563;
+  --upnext-icon-quiet: #9ca3af;
+  --upnext-amber: #b45309;
+  --upnext-today-bg: #fffbeb;
+  --upnext-today-line: #fde68a;
+  --upnext-today-row-bg: #fff;
+  --upnext-note-bg: #fffbeb;
+  --upnext-note-ink: #92400e;
+  --upnext-paused-bg: #fef3c7;
+  --upnext-paused-ink: #78350f;
+}
+
+:root[data-theme='dark'] {
+  --upnext-row-bg: #1c1c20;
+  --upnext-lifted-bg: #26262c;
+  --upnext-hover: #26262c;
+  --upnext-indigo: #a5b4fc;
+  --upnext-indigo-ink: #c7d2fe;
+  --upnext-indigo-soft: #25274a;
+  --upnext-indigo-border: #6e73d9;
+  --upnext-indigo-line: #6e73d9;
+  --upnext-violet: #c4b5fd;
+  --upnext-pinyin: #a19d94;
+  --upnext-icon: #d4d1ca;
+  --upnext-icon-quiet: #a19d94;
+  --upnext-amber: #fcd34d;
+  --upnext-today-bg: #2a2110;
+  --upnext-today-line: #5c4515;
+  --upnext-today-row-bg: #1c1c20;
+  --upnext-note-bg: #2a2110;
+  --upnext-note-ink: #fcd34d;
+  --upnext-paused-bg: #3a2416;
+  --upnext-paused-ink: #fdba74;
+}
 .upnext-page h1 {
   font-size: 1.5rem;
   margin-bottom: 0.25rem;
@@ -50,8 +100,8 @@
 }
 
 .upnext-readonly {
-  color: #92400e;
-  background: #fffbeb;
+  color: var(--upnext-note-ink);
+  background: var(--upnext-note-bg);
   border-radius: var(--radius-md);
   padding: 0.5rem 0.75rem;
 }
@@ -79,7 +129,7 @@
   min-height: 56px;
   padding: 0.5rem 0.5rem 0.5rem 0.625rem;
   border-radius: var(--radius-md);
-  background: #fafafa;
+  background: var(--upnext-row-bg);
   border: 1px solid var(--color-border);
   transition: box-shadow 0.15s ease, transform 0.15s ease, background 0.15s ease;
   -webkit-touch-callout: none;
@@ -94,25 +144,25 @@
 
 .upnext-row--lifted,
 .upnext-result--lifted {
-  background: #fff;
+  background: var(--upnext-lifted-bg);
   box-shadow: var(--shadow-lg);
   transform: scale(1.02);
-  border-color: #6366f1;
+  border-color: var(--upnext-indigo-line);
   position: relative;
   z-index: 2;
 }
 
 .upnext-row--placeholder {
-  border: 2px dashed #6366f1;
-  background: #eef2ff;
+  border: 2px dashed var(--upnext-indigo-line);
+  background: var(--upnext-indigo-soft);
 }
 
 .upnext-pos {
   flex: 0 0 1.75rem;
   height: 1.75rem;
   border-radius: 999px;
-  background: #eef2ff;
-  color: #4338ca;
+  background: var(--upnext-indigo-soft);
+  color: var(--upnext-indigo);
   font-weight: 700;
   font-size: 0.85rem;
   display: inline-flex;
@@ -121,7 +171,7 @@
 }
 
 .upnext-grip {
-  color: #9ca3af;
+  color: var(--upnext-icon-quiet);
   font-size: 1.1rem;
   flex: 0 0 auto;
 }
@@ -141,7 +191,7 @@
 }
 
 .upnext-pinyin {
-  color: #4b5563;
+  color: var(--upnext-pinyin);
   font-size: 0.9rem;
 }
 
@@ -160,7 +210,7 @@
 }
 
 .upnext-added-by {
-  color: #7c3aed;
+  color: var(--upnext-violet);
 }
 
 .upnext-actions {
@@ -177,27 +227,22 @@
   background: transparent;
   border-radius: var(--radius-md);
   font-size: 1.1rem;
-  color: #4b5563;
+  color: var(--upnext-icon);
   cursor: pointer;
 }
 
 .upnext-icon-btn:hover {
-  background: #f3f4f6;
+  background: var(--upnext-hover);
 }
 
 .upnext-remove {
-  color: #9ca3af;
+  color: var(--upnext-icon-quiet);
 }
 
-.upnext-chip-btn {
-  min-height: 44px;
-  padding: 0 0.625rem;
-  border: 1px solid var(--color-border);
-  background: #fff;
-  border-radius: 999px;
-  font-size: 0.85rem;
-  white-space: nowrap;
-  cursor: pointer;
+/* "↑ Up next" on a ⚡ Today row: the tonal indigo pill (.upnext-btn) with an outline that reads on the amber row. */
+.upnext-btn.upnext-today-btn {
+  border-color: var(--upnext-indigo-line);
+  font-size: 0.9rem;
 }
 
 .upnext-add {
@@ -206,7 +251,7 @@
 }
 
 .upnext-on-list {
-  color: #4338ca;
+  color: var(--upnext-indigo);
   font-size: 0.85rem;
   white-space: nowrap;
 }
@@ -236,12 +281,12 @@
 }
 
 .upnext-today {
-  border-color: #fde68a;
-  background: #fffbeb;
+  border-color: var(--upnext-today-line);
+  background: var(--upnext-today-bg);
 }
 
 .upnext-today-row {
-  background: #fff;
+  background: var(--upnext-today-row-bg);
 }
 
 .upnext-toast {
@@ -277,9 +322,9 @@
 .upnext-btn {
   min-height: 44px;
   padding: 0 0.875rem;
-  border: 1px solid #c7d2fe;
-  background: #eef2ff;
-  color: #3730a3;
+  border: 1px solid var(--upnext-indigo-border);
+  background: var(--upnext-indigo-soft);
+  color: var(--upnext-indigo-ink);
   border-radius: 999px;
   font-weight: 600;
   cursor: pointer;
@@ -307,7 +352,7 @@
 .home-up-next {
   display: inline-block;
   margin: 0 0 0.5rem;
-  color: #3730a3;
+  color: var(--upnext-indigo-ink);
   font-weight: 600;
   font-size: 0.9rem;
   text-decoration: none;
@@ -346,16 +391,16 @@
   min-height: 56px;
   margin: 0.5rem 0 0.75rem;
   padding: 0.5rem 0.75rem;
-  border: 1px solid #c7d2fe;
+  border: 1px solid var(--upnext-indigo-border);
   border-radius: var(--radius-md);
-  background: #eef2ff;
+  background: var(--upnext-indigo-soft);
   color: inherit;
   text-decoration: none;
 }
 
 .upnext-student-link-title {
   font-weight: 700;
-  color: #3730a3;
+  color: var(--upnext-indigo-ink);
 }
 
 .upnext-student-link-desc {
@@ -370,7 +415,7 @@
 }
 
 .upnext-bolt {
-  color: #b45309;
+  color: var(--upnext-amber);
 }
 
 /* "Up next waits — new cards are paused today (…)" (shared/decks/review-load.ts) */
@@ -378,8 +423,8 @@
   margin: 0 0 0.75rem;
   padding: 0.5rem 0.75rem;
   border-radius: var(--radius-md, 8px);
-  background: #fef3c7;
-  color: #78350f;
+  background: var(--upnext-paused-bg);
+  color: var(--upnext-paused-ink);
   font-size: 0.875rem;
   font-weight: 600;
 }

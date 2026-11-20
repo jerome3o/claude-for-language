@@ -78,6 +78,39 @@ class UpNextScreenshots : LabScreenshotTest() {
         )
     }
 
+    // Dark mode (Jerome, Nov 2026: "The Up next page doesn't look very good on dark mode"): the ⚡ Today rows were a
+    // cream card with near-white words on it. The screen as he saw it, in both themes, plus the drag / undo states.
+    private val jeromesToday = listOf(
+        UpNextTodayUi("t1", "我等会儿要下去拿。", "Wǒ děng huìr yào xiàqu ná.", "I'll go down and get it in a bit.", "语法句型 · 搬回…去／本来要等 (from tutor)"),
+        UpNextTodayUi("t2", "就这些", "jiùzhèxiē", "that's all; just these", "From the explorer", from = "Minghui"),
+    )
+    private val paused = "Up next waits — new cards are paused today (103 cards reviewed or due, limit 80)."
+
+    @Test fun darkToday() = shootInShell("upnext-08-dark-today", active = TabId.MORE, dark = true) {
+        UpNextScreen(UpNextUi(rows = rows, today = jeromesToday, paused = paused), UpNextActions(onBack = {}))
+    }
+
+    @Test fun lightToday() = shootInShell("upnext-09-light-today", active = TabId.MORE) {
+        UpNextScreen(UpNextUi(rows = rows, today = jeromesToday, paused = paused), UpNextActions(onBack = {}))
+    }
+
+    @Test fun darkDrag() = shootInShell("upnext-10-dark-drag", active = TabId.MORE, dark = true) {
+        UpNextScreen(
+            UpNextUi(rows = rows, query = "huoche", hits = hits),
+            UpNextActions(onBack = {}),
+            previewOrder = listOf("n1", "h1", "n2", "n3", "n4"),
+            previewDrag = "h1",
+        )
+    }
+
+    @Test fun darkUndo() = shootInShell("upnext-11-dark-undo", active = TabId.MORE, dark = true) {
+        UpNextScreen(UpNextUi(rows = rows.drop(1), today = jeromesToday.take(1), toast = "Removed 银行 from Up next", toastUndo = true), UpNextActions(onBack = {}))
+    }
+
+    @Test fun darkEmpty() = shootInShell("upnext-12-dark-empty", active = TabId.MORE, dark = true) {
+        UpNextScreen(UpNextUi(), UpNextActions(onBack = {}))
+    }
+
     @Config(qualifiers = UNFOLDED)
     @Test fun unfolded() = shoot("upnext-07-unfolded") {
         UpNextScreen(UpNextUi(rows = rows, today = today, query = "huo", hits = hits), UpNextActions(onBack = {}))
