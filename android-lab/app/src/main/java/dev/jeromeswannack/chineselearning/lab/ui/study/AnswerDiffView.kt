@@ -281,7 +281,8 @@ fun AnswerDiffView(
                 Column(Modifier.weight(1f)) {
                     DiffMarkedText(diff.cells(), 22.sp, accepted = accepted)
                     // His own pinyin, his wrong syllables marked like the characters (wǔzhù under wǔrǔ).
-                    DiffPinyinLine(diff, said, accepted = accepted)
+                    // Said aloud only: a WRITTEN answer is judged by its characters (官 for 馆 is wrong, both guān).
+                    if (!written) DiffPinyinLine(diff, said, accepted = accepted)
                 }
             }
             AnswerWhyLine(why, more, onAsk, whySurface, askFallback = askFallback)

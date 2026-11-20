@@ -50,6 +50,11 @@ describe('AnswerDiff — pinyin under "You said"', () => {
     expect([...py.querySelectorAll('[data-kind]')].map((n) => n.textContent)).toEqual(['le']);
   });
 
+  it('a WRITTEN answer has no pinyin line (its homophones are wrong characters)', () => {
+    const el = render(<AnswerDiff said="图书官" expected="图书馆" written saidLabel="You wrote" />);
+    expect(q(el, 'answer-diff-said-pinyin')).toBeNull();
+  });
+
   it('punctuation in the transcript never shows as a difference', () => {
     const el = render(<AnswerDiff said="“我去”～" expected="我去。" />);
     expect(q(el, 'answer-diff-text')!.textContent).toBe('Right');

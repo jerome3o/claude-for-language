@@ -162,7 +162,8 @@ export function AnswerDiff({
           <span className="adiff-said">
             <span className="adiff-sr">{answerDiffLabel(diff, text, saidLabel)}</span>
             <AnswerDiffChars parts={diff.parts} />
-            <AnswerDiffPinyin diff={diff} said={said} accepted={accepted} />
+            {/* Said aloud only: a WRITTEN answer is judged by its characters (官 for 馆 is wrong, though both are guān). */}
+            {!written && <AnswerDiffPinyin diff={diff} said={said} accepted={accepted} />}
           </span>
         </div>
       )}
