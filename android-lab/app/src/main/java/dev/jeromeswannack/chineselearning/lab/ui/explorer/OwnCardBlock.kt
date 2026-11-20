@@ -68,7 +68,7 @@ fun ownCardColors(status: CharWordStatus): Pair<Color, Color> {
 }
 
 @Composable
-fun OwnCardBlock(char: String, ui: OwnCardUi, onOpenCard: () -> Unit, onBump: () -> Unit, onAdd: () -> Unit) {
+fun OwnCardBlock(char: String, ui: OwnCardUi, onOpenCard: () -> Unit, onBump: () -> Unit, onAdd: () -> Unit, extras: (@Composable () -> Unit)? = null) {
     val own = ui.own
     Column(Modifier.fillMaxWidth().padding(top = 12.dp).testTag(EXPLORER_CHAR_OWN_TAG)) {
         when {
@@ -105,6 +105,8 @@ fun OwnCardBlock(char: String, ui: OwnCardUi, onOpenCard: () -> Unit, onBump: ()
                         CharWords.ownCardLine(char, own.status, own.decks),
                         style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = fg,
                     )
+                    // Where he's at with each card of the character (CardVariants.kt; the study card ⋯ sheet's tiles).
+                    extras?.let { Spacer(Modifier.height(10.dp)); it() }
                     if (ui.canOpenCard || ui.canBump) {
                         Spacer(Modifier.height(10.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

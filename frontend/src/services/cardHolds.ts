@@ -21,7 +21,7 @@ export { localDateKey } from '../db/database';
 const online = () => typeof navigator === 'undefined' || navigator.onLine;
 
 /** Where a hold was made (analytics `source`). */
-export type HoldSource = 'study' | 'card_hub' | 'held_list' | 'deck' | 'leech' | 'other';
+export type HoldSource = 'study' | 'card_hub' | 'held_list' | 'deck' | 'leech' | 'explorer' | 'other';
 
 /** Rows that count (not waiting to be cleared). */
 async function liveRows(): Promise<LocalCardHold[]> {

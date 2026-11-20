@@ -128,6 +128,31 @@ words; the tint only repeats them.
 Pinyin and meaning are resolved dictionary-first (`resolveWord`): the word dictionary, else a
 character record's word list, else the learner's own card, else what the tapped place said.
 
+## Card variants — where each card of the word stands
+
+Jerome (Nov 2026): "If I've already got a card, in this lookup view, from anywhere really, I'd love three little
+buttons that show me where I'm at with each variation of the card, like the answer card ⋯ menu." Under "📚 You have
+this in <deck>" (Word view) and the Character view's "📚 You have 性 as a card…" line, ONE compact row of the study
+card ⋯ menu's tiles (`shared/decks/sibling-status.ts`, the same rule and words — never forked): **读 Read · 写 Write ·
+听 Listen**, each with its status (Not started · New · in today's queue · Learning · Due today · Review · next in 12d ·
+Known · next in 3mo · Suspended · Snoozed until … · Leech · missed 9×) and the 3-step strength bar; a dashed tile for a
+type the word lacks ("No listening card (no audio)"). Here EVERY card of the note shows (`siblingTiles(cards, '', …)` —
+no card is on screen), for the note the banner points at (its Open card →); "in today" = the cards the ⚡ pocket holds
+for that note (`bumpedCardsForNote`). Computed on the device from the replayed card state + holds, so it works offline.
+
+A tap opens that card's panel in place (a second tap closes it): **⚡ Study it today** — the ⋯ menu's card-level bump
+(`bumpCardTypes(note, [type], 'explorer')`; "(review early)" for a started card; greyed with the reason when it is
+already due / in today / held) — and **Unsuspend / Wake now** for a held card. After ⚡ the line under the row says
+"⚡ English → 汉字 added to today" and the tile turns "New · in today's queue". During a study session the bumped card
+is taken in like any explorer bump (`takeSessionBumps`: an unstarted word's card next, a started word's into the ⚡
+mix, never right after its sibling). The footer's one-tap ⚡ Study it today (`studyTodayPlan`) is unchanged. Snooze /
+Suspend / Forget stay on the card hub (Open card →) and the ⋯ menu.
+
+Web `components/explorer/CardVariants.tsx` (in `CardTieIn`, so every opener has it), Lab `ui/explorer/CardVariants.kt`
+(`ExplorerEnv.wordCards` / `bumpCardType` / `releaseCard`; `WordViewActions.cardExtras`, `OwnCardBlock(extras)`).
+Analytics `explorer.card_variant_open` (kind, card_type, status), `explorer.card_variant_action` (kind, card_type,
+action = bump | unsuspend | wake).
+
 ## Frequency decals (`shared/explorer/frequency-tier.ts`)
 
 A thin outline around each word tile ("Words with 字", "Related words") and character tile (the
@@ -281,4 +306,4 @@ stroke data once cached).
 ## Analytics (`shared/analytics/events.ts`)
 
 `explorer.open` (source, kind — source `word_tag` from a word tag's sheet), `explorer.push` (kind, from), `explorer.more` (kind),
-`explorer.add_card` (kind = word | char), `explorer.add_gloss` (kind, found), `explorer.add_fill` (kind, reason), `explorer.bump` (kind = word | char), `study.word_tag_word` (a tap on Chinese in a word tag's sheet), `explorer.write`, `explorer.drill_start` (kind, items), `explorer.drill_finish` (kind, items, correct, duration_ms). Ids / enums / counts only.
+`explorer.add_card` (kind = word | char), `explorer.add_gloss` (kind, found), `explorer.add_fill` (kind, reason), `explorer.bump` (kind = word | char), `explorer.card_variant_open` / `explorer.card_variant_action` (the card tiles), `study.word_tag_word` (a tap on Chinese in a word tag's sheet), `explorer.write`, `explorer.drill_start` (kind, items), `explorer.drill_finish` (kind, items, correct, duration_ms). Ids / enums / counts only.

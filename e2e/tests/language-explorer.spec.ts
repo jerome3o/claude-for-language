@@ -229,3 +229,45 @@ test('Android / browser back pops ONE explorer level (the drill first); ✕ leav
   await page.goBack();
   await expect(page).toHaveURL(/\/decks/);
 });
+
+test('the Word view shows where each card of a word I have stands; ⚡ on one card bumps just that card type', async ({ page, request }) => {
+  test.setTimeout(120_000);
+  const user = await seedUser(request, 'variants', 'Jerome');
+  const deck = await api<{ id: string }>(request, '/api/decks', { method: 'POST', token: user.token, data: { name: 'HSK 3' } });
+  await api(request, `/api/decks/${deck.id}/notes`, { method: 'POST', token: user.token, data: { hanzi: '银行', pinyin: 'yínháng', english: 'bank' } });
+
+  await page.goto(`/decks?session_token=${user.token}`);
+  await expect(page.getByText('HSK 3').first()).toBeVisible({ timeout: 30_000 });
+  await page.goto(`/study?deck=${deck.id}&autostart=true`);
+  const reveal = page.getByRole('button', { name: /Skip recording|Show Answer|Check Answer|Reveal/i }).first();
+  await reveal.waitFor({ timeout: 30_000 });
+  const gotIt = page.getByRole('button', { name: 'Got it' });
+  if (await gotIt.isVisible().catch(() => false)) await gotIt.click();
+  const typed = page.locator('input[type="text"], textarea').first();
+  if (await typed.isVisible().catch(() => false)) await typed.fill('银行');
+  await reveal.click();
+  await page.getByTestId('study-action-row').waitFor({ timeout: 15_000 });
+
+  await page.locator('.diff-char-clickable, .hanzi-char-clickable').filter({ hasText: '银' }).first().click();
+  await page.getByRole('dialog', { name: 'The character 银' }).getByTestId('char-word-row').filter({ hasText: '银行' }).first().click();
+  const explorer = page.getByTestId('explorer');
+  await expect(explorer.getByTestId('xp-variants')).toBeVisible({ timeout: 15_000 });
+  // 读 Read · 写 Write · 听 Listen — the study card ⋯ menu's tiles, every card of the word.
+  await expect(explorer.getByTestId('xp-variant-hanzi_to_meaning')).toContainText('Read');
+  const write = explorer.getByTestId('xp-variant-meaning_to_hanzi');
+  await expect(write).toContainText('Write');
+  await expect(write).toContainText('Not started');
+  await expect(explorer.getByTestId('xp-variant-audio_to_hanzi')).toContainText('Listen');
+
+  await write.click();
+  await expect(explorer.getByTestId('xp-variant-panel')).toContainText('English → 汉字 · 银行');
+  await explorer.getByTestId('xp-variant-bump').click();
+  await expect(explorer.locator('.bump-hint')).toContainText('English → 汉字 added to today');
+  await expect(explorer.getByTestId('xp-variant-panel')).toHaveCount(0);
+  await expect(write).toHaveAttribute('data-status', 'new_today');
+  // The bump is card-level: that one card type, on the server too.
+  await expect.poll(async () => {
+    const r = await api<{ bumps: Array<{ card_types?: string[] | null }> }>(request, '/api/me/bumps', { token: user.token });
+    return r.bumps[0]?.card_types ?? null;
+  }, { timeout: 15_000 }).toEqual(['meaning_to_hanzi']);
+});

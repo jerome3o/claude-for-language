@@ -318,6 +318,7 @@ private fun CharacterViewHost(
         onWrite = { onWrite(char) },
         onDrill = { t, pool -> controller.startDrill(t, pool) },
         ownCard = OwnCardUi(own, bumped, bumping, canOpenCard = env.openCard != null, canBump = env.bump != null, addedTo = addedTo, adding = addingNow),
+        ownCardExtras = own?.noteIds?.firstOrNull()?.takeIf { own?.status != CharWordStatus.None }?.let { noteId -> { CardVariantsHost(noteId, char, "char", env, controller) } },
         onOpenCard = { own?.noteIds?.firstOrNull()?.let { id -> env.openCard?.invoke(id) } },
         onBump = {
             val bump = env.bump ?: return@CharacterView
@@ -388,6 +389,8 @@ fun CharacterView(
     onDrill: ((dev.jeromeswannack.chineselearning.lab.core.explorer.DrillTarget, List<dev.jeromeswannack.chineselearning.lab.core.explorer.DictWord>) -> Unit)? = null,
     /** Is the character itself a card of his? (null = no block: previews of other states). */
     ownCard: OwnCardUi? = null,
+    /** Under the own-card line: the character's card tiles (CardVariants.kt); null = none. */
+    ownCardExtras: (@Composable () -> Unit)? = null,
     onOpenCard: () -> Unit = {},
     onBump: () -> Unit = {},
     onAdd: () -> Unit = {},
@@ -401,7 +404,7 @@ fun CharacterView(
     ) {
         CharacterSheetContent(
             ui.copy(canWrite = false), onClose = onClose, onMore = onMore, onRow = onRow, onChar = onChar, showClose = false,
-            afterHead = ownCard?.takeIf { CharWords.isSingleHan(ui.char) }?.let { o -> { OwnCardBlock(ui.char, o, onOpenCard, onBump, onAdd) } },
+            afterHead = ownCard?.takeIf { CharWords.isSingleHan(ui.char) }?.let { o -> { OwnCardBlock(ui.char, o, onOpenCard, onBump, onAdd, ownCardExtras) } },
         )
         if (drill != null && onDrill != null) {
             QuickDrillButton({ onDrill(drill.first, drill.second) }, Modifier.padding(start = 20.dp, top = 4.dp, bottom = 16.dp))
@@ -513,6 +516,7 @@ private fun WordViewHost(item: ExplorerItem.Word, controller: ExplorerController
             onMore = ::askMore,
             onDrill = { t, pool -> controller.startDrill(t, pool) },
             onIdiom = env.openIdiom?.let { open -> { open(hanzi) } },
+            cardExtras = ui.mine?.card?.noteId?.let { noteId -> { CardVariantsHost(noteId, hanzi, "word", env, controller) } },
         ),
         onOpenCard = { ui.mine?.card?.let { c -> env.openCard?.invoke(c.noteId) } },
         onBump = {
