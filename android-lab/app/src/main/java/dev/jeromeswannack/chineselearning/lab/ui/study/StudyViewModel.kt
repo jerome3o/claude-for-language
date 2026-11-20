@@ -1084,7 +1084,9 @@ class StudyViewModel(
 
     // ---------------- my recording ----------------
 
-    val recorder: VoiceRecorder = newRecorder?.invoke(viewModelScope) ?: VoiceRecorder(app, viewModelScope)
+    // Lazy: `init` (above) starts `load` on Main.immediate, which can reach `present` (it stops a running take)
+    // before a plain initializer down here has run — a null recorder there crashed the session start.
+    val recorder: VoiceRecorder by lazy { newRecorder?.invoke(viewModelScope) ?: VoiceRecorder(app, viewModelScope) }
     /** The current card's finished take (deleted when the card goes without a rating). */
     private var take: java.io.File? = null
     private var takeJob: Job? = null

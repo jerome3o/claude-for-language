@@ -208,16 +208,22 @@ function PhotoResult({ photo, focus, onFocus, onLookUp, onRetry }: {
 
 // ---------------- typed / spoken word ----------------
 
-function WordBox({ method, onSubmit, busy }: { method: 'type' | 'say_zh' | 'say_en'; onSubmit: (a: DictatedAnswer) => void; busy: boolean }) {
+/**
+ * [listenNow]: this box was opened by a tap on 🎤 Say it / 🗣 In English (that tap WAS "say it"), so it starts
+ * listening once. Anything else — the tab opening, the box coming back — leaves it idle: nothing records until he
+ * taps 🎤 (Jerome, Nov 2026).
+ */
+function WordBox({ method, onSubmit, busy, listenNow, onListened }: { method: 'type' | 'say_zh' | 'say_en'; onSubmit: (a: DictatedAnswer) => void; busy: boolean; listenNow: boolean; onListened: () => void }) {
   const { isOnline } = useNetwork();
   const [value, setValue] = useState('');
   const lang = method === 'say_en' ? 'en' : 'zh';
   const d = useVoiceDictation({ surface: 'add_word', value, onChange: setValue, onSubmit, defaultMode: method === 'type' ? 'type' : 'voice', lang, online: isOnline });
   const started = useRef(false);
   useEffect(() => {
-    // 🎤 straight away: the button he tapped WAS "say it".
-    if (started.current || method === 'type') return;
+    // 🎤 straight away ONLY for the tap that opened this box: the button he tapped WAS "say it".
+    if (started.current || method === 'type' || !listenNow) return;
     started.current = true;
+    onListened();
     if (d.state.mode === 'voice' && d.state.phase === 'idle' && !d.state.blocked) d.say();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -445,6 +451,8 @@ export function AddPage() {
   const [sheet, setSheet] = useState<AddContentKind | null>(null);
   const [results, setResults] = useState<ContentResult[]>(loadResults);
   const [boxKey, setBoxKey] = useState(0);
+  // The word box that may start listening as it opens: set only by a tap on 🎤 / 🗣, used once.
+  const [listenBox, setListenBox] = useState<number | null>(null);
 
   useEffect(() => {
     track('add.open', {});
@@ -546,7 +554,9 @@ export function AddPage() {
     setTypedLine(null);
     setCandidates(null);
     setLookupError(null);
-    setBoxKey((k) => k + 1);
+    const next = boxKey + 1;
+    setBoxKey(next);
+    setListenBox(m === 'say_zh' || m === 'say_en' ? next : null);
   };
 
   // ---- content results ----
@@ -626,7 +636,7 @@ export function AddPage() {
           )}
           {method && method !== 'photo' && (
             <div className="add-word-box">
-              <WordBox key={boxKey} method={method} onSubmit={(a) => void onWord(a)} busy={lookupBusy} />
+              <WordBox key={boxKey} method={method} onSubmit={(a) => void onWord(a)} busy={lookupBusy} listenNow={listenBox === boxKey} onListened={() => setListenBox(null)} />
             </div>
           )}
           {lookupBusy && <p className="add-muted" role="status">Finding the Chinese…</p>}

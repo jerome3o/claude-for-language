@@ -24,7 +24,13 @@ import dev.jeromeswannack.chineselearning.lab.ui.chats.ChatsComposeTags
 import dev.jeromeswannack.chineselearning.lab.ui.chats.ChatsActions
 import dev.jeromeswannack.chineselearning.lab.ui.chats.ChatsSamples
 import dev.jeromeswannack.chineselearning.lab.ui.chats.ChatsScreen
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import dev.jeromeswannack.chineselearning.lab.core.TakeLock
+import dev.jeromeswannack.chineselearning.lab.ui.kit.TakeLocks
 import dev.jeromeswannack.chineselearning.lab.ui.kit.VoiceDictationUi
+import dev.jeromeswannack.chineselearning.lab.ui.kit.VoiceTextFieldTags
 import dev.jeromeswannack.chineselearning.lab.ui.nav.TabId
 import dev.jeromeswannack.chineselearning.lab.ui.theme.LabTheme
 import org.junit.After
@@ -93,6 +99,13 @@ class AddScreenTest : LabScreenshotTest() {
     }
     @Test fun shotSayListening() = inShell("add-07-say-listening-dark", dark = true) {
         AddScreen(AddUi(method = AddMethod.SAY_EN), AddActions(), voicePreview = listeningEn)
+    }
+    /** Back on the tab with 🎤 Say it still picked: BEFORE it was already listening (drawn here); now it waits for a tap. */
+    @Test fun shotBackOnTabBefore() = inShell("add-14-back-on-tab-before-dark", dark = true) {
+        AddScreen(AddUi(method = AddMethod.SAY_ZH, boxKey = 1), AddActions(), voicePreview = VoiceDictationUi(phase = "listening"))
+    }
+    @Test fun shotBackOnTabAfter() = inShell("add-15-back-on-tab-after-dark", dark = true) {
+        AddScreen(AddUi(method = AddMethod.SAY_ZH, boxKey = 1), AddActions(), voicePreview = VoiceDictationUi())
     }
     @Test fun shotTypedSentence() = inShell("add-08-typed-sentence-dark", dark = true) {
         AddScreen(AddUi(method = AddMethod.TYPE, typedLine = "这件衣服穿起来太体面了"), AddActions(), voicePreview = VoiceDictationUi(mode = "type"))
@@ -170,6 +183,54 @@ class AddScreenTest : LabScreenshotTest() {
         compose.onNodeWithText("✓ Making your reader…  去北京旅行").assertIsDisplayed()
         compose.onNodeWithTag(AddTags.RESULT_OPEN).performClick()
         assertEquals("/readers/r1", opened?.path)
+    }
+
+    // ---------------- nothing records until he taps 🎤 (Jerome, Nov 2026) ----------------
+
+    /** Opening the tab: no word box, no take, the take lock free (the tab bar navigates). */
+    @Test fun openingTheTabNeverRecords() {
+        TakeLocks.reset()
+        var listened = 0
+        compose.setContent { LabTheme { AddScreen(AddUi(), AddActions(onListened = { listened++ })) } }
+        compose.waitForIdle()
+        compose.onNodeWithTag(AddTags.WORD_BOX).assertDoesNotExist()
+        assertEquals(0, listened)
+        assertEquals(TakeLock.IDLE, TakeLocks.phase)
+        assertEquals("run", TakeLocks.tap())
+    }
+
+    /**
+     * Coming back to the tab with 🎤 Say it still picked (the ViewModel outlives the tab switch): the box is idle and
+     * waits for a tap on its 🎤 — it used to start listening again by itself, and the running take then turned every
+     * tab-bar tap into "stop the take".
+     */
+    @Test fun comingBackWithSayItPickedWaitsForATap() {
+        TakeLocks.reset()
+        var listened = 0
+        var shown by mutableStateOf(true)
+        val back = AddUi(method = AddMethod.SAY_ZH, boxKey = 1, listenBox = null)
+        compose.setContent { LabTheme { if (shown) AddScreen(back, AddActions(onListened = { listened++ })) } }
+        compose.waitForIdle()
+        shown = false
+        compose.waitForIdle()
+        shown = true
+        compose.waitForIdle()
+        compose.onNodeWithTag(AddTags.WORD_BOX).assertExists()
+        compose.onNodeWithTag(VoiceTextFieldTags.SAY).assertExists()
+        compose.onNodeWithTag(VoiceTextFieldTags.STOP).assertDoesNotExist()
+        assertEquals(0, listened)
+        assertEquals(TakeLock.IDLE, TakeLocks.phase)
+        assertEquals("run", TakeLocks.tap())
+    }
+
+    /** The tap on 🎤 Say it opens the box listening — once, for that tap only. */
+    @Test fun theSayItTapStartsListeningOnce() {
+        TakeLocks.reset()
+        var listened = 0
+        compose.setContent { LabTheme { AddScreen(AddUi(method = AddMethod.SAY_ZH, boxKey = 1, listenBox = 1), AddActions(onListened = { listened++ })) } }
+        compose.waitForIdle()
+        assertEquals(1, listened)
+        TakeLocks.reset()
     }
 
     @Test fun theChatsBoxCarriesTheSuggestionChips() {

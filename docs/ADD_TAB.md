@@ -61,7 +61,17 @@ select the word … super easy to add new words".
 ## Type it / say it
 
 The voice-first box (web `useVoiceDictation` + `VoiceTextInputView`, Lab `rememberVoiceDictation` +
-`VoiceTextFieldContent`); 🎤 / 🗣 start listening at once (the button he tapped *was* "say it"), ✏️ opens typing.
+`VoiceTextFieldContent`); a TAP on 🎤 Say it / 🗣 In English starts listening (the button he tapped *was* "say it"),
+✏️ opens typing.
+- **Nothing records until he taps** (Jerome, Nov 2026: "Go to the plus sign and have to click to start recording, as
+  opposed to it automatically happening"). Opening the tab never starts a take, and neither does coming back to it:
+  the Lab's `AddViewModel` outlives a tab switch, so with 🎤 Say it still picked the box used to start listening
+  again by itself on every return — and a recording take turns every tab-bar tap into "stop the take" (the take
+  lock), so he couldn't leave without it finishing. Now only the tap itself starts the box listening, once
+  (`AddUi.listenBox` = the box opened by that tap, consumed by the box; web `listenBox` state in `AddPage`); a box
+  shown again is idle — its 🎤 is a button. The take lock is unchanged once he has tapped (stopping is intentional).
+  Tests: web `pages/AddPage.test.tsx`, e2e `add-tab.spec.ts` ("opening the tab never records"), Lab
+  `AddScreenTest` (`openingTheTabNeverRecords`, `comingBackWithSayItPickedWaitsForATap`) + `AddViewModelListenTest`.
 - **Chinese** (`classifyWordInput`: any Han character) → a word (≤ 4 characters) opens the explorer; a sentence
   becomes a line of word chips to pick from.
 - **English or pinyin** → `POST /api/ai/english-words { text }` (≤ 120 characters) → up to 4 Chinese words, most

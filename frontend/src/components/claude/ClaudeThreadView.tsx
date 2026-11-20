@@ -135,13 +135,6 @@ export interface ClaudeThreadViewProps {
   onThreadCreated?: (id: string) => void;
   /** Where it was opened from (analytics). */
   source?: string;
-  /**
-   * The ✦ Claude tab (`/claude`): 🎤 starts at once, ready for any question (the browser asks for
-   * the microphone the first time; offline / refused → typing with the box's reason).
-   * [onAutoListen] says which it was (true = listening).
-   */
-  autoListen?: boolean;
-  onAutoListen?: (listening: boolean) => void;
   /** No ← (a tab's root has nowhere to go back to). */
   hideBack?: boolean;
   /** A card thread: the card has an example sentence (the "Explain sentence" chip). */
@@ -788,8 +781,6 @@ export function ClaudeThreadView(props: ClaudeThreadViewProps) {
             surface={ctx.kind === 'card' ? 'ask_claude' : 'claude_thread'}
             composer={(text) => composerFor(ctx.kind, text, { started })}
             typeRequest={typeRequest}
-            listenRequest={props.autoListen ? 1 : 0}
-            onListenRequest={props.onAutoListen}
             compact
           />
         </div>

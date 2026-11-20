@@ -1327,6 +1327,9 @@ page and keep that low bar … having those extra options there is actually kind
   threads) scrolling above it. "On top of all the chat screens" = on the Chats tab's list screen; a chat with a person
   keeps its own composer.
 - Analytics: `claude.tab_open` is `replacedBy: 'add.open'`.
+- **No screen starts the 🎤 by itself** (Jerome, Nov 2026, on the ＋ Add tab: "have to click to start recording"):
+  the old Claude tab's "dictating at once" (`autoListen` / `listenRequest`) went with the tab — opening a Claude thread,
+  the Chats box or the ＋ Add tab never records; the 🎤 is a button he taps (docs/ADD_TAB.md "Type it / say it").
 
 ## Practice with Claude (role-play threads)
 

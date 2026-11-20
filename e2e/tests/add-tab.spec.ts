@@ -67,6 +67,31 @@ test('the tab bar has ＋ Add after Chats; /claude lands on the Chats tab\'s Cla
   await expect(page.getByTestId('chats-composer-chips')).toBeVisible();
 });
 
+test('opening the tab never records; the tab bar leaves and comes back freely', async ({ page, request }) => {
+  // Jerome (Nov 2026): the tab started 🎤 by itself, and the running take turned every tab-bar tap into "stop".
+  const user = await seedUser(request, 'norecord');
+  await openAdd(page, user);
+  const nothingRecording = async () => {
+    await expect(page.getByTestId('add-word-input')).toHaveCount(0);
+    await expect(page.locator('[data-mode="voice"][data-phase="listening"]')).toHaveCount(0);
+    await expect(page.getByTestId('take-locked-actions')).toHaveCount(0);
+  };
+  await nothingRecording();
+  await shot(page, '02-add-tab-on-open');
+  // ✏️ Type it: a box, still no take; a tab-bar tap just navigates.
+  await page.getByTestId('add-method-type').click();
+  await expect(page.getByTestId('add-word-input')).toBeVisible();
+  await expect(page.locator('[data-mode="voice"][data-phase="listening"]')).toHaveCount(0);
+  await page.locator('.tab-bar [data-tab="progress"]').click();
+  await expect(page).toHaveURL(/\/progress$/);
+  await page.locator('.tab-bar [data-tab="add"]').click();
+  await expect(page).toHaveURL(/\/add$/);
+  await expect(page.getByTestId('add-page')).toBeVisible();
+  await nothingRecording();
+  await page.locator('.tab-bar [data-tab="chats"]').click();
+  await expect(page).toHaveURL(/\/chats/);
+});
+
 test('✏️ type 银行 → the explorer → ⚡ Study it today (a word he already has)', async ({ page, request }) => {
   test.setTimeout(120_000);
   const user = await seedUser(request, 'type');

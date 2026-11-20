@@ -266,16 +266,8 @@ fun ClaudeThreadScreen(
     toolResults: (@Composable (ClaudeMessageDto) -> Unit)? = null,
     /** No composer, this line instead (the card was deleted). */
     closedNote: String? = null,
-    /**
-     * The Claude tab (`/claude`): 🎤 starts at once, ready for any question — once per screen; the
-     * microphone permission is asked the first time, and offline / no microphone / refused fall back
-     * to typing with the box's reason. ✏️ Type stays one tap away.
-     */
-    autoListen: Boolean = false,
     /** ← is hidden (a tab's root has nowhere to go back to). */
     showBack: Boolean = true,
-    /** [autoListen] ran: true = 🎤 started, false = it stayed on typing (offline, no microphone). */
-    onAutoListen: (Boolean) -> Unit = {},
 ) {
     val listState = rememberLazyListState()
     var menu by remember { mutableStateOf(menuPreview) }
@@ -288,15 +280,8 @@ fun ClaudeThreadScreen(
         actions.onDraft(a.text)
         actions.onSend(a.text, a.source == "spoken", "ask", null)
     }
-    var autoListened by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
-    LaunchedEffect(autoListen, voice) {
-        if (!autoListen || autoListened || voicePreview != null) return@LaunchedEffect
-        autoListened = true
-        val v = voice.ui.value
-        val listening = v.state.mode == VoiceDictation.VOICE && v.phase == "idle" && v.blocked == null
-        if (listening) voiceActions.say()
-        onAutoListen(listening)
-    }
+    // Opening a thread never starts the 🎤: nothing records until he taps it (Jerome, Nov 2026 — the old ✦ Claude
+    // tab's "dictating at once" went with the tab).
     // A draft handed to a fresh thread (a study card's ⋯ → Sentence coach): shown in the box, ready to Check /
     // Explain or edit (the web's ClaudeThreadView `initialDraft`) — once.
     var draftShown by remember { mutableStateOf(false) }
