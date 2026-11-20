@@ -503,6 +503,11 @@ export interface LocalSentenceTextExplanation {
   key: string; // the sentence's hanzi
   explanation: string; // JSON SentenceBriefExplanation
   cached_at: number;
+  /**
+   * The breakdown cache version (services/sentence-sets.ts TEXT_EXPLANATION_VERSION): absent = cached before the
+   * worker checked a breakdown's pinyin (Nov 2026) — used only offline, refetched online.
+   */
+  v?: number;
 }
 
 export interface CachedAudio {

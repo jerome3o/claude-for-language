@@ -396,6 +396,8 @@ export interface NoteSentence {
    * shared/study/cardSentence.ts). 0 = a generated set row.
    */
   is_card?: number;
+  /** The pinyin check version the row went through (services/sentence-pinyin.ts, migration 0156); null = not yet. */
+  pinyin_checked?: number | null;
   created_at: string;
   updated_at: string;
 }

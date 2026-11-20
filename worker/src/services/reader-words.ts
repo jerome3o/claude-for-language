@@ -3,7 +3,7 @@ import { structuredCall } from './structured-call';
 import { alignReaderWords, parseReaderWords, type ReaderWord, type ReaderWordExplanation } from '@shared/reader/words';
 import { CARD_STANDARD, cardTextProblems } from '@shared/cards/standard';
 import { applyYiBuToneChanges } from '@shared/pinyin/toneChange';
-import { checkAuthoredPinyin, type PinyinReadingSources } from './pinyin-check';
+import { checkAuthoredPinyin, fixSpecPinyin, type PinyinReadingSources } from './pinyin-check';
 
 /**
  * Reader word chips (shared/reader/words.ts): every graded-reader page gets
@@ -380,7 +380,7 @@ export async function explainReaderWord(
   db: D1Database,
   apiKey: string | undefined,
   input: { word: string; sentence: string; pinyin?: string; gloss?: string },
-  opts: { client?: Client; sleep?: (ms: number) => Promise<void> } = {},
+  opts: { client?: Client; sleep?: (ms: number) => Promise<void>; pinyin?: PinyinReadingSources } = {},
 ): Promise<ReaderWordExplanation & { cached: boolean }> {
   const word = input.word.trim();
   const sentence = input.sentence.trim();
@@ -409,6 +409,10 @@ export async function explainReaderWord(
     sleep: opts.sleep,
     validate: (raw) => normalizeExplanation(word, raw),
   });
+  // Claude's pinyin of the word and of its card sentence: only the impossible is corrected (pinyin-check.ts).
+  const wordPinyin = await checkAuthoredPinyin(word, result.pinyin, opts.pinyin).catch(() => null);
+  if (wordPinyin?.reason) result.pinyin = wordPinyin.pinyin;
+  await fixSpecPinyin(result, opts.pinyin).catch(() => []);
   await db
     .prepare('INSERT OR REPLACE INTO reader_word_explanations (id, word, sentence, result) VALUES (?, ?, ?, ?)')
     .bind(id, word, sentence, JSON.stringify(result))

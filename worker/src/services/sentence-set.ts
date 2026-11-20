@@ -3,6 +3,8 @@ import { structuredCall } from './structured-call';
 import { isContrivedSentence } from '@shared/study/sentenceFocus';
 import { SIMPLE_SENTENCE_MAX_HAN, simpleSentenceMaxHan, simpleSentenceProblems } from '@shared/study/sentenceSimplicity';
 import { fakeSentenceSet } from './sentence-set-fake';
+import { checkGeneratedSentencesPinyin } from './sentence-pinyin';
+import type { PinyinReadingSources } from './pinyin-check';
 import {
   structureUsedBy,
   structuresPromptBlock,
@@ -40,6 +42,10 @@ import { sentenceStyleOf, sentenceStylePrompt, type SentenceStyle } from '@share
  *
  * Sonnet is used here (rather than Opus) because the set is generated
  * interactively while studying and speed matters more than prose quality.
+ *
+ * Every sentence's pinyin goes through the deterministic pinyin check before it is returned
+ * (services/sentence-pinyin.ts: only an impossible syllable is corrected — 扔掉 "zhuāngdiào" →
+ * "rēngdiào" — then the 一 / 不 rule); callers store the rows with `pinyinChecked`.
  */
 
 const MODEL = 'claude-sonnet-5';
@@ -290,10 +296,12 @@ export async function generateSentenceSet(
     sleep?: (ms: number) => Promise<void>;
     /** E2E_TEST_MODE: the deterministic stand-in (sentence-set-fake.ts), no model call. */
     fake?: boolean;
+    /** The dictionaries of the pinyin check (`pinyinSources(env)`); pinyin-pro alone without. */
+    pinyin?: PinyinReadingSources;
   } = {}
 ): Promise<GeneratedSentence[]> {
   const count = clampSentenceCount(requestedCount);
-  if (options.fake) return keepSimpleSentences(fakeSentenceSet(input, count), input);
+  if (options.fake) return checkGeneratedSentencesPinyin(keepSimpleSentences(fakeSentenceSet(input, count), input), options.pinyin);
   const userPrompt = buildUserPrompt(input, count);
 
   const tool = {
@@ -345,7 +353,7 @@ export async function generateSentenceSet(
     },
   };
 
-  return structuredCall({
+  const sentences = await structuredCall({
     apiKey,
     model: MODEL,
     system: SENTENCE_SET_SYSTEM_PROMPT,
@@ -372,6 +380,7 @@ export async function generateSentenceSet(
     client: options.client,
     sleep: options.sleep,
   });
+  return checkGeneratedSentencesPinyin(sentences, options.pinyin);
 }
 
 /**

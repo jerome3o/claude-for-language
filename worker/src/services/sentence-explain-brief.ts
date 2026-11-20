@@ -1,6 +1,8 @@
 import type Anthropic from '@anthropic-ai/sdk';
 import { CoachBreakdown, SentenceBriefExplanation } from '../types';
 import { structuredCall } from './structured-call';
+import { checkBriefExplanationPinyin } from './sentence-pinyin';
+import type { PinyinReadingSources } from './pinyin-check';
 
 /**
  * A brief breakdown of one sentence: a one-line English translation, what each
@@ -11,6 +13,10 @@ import { structuredCall } from './structured-call';
  * optimised for speed over depth — Haiku, thinking off, a tight schema, and a
  * hard instruction to stay short. The thorough version already exists at
  * /api/sentence/explain; this is deliberately not that.
+ *
+ * Each word's pinyin goes through the deterministic pinyin check before the breakdown is returned
+ * (services/sentence-pinyin.ts `checkBriefExplanationPinyin`: 扔掉 "zhuāngdiào" → "rēngdiào"; a real
+ * reading is never touched), so every cache of it — the row, the devices — holds checked pinyin.
  */
 
 export const BRIEF_EXPLAIN_MODEL = 'claude-haiku-4-5-20251001';
@@ -111,7 +117,12 @@ export function parseClientBriefExplanation(input: unknown): SentenceBriefExplan
 export async function explainSentenceBriefly(
   apiKey: string,
   sentence: { hanzi: string; pinyin?: string | null; translation?: string | null },
-  opts: { client?: Pick<Anthropic, 'messages'>; sleep?: (ms: number) => Promise<void> } = {},
+  opts: {
+    client?: Pick<Anthropic, 'messages'>;
+    sleep?: (ms: number) => Promise<void>;
+    /** The dictionaries of the pinyin check (`pinyinSources(env)`); pinyin-pro alone without. */
+    pinyin?: PinyinReadingSources;
+  } = {},
 ): Promise<SentenceBriefExplanation> {
   const context = [
     `Sentence: ${sentence.hanzi}`,
@@ -121,7 +132,7 @@ export async function explainSentenceBriefly(
     .filter(Boolean)
     .join('\n');
 
-  return structuredCall({
+  const explanation = await structuredCall({
     apiKey,
     model: BRIEF_EXPLAIN_MODEL,
     // Already the fast model; a retry on the same one is the fallback.
@@ -135,6 +146,7 @@ export async function explainSentenceBriefly(
     client: opts.client,
     sleep: opts.sleep,
   });
+  return (await checkBriefExplanationPinyin(explanation, opts.pinyin)).explanation;
 }
 
 /** The Coach's Explain result: the learner's sentence + its breakdown, pinyin joined from the word rows. */

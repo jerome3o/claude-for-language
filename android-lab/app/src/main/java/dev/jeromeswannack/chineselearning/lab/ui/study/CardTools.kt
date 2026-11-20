@@ -118,7 +118,10 @@ class CardTools(private val app: LabApp) {
             repo.dao.deleteSentencesOf(listOf(noteId))
             if (entities.isNotEmpty()) repo.dao.upsertSentences(entities)
         }
-        rows.forEach { r -> r.explanation?.let { cache.put(explainKey(r.id), TutorNotes.KIND, it) } }
+        // The row's cached breakdown (a JSON string on the row) — checked by the worker, so the current key.
+        rows.forEach { r ->
+            r.explanation?.let { cache.decode(SentenceExplanation.serializer(), it) }?.let { cache.put(explainKey(r.id), TutorNotes.KIND, it) }
+        }
         entities.sortedBy { it.position }
     }
 
@@ -201,10 +204,23 @@ class CardTools(private val app: LabApp) {
         }
     }
 
-    fun explainKey(sentenceId: String) = "study/explain/$sentenceId"
+    fun explainKey(sentenceId: String) = "study/explain/v2/$sentenceId"
+
+    /**
+     * Breakdowns cached before the worker checked their pinyin (Nov 2026: 扔掉 "zhuāngdiào") sit under the old,
+     * unversioned keys: used only while offline (or when a fetch fails), never in place of a fresh one online
+     * (web `TEXT_EXPLANATION_VERSION`).
+     */
+    private fun offline() = !app.online.value || StudyPrefs.get(app).forcedOffline.value
+
+    private suspend fun legacyExplanation(sentenceId: String?, hanzi: String): SentenceExplanation? =
+        (if (sentenceId != null) runCatching { cache.get<SentenceExplanation>(legacyExplainKey(sentenceId)) }.getOrNull() else null)
+            ?: runCatching { cache.get<SentenceExplanation>(legacyExplainTextKey(hanzi)) }.getOrNull()
 
     /** The Coach's Explain keeps its breakdown under the same key, so a sentence explained in either place is there offline in both. */
-    suspend fun cachedTextExplanation(hanzi: String): SentenceExplanation? = cache.get(explainTextKey(hanzi))
+    suspend fun cachedTextExplanation(hanzi: String): SentenceExplanation? =
+        cache.get<SentenceExplanation>(explainTextKey(hanzi))
+            ?: if (offline()) runCatching { cache.get<SentenceExplanation>(legacyExplainTextKey(hanzi)) }.getOrNull() else null
 
     suspend fun cacheTextExplanation(hanzi: String, e: SentenceExplanation) = cache.put(explainTextKey(hanzi), TutorNotes.KIND, e)
 
@@ -215,11 +231,18 @@ class CardTools(private val app: LabApp) {
     suspend fun cachedExplanation(sentenceId: String?, hanzi: String): SentenceExplanation? =
         (if (sentenceId != null) cache.get<SentenceExplanation>(explainKey(sentenceId)) else null)
             ?: cache.get(explainTextKey(hanzi))
+            ?: if (offline()) legacyExplanation(sentenceId, hanzi) else null
 
     /** `getSentenceExplanation` / `getTextExplanation`: cached first, then the API, then cached. */
     suspend fun explain(sentenceId: String?, hanzi: String, pinyin: String?, translation: String?): SentenceExplanation {
         cachedExplanation(sentenceId, hanzi)?.let { return it }
-        val fresh = if (sentenceId != null) api.explainSentence(sentenceId) else api.explainSentenceText(ExplainTextBody(hanzi, pinyin, translation))
+        val fresh = try {
+            if (sentenceId != null) api.explainSentence(sentenceId) else api.explainSentenceText(ExplainTextBody(hanzi, pinyin, translation))
+        } catch (e: Exception) {
+            // No connection: one kept before the pinyin check is better than none.
+            legacyExplanation(sentenceId, hanzi)?.let { return it }
+            throw e
+        }
         cache.put(if (sentenceId != null) explainKey(sentenceId) else explainTextKey(hanzi), TutorNotes.KIND, fresh)
         return fresh
     }
@@ -229,7 +252,10 @@ class CardTools(private val app: LabApp) {
      * translation line when it was explained here. Null = needs a connection.
      */
     suspend fun cachedRowTranslation(sentenceId: String?): String? =
-        sentenceId?.let { runCatching { cache.get<SentenceExplanation>(explainKey(it)) }.getOrNull() }?.translation?.trim()?.takeIf { it.isNotEmpty() }
+        // The English line has no pinyin in it: an old (legacy-key) breakdown's is as good.
+        sentenceId?.let { id ->
+            runCatching { cache.get<SentenceExplanation>(explainKey(id)) ?: cache.get<SentenceExplanation>(legacyExplainKey(id)) }.getOrNull()
+        }?.translation?.trim()?.takeIf { it.isNotEmpty() }
 
     /**
      * Web `getSentenceTranslation`: the one-line English of a row written without one — many card sentences
@@ -381,8 +407,12 @@ class CardTools(private val app: LabApp) {
     companion object {
         fun message(e: Throwable) = e.userMessage()
 
-        /** A breakdown kept by its sentence text (the card's own clue, the Coach's Explain). */
-        fun explainTextKey(hanzi: String) = "study/explain-text/$hanzi"
+        /** A breakdown kept by its sentence text (the card's own clue, the Coach's Explain). v2 = pinyin checked by the worker. */
+        fun explainTextKey(hanzi: String) = "study/explain-text/v2/$hanzi"
+
+        /** The keys breakdowns were kept under before the worker checked their pinyin (offline fallback only). */
+        fun legacyExplainKey(sentenceId: String) = "study/explain/$sentenceId"
+        fun legacyExplainTextKey(hanzi: String) = "study/explain-text/$hanzi"
 
         /** The English line fetched for a card sentence with none on the note, by its text. */
     }

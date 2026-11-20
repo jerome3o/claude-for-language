@@ -2667,6 +2667,24 @@ easily-confused / similar-sounding word or near-synonym (`contrast`). Now:
     `getNotesForSentenceTopUp` / the queue's top-up check) count natural rows only — so a word that relied on them
     is topped up with natural ones. The 80-sentence cap still counts every row.
 
+### Pinyin on example sentences and their breakdowns is checked (Nov 2026)
+
+Jerome: the set row 这些破烂东西可以扔掉。 read "… kěyǐ zhuāngdiào" and its "What's going on here?" said 扔掉
+**zhuāngdiào** — 扔 is only ever rēng (he noticed because the explorer and his read-aloud disagreed with the card). The
+sentence sets and breakdowns are Claude's pinyin that never went through the deterministic pinyin check the lessons and
+readers use. Now (`worker/src/services/sentence-pinyin.ts`, CLAUDE.md "Pinyin check on lessons and readers"):
+
+- **New sentences** (first set, "+ more", listening / round top-ups) are checked before they are stored: only an
+  impossible syllable is corrected (zhuāngdiào → rēngdiào), a real reading never (大人 dàrén, 还 hái, 好好 hǎohāo), plus
+  the 一 / 不 rule; the row records `pinyin_checked`.
+- **Breakdowns** (the row's, a text's, the Coach's Explain) have each word's pinyin checked against its characters.
+- **Stored rows** are corrected in the background (hourly, and for the signed-in learner just before a sentence sync):
+  the note's rows come down again in that sync on both apps. The card's own sentence row keeps its pinyin (it is the
+  note's `sentence_clue_pinyin` — the word check's job); its breakdown is corrected.
+- **Device caches**: a breakdown kept by its text before this is used only offline (or when the fetch fails) — web
+  `sentenceTextExplanations.v` (2), Lab `study/explain/v2/…` / `study/explain-text/v2/…` keys.
+- TTS clips are keyed by the Chinese text, so no audio is regenerated.
+
 ### Example sentence style (standard · everyday · casual)
 
 Jerome (Nov 2026): "I might be learning a relatively formal form of Chinese through this method … a setting where you

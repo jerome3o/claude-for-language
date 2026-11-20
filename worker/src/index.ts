@@ -65,6 +65,10 @@ import { runPictureHuntJob } from './services/picture-hunt';
 import type { QuestDifficulty } from './services/quest';
 import type { QuestWorld } from '@shared/quest';
 import { explainSentenceBriefly } from './services/sentence-explain-brief';
+import { repairSentencePinyin, repairUserSentencePinyinSoon, SENTENCE_PINYIN_CHECK_VERSION } from './services/sentence-pinyin';
+
+/** Repair passes (≤ 1,000 rows each) one cron run makes over stored sentence rows. */
+const SENTENCE_PINYIN_CRON_PASSES = 5;
 import { runCoachReply, type CoachReplyMessage } from './services/coach-replies';
 import { runThreadTurn, type ClaudeTurnQueueMessage } from './services/claude-agent/thread-turn';
 import { syncDiscussionThread } from './services/claude-agent/backfill';
@@ -1745,7 +1749,7 @@ app.post('/api/notes/:id/sentences/generate', async (c) => {
         style: learner.style,
       },
       count,
-      { fake: c.env.E2E_TEST_MODE === 'true' }
+      { fake: c.env.E2E_TEST_MODE === 'true', pinyin: pinyinSources(c.env) }
     );
 
     // "Keep existing" appends the new batch after what's already there; the
@@ -1759,6 +1763,7 @@ app.post('/api/notes/:id/sentences/generate', async (c) => {
           focus: s.focus,
           focusNote: s.focus_note,
           structure: s.structure ?? null,
+          pinyinChecked: s.pinyin_checked ?? null,
           style: s.style ?? null,
         }))
       : [];
@@ -1773,6 +1778,7 @@ app.post('/api/notes/:id/sentences/generate', async (c) => {
         focus: s.focus,
         focusNote: s.focusNote,
         structure: s.structure ?? null,
+        pinyinChecked: SENTENCE_PINYIN_CHECK_VERSION,
         style: learner.style,
       })),
     ]);
@@ -1824,6 +1830,9 @@ app.get('/api/sentences/changes', async (c) => {
   await reconcileCardSentencesForUser(c.env.DB, userId, since).catch((err) =>
     console.error('[sentences] card sentence reconcile failed', err)
   );
+  // Rows written before the pinyin check (services/sentence-pinyin.ts): a bounded, throttled pass over
+  // this user's — a corrected note's rows are bumped past the cursor, so they come down in THIS sync.
+  await repairUserSentencePinyinSoon(c.env.DB, userId, pinyinSources(c.env));
   const { sentences, noteIds } = await db.getNoteSentencesForUser(c.env.DB, userId, since);
   // note_ids: every note whose rows these are (a note with none left included) — replace them whole.
   return c.json({ sentences, note_ids: noteIds, server_time: serverTime });
@@ -2024,7 +2033,7 @@ app.post('/api/sentences/explain-text', async (c) => {
       hanzi,
       pinyin: body.pinyin ?? null,
       translation: body.translation ?? null,
-    });
+    }, { pinyin: pinyinSources(c.env) });
     return c.json({ explanation });
   } catch (error) {
     console.error('Sentence text explanation error:', error);
@@ -2064,7 +2073,7 @@ app.post('/api/sentences/:id/translate', async (c) => {
       hanzi: sentence.hanzi,
       pinyin: sentence.pinyin,
       translation: null,
-    });
+    }, { pinyin: pinyinSources(c.env) });
     const translation = explanation.translation?.trim();
     if (!translation) return c.json({ error: 'No translation came back', retryable: true }, 503);
     await db.setNoteSentenceTranslation(c.env.DB, sentence, translation);
@@ -2110,7 +2119,7 @@ app.post('/api/sentences/:id/explain', async (c) => {
       hanzi: sentence.hanzi,
       pinyin: sentence.pinyin,
       translation: sentence.translation,
-    });
+    }, { pinyin: pinyinSources(c.env) });
     await db.setNoteSentenceExplanation(
       c.env.DB,
       sentence.id,
@@ -3097,6 +3106,8 @@ app.post('/api/sentence/analyze', async (c) => {
 
   try {
     const breakdown = await analyzeSentence(c.env.ANTHROPIC_API_KEY, sentence.trim());
+    // Claude's pinyin (the line + each chunk): only the impossible is corrected (pinyin-check.ts).
+    await fixSpecPinyin(breakdown, pinyinSources(c.env)).catch(() => []);
     return c.json(breakdown);
   } catch (error) {
     console.error('Sentence analysis error:', error);
@@ -3119,6 +3130,8 @@ app.post('/api/sentence/coach', async (c) => {
 
   try {
     const result = await coachSentence(c.env.ANTHROPIC_API_KEY, sentence.trim());
+    // Claude's pinyin of the corrected sentence / alternatives: only the impossible is corrected (pinyin-check.ts).
+    await fixSpecPinyin(result, pinyinSources(c.env)).catch(() => []);
     return c.json(result);
   } catch (error) {
     console.error('Sentence coach error:', error);
@@ -3140,6 +3153,8 @@ app.post('/api/sentence/explain', async (c) => {
 
   try {
     const result = await explainSentence(c.env.ANTHROPIC_API_KEY, sentence.trim());
+    // Claude's pinyin (the sentence + each word): only the impossible is corrected (pinyin-check.ts).
+    await fixSpecPinyin(result, pinyinSources(c.env)).catch(() => []);
     return c.json(result);
   } catch (error) {
     console.error('Sentence explain error:', error);
@@ -5904,6 +5919,21 @@ export default {
           console.error(`[cron] ${format} re-render queueing failed:`, err);
         }
       }
+      // Example sentences written before the pinyin check (services/sentence-pinyin.ts): every run
+      // (hourly) checks a bounded batch of anyone's rows until none are left; idempotent.
+      try {
+        let checked = 0;
+        let fixed = 0;
+        for (let pass = 0; pass < SENTENCE_PINYIN_CRON_PASSES; pass++) {
+          const r = await repairSentencePinyin(env.DB, pinyinSources(env), { limit: 1000 });
+          checked += r.checked;
+          fixed += r.fixed;
+          if (!r.more) break;
+        }
+        if (checked) console.log(JSON.stringify({ type: 'cron', job: 'sentence_pinyin', checked, fixed }));
+      } catch (err) {
+        console.error('[cron] sentence pinyin check failed:', err);
+      }
       // Audio backfill (docs/AUDIO.md): nightly at London midnight, kept alive hourly.
       const audio = await runAudioCron(env, event.cron, new Date(event.scheduledTime || Date.now()));
       if (audio !== 'not_audio') {
@@ -6523,7 +6553,7 @@ async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | Ima
                 style: learner.style,
               },
               round ? Math.max(1, Math.min(count ?? SENTENCE_TOPUP_MIN, SENTENCE_SET_MAX_TOTAL - total)) : count ?? topUpCount(natural),
-              { fake: env.E2E_TEST_MODE === 'true' }
+              { fake: env.E2E_TEST_MODE === 'true', pinyin: pinyinSources(env) }
             );
             const known = new Set(current.map((s) => s.hanzi));
             const fresh = generated.filter((s) => !known.has(s.hanzi));
@@ -6538,6 +6568,7 @@ async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | Ima
                 focus: s.focus,
                 focusNote: s.focusNote,
                 structure: s.structure ?? null,
+                pinyinChecked: SENTENCE_PINYIN_CHECK_VERSION,
                 style: learner.style,
               }))
             );
@@ -6575,9 +6606,10 @@ async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | Ima
               structures: learner.structures,
               style: learner.style,
             },
-            count
+            count,
             // No E2E stand-in for a note's first set: specs stub GET /api/notes/:id/sentences and expect the
             // device to have none (top-ups and the generate route use the stand-in).
+            { pinyin: pinyinSources(env) }
           );
 
           const stored = await db.replaceNoteSentences(
@@ -6591,6 +6623,7 @@ async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | Ima
               focus: s.focus,
               focusNote: s.focusNote,
               structure: s.structure ?? null,
+              pinyinChecked: SENTENCE_PINYIN_CHECK_VERSION,
               style: learner.style,
             }))
           );

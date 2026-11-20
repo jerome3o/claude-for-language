@@ -31,6 +31,7 @@ import { getMyRole } from '../relationships';
 import { getConversationParticipants } from './reads';
 import { broadcastMessageUpdated, currentUpdatedAt, laterThan } from './messages';
 import { parseStoredAttachment } from './media';
+import { fixSpecPinyin, pinyinSources } from '../pinyin-check';
 
 /** Sonnet for judgement (a fast first pass; Haiku is structuredCall's fallback). */
 export const AUTO_CHECK_MODEL = 'claude-sonnet-5';
@@ -209,7 +210,7 @@ export type AutoCheckOutcome = 'checked' | 'cached' | 'skipped' | 'off' | 'faile
  * still the one checked) and send `message_updated`. Never throws.
  */
 export async function autoCheckMessageInBackground(
-  env: Pick<Env, 'DB' | 'CHAT_HUB' | 'ANTHROPIC_API_KEY'>,
+  env: Pick<Env, 'DB' | 'CHAT_HUB' | 'ANTHROPIC_API_KEY'> & Partial<Pick<Env, 'CHAR_DICT'>>,
   messageId: string,
   deps: { check?: AutoChecker | null; now?: () => string } = {},
 ): Promise<AutoCheckOutcome> {
@@ -248,6 +249,8 @@ export async function autoCheckMessageInBackground(
     const context = await recentContext(env.DB, row.conversation_id, row.created_at, row.sender_id);
     const now = deps.now?.() ?? new Date().toISOString();
     const result = normalizeAutoCheck(await check(text, context), text, now);
+    // Claude's pinyin of the corrected message / alternatives: only the impossible is corrected (pinyin-check.ts).
+    await fixSpecPinyin(result, pinyinSources(env)).catch(() => []);
 
     const at = laterThan(await currentUpdatedAt(env.DB, messageId));
     // Only while the message still says what was checked (caption / transcript unchanged).

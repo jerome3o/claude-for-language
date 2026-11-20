@@ -93,6 +93,26 @@ describe('normalizeBriefExplanation', () => {
   });
 });
 
+describe('explainSentenceBriefly: the pinyin check', () => {
+  it("corrects an impossible syllable Claude copied from a wrong row (扔掉 zhuāngdiào → rēngdiào)", async () => {
+    const { client } = fakeClient([
+      toolReply({
+        translation: 'This junk can be thrown away.',
+        words: [
+          { hanzi: '这些', pinyin: 'zhèxiē', gloss: 'these' },
+          { hanzi: '破烂', pinyin: 'pòlàn', gloss: 'junk' },
+          { hanzi: '东西', pinyin: 'dōngxi', gloss: 'things' },
+          { hanzi: '可以', pinyin: 'kěyǐ', gloss: 'can' },
+          { hanzi: '扔掉', pinyin: 'zhuāngdiào', gloss: 'throw away' },
+        ],
+        construction: 'Topic + 可以 + verb-result.',
+      }),
+    ]);
+    const r = await explainSentenceBriefly('k', { hanzi: '这些破烂东西可以扔掉。', pinyin: 'zhèxiē pòlàn dōngxi kěyǐ zhuāngdiào。' }, { client, sleep: async () => {} });
+    expect(r.words.map((w) => w.pinyin)).toEqual(['zhèxiē', 'pòlàn', 'dōngxi', 'kěyǐ', 'rēngdiào']);
+  });
+});
+
 describe('parseClientBriefExplanation (a breakdown the device had cached)', () => {
   it('accepts a full breakdown', () => {
     expect(parseClientBriefExplanation(good)?.words).toHaveLength(6);
