@@ -64,13 +64,17 @@ fun DifferenceCompare(
     /** The check that judged it: the one why sentence + "Explain more ›" (core AnswerWhy). */
     check: dev.jeromeswannack.chineselearning.lab.core.AnswerWhy.Check? = null,
     hideLine: Boolean = false,
+    /** What he was asked (the English he said in Chinese), for Ask Claude's question. */
+    askPrompt: String? = null,
+    /** Off while Claude is still checking. */
+    askable: Boolean = true,
     content: @Composable () -> Unit = {},
 ) {
     AnswerDiffView(
         said, model, modifier.padding(vertical = 2.dp),
         expectedPinyin = modelPinyin, expectedEnglish = answerFirstEnglish, expectedLabel = modelLabel,
         onPlayExpected = onPlayModel, accepted = accepted, headline = headline, verdict = verdict, hideLine = hideLine,
-        check = check, whySurface = "sentence_round",
+        check = check, whySurface = "sentence_round", askPrompt = askPrompt, askable = askable,
         tag = DifferenceTags.COMPARE, expectedTag = DifferenceTags.MODEL, saidTag = DifferenceTags.SAID, playTag = DifferenceTags.PLAY_MODEL,
         content = content,
     )

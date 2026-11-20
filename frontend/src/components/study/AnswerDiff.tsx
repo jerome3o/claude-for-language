@@ -7,6 +7,7 @@
  *   ANSWER   我的书呢 ▶
  *            wǒ de shū ne
  *   YOU SAID 他的书呢            ← 他 in rose, 呢 (left out) in grey
+ *            tā de shū           ← his own pinyin, tā in rose (AnswerDiffPinyin)
  *
  * No explanations, tips or reasons. The marks are COLOUR ONLY (Jerome, Nov 2026: "we don't need the outlines and
  * the color and the underlines"; the same language as the reader's read-aloud marks): the character itself in its
@@ -20,9 +21,11 @@ import {
   answerDiff, answerDiffLabel, answerDiffLine, answerDiffPartLabel, answerDiffTone, ANSWER_DIFF_ICON, ANSWER_DIFF_YOU_SAID,
   type AnswerDiffPart, type AnswerDiffTone,
 } from '@shared/cards/answer-diff';
-import { answerMore, answerWhy, type AnswerWhyCheck } from '@shared/cards/answer-why';
+import { answerAskOffered, answerAskQuestion, answerMore, answerWhy, type AnswerWhyCheck } from '@shared/cards/answer-why';
 import { devicePinyinLine } from '../../utils/autoPinyin';
 import { AnswerWhy } from './AnswerWhy';
+import { AnswerDiffPinyin } from './AnswerDiffPinyin';
+import { useAnswerAsk } from './answerAsk';
 import './AnswerDiff.css';
 
 const capitalize = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
@@ -71,8 +74,19 @@ export interface AnswerDiffProps {
   check?: AnswerWhyCheck | null;
   /** The why, given (else from `check` / the diff); `null` = none. */
   why?: string | null;
-  /** "Explain more ›" with nothing on hand: Ask Claude about this answer. */
+  /**
+   * "Explain more ›" with nothing on hand: Ask Claude about this answer. Default: the card's Claude thread when the
+   * surface provides one (`AnswerAskContext`) — which also offers the small "💬 Ask Claude" link when the check gave no
+   * reason at all (`answerAskOffered`).
+   */
   onExplainMore?: () => void;
+  /** What he was asked (the English he said in Chinese) — for the question Ask Claude sends; default `expectedEnglish`. */
+  askPrompt?: string | null;
+  /**
+   * Off: no Ask Claude here — while Claude is still checking (its reason may be on the way), or while the answer is
+   * still hidden (Hard mode's question before 👁 Show answer: the question would give it away).
+   */
+  askable?: boolean;
   /** Analytics: the surface (study.answer_why_more). */
   whySurface?: string;
   /** Under the diff (🎤 Read it again …). */
@@ -87,7 +101,7 @@ export interface AnswerDiffProps {
 
 export function AnswerDiff({
   said, expected, expectedPinyin, expectedEnglish, expectedLabel = 'Answer', showExpected = true, onPlayExpected,
-  accepted = false, headline, verdict, line, hideLine = false, saidLabel = ANSWER_DIFF_YOU_SAID, check, why, onExplainMore, whySurface,
+  accepted = false, headline, verdict, line, hideLine = false, saidLabel = ANSWER_DIFF_YOU_SAID, check, why, onExplainMore, askPrompt, askable = true, whySurface,
   children, testId = 'answer-diff', written = false,
   expectedTestId = 'answer-diff-expected', saidTestId = 'answer-diff-said', playTestId = 'answer-diff-play',
 }: AnswerDiffProps) {
@@ -101,6 +115,14 @@ export function AnswerDiff({
   const pinyin = ownPinyin || derived;
   const whyText = why !== undefined ? why : answerWhy({ diff, check: check ?? (headline ? { headline } : null), line: text });
   const more = answerMore(check ?? null, whyText, said, showExpected ? expected : '');
+  // Ask Claude about this answer: the surface's own path, else the card's Claude thread (online only).
+  const askCtx = useAnswerAsk();
+  const askCard = askCtx && !written
+    ? () => askCtx.ask(answerAskQuestion({ said, expected, prompt: askPrompt ?? expectedEnglish, spoken: saidLabel === ANSWER_DIFF_YOU_SAID }))
+    : undefined;
+  const onAsk = askable ? onExplainMore ?? askCard : undefined;
+  // Nothing explains a not-right answer: one small "💬 Ask Claude" link (never when a why + Explain more is there).
+  const askFallback = answerAskOffered({ tone, why: whyText, more, canAsk: !!onAsk }) ? onAsk : undefined;
   return (
     <div className={`adiff-box${accepted ? ' adiff-box--accepted' : ''}`} data-testid={testId} data-tone={tone}>
       {hideLine ? null : line ?? (
@@ -140,10 +162,12 @@ export function AnswerDiff({
           <span className="adiff-said">
             <span className="adiff-sr">{answerDiffLabel(diff, text, saidLabel)}</span>
             <AnswerDiffChars parts={diff.parts} />
+            {/* Said aloud only: a WRITTEN answer is judged by its characters (官 for 馆 is wrong, though both are guān). */}
+            {!written && <AnswerDiffPinyin diff={diff} said={said} accepted={accepted} />}
           </span>
         </div>
       )}
-      {!diff.empty && <AnswerWhy why={whyText} more={more} onAsk={onExplainMore} surface={whySurface} />}
+      {!diff.empty && <AnswerWhy why={whyText} more={more} onAsk={onAsk} askFallback={askFallback} surface={whySurface} />}
       {children}
     </div>
   );

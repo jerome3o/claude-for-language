@@ -21,13 +21,14 @@
  * offline / failed states use the same shell and height, so the result replaces them without a jump.
  */
 import { SIGNED_OUT_TRANSCRIPTION } from '@shared/auth/session';
-import type { ReactNode } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import { compareTranscription } from '@shared/recordings/transcript';
 import type { AnswerVerdict } from '@shared/cards/answer';
 import { spokenResult, spokenResultLabel } from '@shared/cards/spoken-result';
 import { READ_TAKE_CHECKING, READ_TAKE_CHIP } from '@shared/study/readTakeCheck';
 import { answerDiff, answerDiffLabel, answerDiffLine } from '@shared/cards/answer-diff';
 import { AnswerDiffChars } from './AnswerDiff';
+import { AnswerDiffPinyin } from './AnswerDiffPinyin';
 import { AnswerWhy } from './AnswerWhy';
 import { answerMore, answerWhy } from '@shared/cards/answer-why';
 import './YouSaid.css';
@@ -191,7 +192,10 @@ export function YouSaid({ hanzi, pinyin, isMatch, containsExpected, tonesOff = f
           <div className="you-said-hanzi" lang="zh-CN" data-testid="you-said-hanzi" aria-label={answerDiffLabel(diff, diffLine, 'You said')}>
             <AnswerDiffChars parts={diff.parts} testId="you-said-diff" />
           </div>
-          {pinyin && <div className="you-said-pinyin" data-testid="you-said-pinyin">{tidyPinyin(pinyin)}</div>}
+          {/* His own pinyin, his wrong syllables marked like the characters above (shared answerDiffPinyin). */}
+          <div className="you-said-pinyin" data-testid="you-said-pinyin">
+            <AnswerDiffPinyin diff={diff} said={hanzi} className="you-said-pinyin-line" testId="you-said-pinyin-marked" accepted={claude?.state === 'match'} />
+          </div>
           <div className="you-said-reason" data-testid="you-said-reason">{diffLine}</div>
           <AnswerWhy why={why} more={answerMore(whyCheck, why ?? claude?.reason ?? null, hanzi, expected ?? '')} surface="read_take" />
         </>
@@ -287,6 +291,8 @@ export interface YouSaidRowProps {
 export function YouSaidRow({ transcript, correct, verdict, onPlay, onCoach, compact, testId = 'spoken-result' }: YouSaidRowProps) {
   const r = spokenResult(transcript, correct, verdict);
   const fullPinyin = tidyPinyin(compareTranscription(transcript, correct, '').transcribedPinyin);
+  // Close / didn't match: the row is the slim diff — its pinyin marks his wrong syllables like the characters.
+  const diff = useMemo(() => (r.state === 'close' || r.state === 'wrong' ? answerDiff(transcript, correct) : null), [r.state, transcript, correct]);
   const pinyin = compact && !compact.pinyin ? '' : fullPinyin;
   const showHanzi = !compact || compact.transcript;
   const pinyinShown = showHanzi ? pinyin : '';
@@ -314,7 +320,11 @@ export function YouSaidRow({ transcript, correct, verdict, onPlay, onCoach, comp
               ))}
             </span>
           )}
-          {pinyinShown && <span className="spoken-result-pinyin" data-testid="spoken-result-pinyin">{pinyinShown}</span>}
+          {pinyinShown && (
+            <span className="spoken-result-pinyin" data-testid="spoken-result-pinyin">
+              {diff && !diff.empty ? <AnswerDiffPinyin diff={diff} said={transcript} className="spoken-result-pinyin-line" testId="spoken-result-pinyin-marked" /> : pinyinShown}
+            </span>
+          )}
         </span>
         <span className="spoken-result-chip" aria-hidden="true" data-testid="spoken-result-chip" data-icon={r.icon}>
           <Icon d={ICON[r.icon]} />

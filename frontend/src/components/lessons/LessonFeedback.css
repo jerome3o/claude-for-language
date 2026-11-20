@@ -80,6 +80,14 @@
   cursor: default;
 }
 
+/* His own pinyin under a spoken answer (MarkedAnswer → AnswerDiffPinyin), the reference pinyin's size. */
+.lesson-marked-answer-py {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 400;
+  color: var(--color-text-light);
+}
+
 /* The slim answer diff's ONE line under his marked answer (MarkedAnswer). */
 .lesson-answer-diff-line {
   display: block;

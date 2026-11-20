@@ -27,6 +27,7 @@ import {
 } from '@shared/chats/autoCheck';
 import { CARD_STANDARD, cardTextProblems } from '@shared/cards/standard';
 import { structuredCall } from '../structured-call';
+import { DICTATED_TEXT_RULE } from '../sentence-making';
 import { getMyRole } from '../relationships';
 import { getConversationParticipants } from './reads';
 import { broadcastMessageUpdated, currentUpdatedAt, laterThan } from './messages';
@@ -36,13 +37,14 @@ import { fixSpecPinyin, pinyinSources } from '../pinyin-check';
 /** Sonnet for judgement (a fast first pass; Haiku is structuredCall's fallback). */
 export const AUTO_CHECK_MODEL = 'claude-sonnet-5';
 
-const SYSTEM = `You check one chat message a Chinese learner just sent, the way a good tutor would glance at it.
+export const AUTO_CHECK_SYSTEM = `You check one chat message a Chinese learner just sent, the way a good tutor would glance at it.
 
 Decide whether it is worth improving. Flag ONLY real improvements:
 - grammar errors (wrong or missing particle, wrong word order, a misused 了 / 的 / 得 / 地, wrong measure word…)
 - wrong words (a word that does not mean what they meant, a wrong character)
 - clearly unnatural phrasing a native speaker would not say
 Do NOT nitpick: chat style, a missing final 。, casual register, emoji, pinyin input slips that are still the right word, or something that is merely one of several fine ways to say it. A message that is fine is "ok" — most messages are.
+${DICTATED_TEXT_RULE}
 
 When it is "improvable":
 - corrected: the message fixed, as close to their own words and meaning as possible (only what needs changing), with pinyin (tone marks, spaces between words) and an English translation
@@ -179,7 +181,7 @@ export function defaultAutoChecker(env: Pick<Env, 'ANTHROPIC_API_KEY'>): AutoChe
     structuredCall({
       apiKey: env.ANTHROPIC_API_KEY,
       model: AUTO_CHECK_MODEL,
-      system: SYSTEM,
+      system: AUTO_CHECK_SYSTEM,
       user: `${context ? `The chat so far (for context only):\n${context}\n\n` : ''}The learner just sent:\n${text}`,
       tool: TOOL,
       maxTokens: 1500,

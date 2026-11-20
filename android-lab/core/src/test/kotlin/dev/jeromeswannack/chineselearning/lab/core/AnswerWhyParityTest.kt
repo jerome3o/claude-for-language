@@ -62,6 +62,25 @@ class AnswerWhyParityTest {
     }
 
     @Test
+    fun askClaudeFallback() {
+        val f = fixture()
+        assertEquals(f["askLabel"]!!.str, AnswerWhy.ASK_CLAUDE)
+        val asks = f["asks"]!!.jsonArray
+        assertTrue(asks.size >= 24)
+        for (a in asks) {
+            val o = a.jsonObject
+            val more = if (o["more"]!!.jsonPrimitive.content == "true") AnswerWhy.More(listOf("x"), null, null) else null
+            val offered = AnswerWhy.askOffered(o["tone"]!!.str!!, o["why"]!!.str, more, o["canAsk"]!!.jsonPrimitive.content == "true")
+            assertEquals(o["offered"]!!.jsonPrimitive.content == "true", offered, o.toString())
+        }
+        for (q in f["askQuestions"]!!.jsonArray) {
+            val o = q.jsonObject
+            val spoken = o["spoken"]?.jsonPrimitive?.content != "false"
+            assertEquals(o["question"]!!.str, AnswerWhy.askQuestion(o["said"]!!.str!!, o["expected"]!!.str!!, o["prompt"]?.str, spoken), o.toString())
+        }
+    }
+
+    @Test
     fun copy() {
         val c = fixture()["whyCopy"]!!.jsonObject
         assertEquals(c["max"]!!.jsonPrimitive.int, AnswerWhy.MAX)

@@ -2366,6 +2366,27 @@ know about the transcription issues, or we should just scrub out the grammar". B
 - Caches: `ANSWER_CHECK_VERSION` 6, `SPEAKING_CHECK_VERSION` 2, `SENTENCE_CHECK_VERSION` 2 — no punctuation-blaming verdict
   is served again.
 
+**Punctuation never affects a spoken answer — the audit (Nov 2026).** Jerome: "We should not have it so that punctuation
+affects the answer. Maybe just prompt the model that does the grading to be aware of transcription." Every check of a
+transcript was gone through (tests: `shared/cards/spoken-punctuation.test.ts`, worker `__tests__/spoken-prompts.test.ts`):
+- **The answer key** (`hanziAnswerKey` / `stripAnswerPunctuation`, shared/text/numberHanzi.ts; Lab `AnswerKey`,
+  parity-tested in `answers.json`) — behind `checkTypedAnswer`, `checkSpokenAnswer` (typing cards' "Say the answer", the
+  lessons' spoken check, the Coach's / Sentence round's `practiseSentence`), `spokenAnswerWithin`, `droppedFunctionChar`
+  and `sameAnswerWords` — stripped only a fixed list, so a recogniser's “curly quotes”, ～, ——, 『』, ⋯ or a small-form ﹐
+  made a right answer "wrong" (or "Sounded right — written differently"). It now strips every Unicode punctuation mark
+  (`\p{P}`) plus ～ ~ 〜 ⋯ < > — never a % (50% is not 50).
+- **`scrubSpokenTranscript`** also takes dashes (—–―), ⋯, ・ and the small-form marks (﹐﹑﹒﹔﹕﹖﹗) — parity-tested in
+  `sentence-check.ts`.
+- **The diff** (`answerDiff`, the read-aloud judge) only ever compares letters / digits: punctuation on either side is
+  `plain`, never wrong / extra / missing (tested for every mark above).
+- **Claude**: the spoken prompts (`ANSWER_CHECK_SYSTEM`, `READ_ALOUD_CHECK_SYSTEM`, `SPEAKING_CHECK_SYSTEM`,
+  `SPOKEN_SENTENCE_RULE`) now also say a number may come out as digits; text DICTATED into a voice-first box and then
+  checked — the chat's auto-check (and Ask Claude's question check, which shares it) and the Coach's "Check my sentence" —
+  carry `DICTATED_TEXT_RULE` (worker services/sentence-making.ts) in their static, cached system prompt: the recogniser's
+  punctuation / homophones / digits are never the learner's mistake. The lesson answer check's cache key was already
+  punctuation-free (`checkKey` / `normalizeHanziAnswer`): 我去。 and 我去 share one cached verdict.
+- "You said" may keep the recogniser's punctuation for reading; nothing marks it.
+
 ### Answer feedback: one line and a diff (every "how your answer differs" surface)
 
 **Since Nov 2026 (second round): verdict line + diff + ONE why sentence + "Explain more ›".** Jerome, on the Sentence
@@ -2394,6 +2415,31 @@ answer there is now one short muted sentence (≤ 110 characters, English) and a
   `YouSaidBox`), and a mini lesson's answer check (`AnswerCheckBody`: the chip + the why, then Explain more — translate,
   listen_translate, speaking; the word-order check and sentence making already end in one line of Claude's). Web
   `components/study/AnswerWhy.tsx`, Lab `ui/study/AnswerWhyLine.kt`.
+
+**His own pinyin under "You said" (Nov 2026).** Jerome, on the Lab's Sentence round (他侮辱了我 → he said 他捂住了我, the
+model's pinyin shown but not his): "the stuff that I said that was incorrect also has pinyin, so I can see where my
+pronunciation was." Every "You said" row now carries HIS pinyin under his characters, in the answer pinyin's style and
+size, so wǔ zhù sits under wǔrǔ — the device's own automatic pinyin of what he said (+ 一 / 不), never a network call.
+The syllables of his wrong / tone-off / extra characters take the same subtle colour as those characters; what he left
+out has none; a homophone is unmarked (it counts). Rules: each diff part carries its syllables (`AnswerDiffPart.pinyin`,
+from the read-aloud judge's `heardPinyin`) and `answerDiffPinyin(diff)` is the line (`null` → the device's plain line);
+Lab `AnswerDiff.Part.pinyin` / `AnswerDiff.pinyinLine`, parity-tested in `parity/fixtures/answer-diff.ts`. Where: every
+`AnswerDiff` / Lab `AnswerDiffView` (Hard mode, the Sentence round, the homework pass), the read take's box (`YouSaid` /
+`YouSaidBox`), the typing card's compact row and the Coach's / sentence rows' practise row when close / didn't match
+(`YouSaidRow` / `SpokenResultRow`), a mini lesson's spoken answer (`MarkedAnswer spoken`). Web
+`components/study/AnswerDiffPinyin.tsx`, Lab `DiffPinyinLine` in ui/study/AnswerDiffView.kt. (The reader's 🎤 Read it
+aloud already showed the heard pinyin per difference row.)
+
+**💬 Ask Claude when nothing explains it (Nov 2026).** Jerome: "sure, as long as things don't get too cluttered." When an
+answer is judged not right (≈ / ✕) and the check gave no reason — no why sentence and nothing for "Explain more ›" to
+open — the feedback ends in ONE small muted text link, **💬 Ask Claude**, which opens the card's own Claude thread (the
+Ask Claude sheet) with the question already sent: "I was asked to say “He insulted me”. I said “他打了我” but the answer
+is “他侮辱了我”. What did I get wrong?" (`answerAskOffered` / `answerAskQuestion` in shared/cards/answer-why.ts; Lab
+`AnswerWhy.askOffered` / `askQuestion`, parity-tested). Never a new button row; never with a why line (its "Explain more
+›" asks the same question when it has nothing to open); never for a right answer, while Claude is still checking, while
+Hard mode's answer is still hidden (the question would give it away), or offline. The study card (session + homework
+pass) provides the thread: web `AnswerAskContext` (components/study/answerAsk.tsx) in `StudyCard`, Lab `LocalAnswerAsk`
+in `CardStage`. Analytics `study.answer_why_more { action: ask_fallback }`.
 
 The first round, below, took the explanations out; the rest of it stands.
 

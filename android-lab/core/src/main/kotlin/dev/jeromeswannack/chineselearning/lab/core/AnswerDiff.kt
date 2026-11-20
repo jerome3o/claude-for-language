@@ -16,6 +16,8 @@ object AnswerDiff {
         val kind: String,
         /** The expected character(s) this part stands for ('' for extra / plain). */
         val expected: String,
+        /** HIS syllable(s) for this part in context (automatic pinyin + 一 / 不); '' for missing / plain / unaligned. */
+        val pinyin: String = "",
     )
 
     data class Diff(
@@ -60,7 +62,7 @@ object AnswerDiff {
             var at = parts.size
             while (at > 0 && parts[at - 1].kind == "plain") at--
             val before = parts.getOrNull(at - 1)
-            if (before != null && before.kind == "extra") parts[at - 1] = before.copy(text = before.text + p.text)
+            if (before != null && before.kind == "extra") parts[at - 1] = before.copy(text = before.text + p.text, pinyin = before.pinyin + p.pinyin)
             else parts.add(at, p)
         }
         var wrong = 0
@@ -72,28 +74,29 @@ object AnswerDiff {
         for (i in chars.indices) {
             val c = chars[i]
             if (c.extraBefore.isNotEmpty()) {
-                push(Part(c.extraBefore, "extra", ""))
+                push(Part(c.extraBefore, "extra", "", c.extraBeforePinyin))
                 extra += cpLen(c.extraBefore)
             }
             if (c.unitCont) continue
             var unit = c.char
             var n = i + 1
             while (n < chars.size && chars[n].unitCont) { unit += chars[n].char; n++ }
+            val py = c.heardPinyin
             when (c.mark) {
                 ReadAloud.Mark.PLAIN -> push(Part(c.char, "plain", ""))
-                ReadAloud.Mark.OK -> push(Part(c.heard.ifEmpty { unit }, "ok", unit))
+                ReadAloud.Mark.OK -> push(Part(c.heard.ifEmpty { unit }, "ok", unit, py))
                 // Written: another character is wrong, whatever it sounds like.
                 ReadAloud.Mark.SOUND, ReadAloud.Mark.CLOSE -> when {
-                    written -> { push(Part(c.heard, "wrong", unit)); wrong++ }
-                    c.mark == ReadAloud.Mark.SOUND -> { push(Part(c.heard, "sound", unit)); sound++ }
-                    else -> { push(Part(c.heard, "tone", unit)); tone++ }
+                    written -> { push(Part(c.heard, "wrong", unit, py)); wrong++ }
+                    c.mark == ReadAloud.Mark.SOUND -> { push(Part(c.heard, "sound", unit, py)); sound++ }
+                    else -> { push(Part(c.heard, "tone", unit, py)); tone++ }
                 }
-                ReadAloud.Mark.WRONG -> { push(Part(c.heard, "wrong", unit)); wrong++ }
+                ReadAloud.Mark.WRONG -> { push(Part(c.heard, "wrong", unit, py)); wrong++ }
                 else -> if (!(reading && c.mark == ReadAloud.Mark.UNREAD)) { push(Part(unit, "missing", unit)); missing++ }
             }
         }
         if (r.extraAtEnd.isNotEmpty()) {
-            push(Part(r.extraAtEnd, "extra", ""))
+            push(Part(r.extraAtEnd, "extra", "", r.extraAtEndPinyin))
             extra += cpLen(r.extraAtEnd)
         }
         if (reading) {
@@ -109,6 +112,26 @@ object AnswerDiff {
             saidKeys.sorted().joinToString("") == expectedKeys.sorted().joinToString("") &&
             saidKeys.joinToString("") != expectedKeys.joinToString("")
         return Diff(parts, wrong, tone, missing, extra, sound, !empty && fixes == 0, reordered, empty)
+    }
+
+    /** One syllable group of his answer's pinyin line, marked like its characters (`AnswerDiffSyllable`). */
+    data class Syllable(val text: String, val kind: String)
+
+    private val HAN_CHAR = Regex("\\p{IsHan}")
+
+    /**
+     * `answerDiffPinyin`: the pinyin line under "You said" — HIS syllables part by part, marked like his characters
+     * (missing / punctuation have none); null = no line (nothing Chinese said, or a part whose pinyin didn't line up).
+     */
+    fun pinyinLine(d: Diff): List<Syllable>? {
+        val out = ArrayList<Syllable>()
+        for (p in d.parts) {
+            if (p.kind == "missing" || p.kind == "plain") continue
+            if (!HAN_CHAR.containsMatchIn(p.text)) continue
+            if (p.pinyin.isEmpty()) return null
+            out.add(Syllable(p.pinyin, p.kind))
+        }
+        return out.ifEmpty { null }
     }
 
     const val RIGHT = "Right"

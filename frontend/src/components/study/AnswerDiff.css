@@ -98,9 +98,19 @@
 .adiff-said {
   min-width: 0;
   flex: 1;
+  display: flex;
+  flex-direction: column;
   font-size: 1.35rem;
   line-height: 1.6;
   color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+/* His own pinyin under "You said" (AnswerDiffPinyin): the answer's pinyin style; his wrong syllables take the marks'
+   colours (the .adiff--* rules below). */
+.adiff-said-py {
+  font-size: 0.85rem;
+  line-height: 1.35;
+  color: var(--color-text-light);
   overflow-wrap: anywhere;
 }
 
@@ -151,6 +161,8 @@
   white-space: nowrap;
 }
 .adiff-why-more:hover { color: var(--color-text); }
+/* "💬 Ask Claude" — the fallback when the check gave no reason: the same small muted text button. */
+.adiff-why-ask { padding-left: 0; }
 .adiff-why-detail { margin-top: 0.3rem; }
 .adiff-why-tip {
   margin: 0.2rem 0 0;

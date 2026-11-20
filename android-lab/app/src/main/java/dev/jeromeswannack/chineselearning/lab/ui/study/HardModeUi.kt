@@ -331,6 +331,8 @@ fun HardModeFeedbackPanel(
                 check = dev.jeromeswannack.chineselearning.lab.core.AnswerWhy.of(check), whySurface = "hard_mode",
                 verdict = check?.let { AnswerDiff.verdict(it.verdict) } ?: AnswerDiff.verdict(result),
                 saidLabel = if (spoken) AnswerDiff.YOU_SAID else AnswerDiff.YOUR_ANSWER,
+                // The answer is still hidden (Try again / 👁 Show answer): asking Claude would give it away.
+                askable = false,
             ) else {
                 Text(HardMode.RESULT.getValue(result), color = ink, fontSize = 22.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
                 if (said != null) Text(HardMode.saidLine(said, spoken), Modifier.testTag(HardModeTags.SAID), color = Lab.colors.ink, fontSize = 16.sp, textAlign = TextAlign.Center)
@@ -470,6 +472,7 @@ private fun SentenceAnswerFirst(
                 headline = check?.headline,
                 check = dev.jeromeswannack.chineselearning.lab.core.AnswerWhy.of(check),
                 verdict = if (view.checking) null else check?.let { AnswerDiff.verdict(it.verdict) } ?: AnswerDiff.verdict(result),
+                askable = !view.checking,
             ) {
                 // Right under "You said", so the verdict landing below never moves it.
                 readAgain?.invoke()

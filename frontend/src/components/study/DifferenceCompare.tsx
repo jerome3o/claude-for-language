@@ -11,7 +11,7 @@ import type { AnswerWhyCheck } from '@shared/cards/answer-why';
 import { AnswerDiff } from './AnswerDiff';
 import './DifferenceCompare.css';
 
-export function DifferenceCompare({ said, model, modelPinyin, accepted, modelLabel = DIFFERENCE_MODEL, onPlayModel, answerFirst, verdict, headline, check, hideLine, children }: {
+export function DifferenceCompare({ said, model, modelPinyin, accepted, modelLabel = DIFFERENCE_MODEL, onPlayModel, answerFirst, verdict, headline, check, hideLine, askPrompt, children }: {
   said: string;
   model: string;
   /** The model's own pinyin (else the device's). */
@@ -28,6 +28,8 @@ export function DifferenceCompare({ said, model, modelPinyin, accepted, modelLab
   /** The check that judged it: the one why sentence + "Explain more ›" (shared/cards/answer-why.ts). */
   check?: AnswerWhyCheck | null;
   hideLine?: boolean;
+  /** What he was asked (the English he said in Chinese), for Ask Claude's question. */
+  askPrompt?: string | null;
   children?: ReactNode;
 }) {
   return (
@@ -42,6 +44,7 @@ export function DifferenceCompare({ said, model, modelPinyin, accepted, modelLab
       verdict={verdict}
       headline={headline}
       check={check}
+      askPrompt={askPrompt}
       whySurface="sentence_round"
       hideLine={hideLine}
       testId="difference-compare"

@@ -296,8 +296,8 @@ export function stripSpokenQuotes(text: string): string {
 /** A pause between two Chinese characters: spaces and pause marks (the next character stays). */
 const PAUSE_BETWEEN_HAN = /(\p{Script=Han})[\s。．.！!？?，,、；;：:…~～]+(?=\p{Script=Han})/gu;
 
-/** CJK pause marks a recogniser writes (never part of what was said). */
-const SCRUB_CJK_MARKS = /[。．！？，、；：…～·]+/g;
+/** CJK pause marks a recogniser writes (never part of what was said): full-width / small forms, ⋯, ～, dashes, ・. */
+const SCRUB_CJK_MARKS = /[。．！？，、；：…⋯～〜·・—–―﹐﹑﹒﹔﹕﹖﹗]+/g;
 /** ASCII pause marks — kept only between two digits (3.5). */
 const SCRUB_ASCII_MARKS = /(?<![0-9])[.!?,;:~]+|[.!?,;:~]+(?![0-9])/g;
 /** Spaces where the recogniser paused: between two Chinese characters, or a Chinese character and a digit. */

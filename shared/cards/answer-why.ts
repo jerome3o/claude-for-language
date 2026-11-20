@@ -115,3 +115,36 @@ export function answerMore(check: AnswerWhyCheck | null | undefined, why: string
   if (all.length === 0 && !fixed && !alt) return null;
   return { tips: all, corrected: fixed, alternative: alt };
 }
+
+// --- 💬 Ask Claude when the check gave no reason ---------------------------------------------------------------
+
+/** The small text link under a judged answer when there is nothing to explain it (`answerAskOffered`). */
+export const ANSWER_ASK_CLAUDE = '💬 Ask Claude';
+
+/**
+ * The fallback "💬 Ask Claude" link (Jerome, Nov 2026: "sure, as long as things don't get too cluttered"): offered
+ * ONLY when the answer was judged not right (`close` / `wrong` — "≈ Almost", "✕ Not quite"), there is nothing on hand
+ * to explain it (no why sentence and nothing "Explain more ›" could open), and the surface can open a Claude thread
+ * about it right now (`canAsk`: online, a card thread to open). A why line + "Explain more ›" already there → never
+ * (that button asks Claude itself when it has nothing to open). One small text link in the feedback, never a new
+ * button row. Lab: `AnswerWhy.askOffered`.
+ */
+export function answerAskOffered(args: { tone: 'right' | 'close' | 'wrong'; why: string | null; more: AnswerMore | null; canAsk: boolean }): boolean {
+  return args.canAsk && args.tone !== 'right' && !args.why && !args.more;
+}
+
+const quoted = (t: string) => `“${t.replace(/\s+/g, ' ').trim()}”`;
+
+/**
+ * The question the link (and "Explain more ›" with nothing on hand) asks in the card's Claude thread: what he was
+ * asked, what he said, the expected answer — "I was asked to say “He insulted me”. I said “他捂住了我” but the answer is
+ * “他侮辱了我”. What did I get wrong?". `prompt` = the English he was asked to say (when there is one); `spoken: false`
+ * = he typed it. Lab: `AnswerWhy.askQuestion`.
+ */
+export function answerAskQuestion(args: { said: string; expected: string; prompt?: string | null; spoken?: boolean }): string {
+  const prompt = (args.prompt ?? '').trim();
+  const verb = args.spoken === false ? 'wrote' : 'said';
+  // “He insulted me.” keeps its own full stop; “He insulted me”. gets one.
+  const asked = prompt ? `I was asked to say ${quoted(prompt)}${/[.!?。！？…]$/u.test(prompt) ? '' : '.'} ` : '';
+  return `${asked}I ${verb} ${quoted(args.said)} but the answer is ${quoted(args.expected)}. What did I get wrong?`;
+}

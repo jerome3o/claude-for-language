@@ -17,6 +17,7 @@ import {
   analyzeSentence,
 } from '../api/client';
 import { CardClaudeSheet } from '../components/claude/CardClaudeSheet';
+import { AnswerAskContext, type AnswerAskValue } from '../components/study/answerAsk';
 import { readClaudeReturn, withoutClaudeReturn } from '../components/claude/ResultLink';
 import { cardToolEffects, undoEditFields, type CardToolResult, type EditedNote } from '@shared/claude/cardTools';
 import { practiceFromCard } from '@shared/claude/practice';
@@ -3253,8 +3254,18 @@ export function StudyCard({
   const topbarRef = useRef<HTMLDivElement>(null);
   const topbarFit = useTopbarFit(topbarRef, `${counts.new}+${counts.secondaryNew}+${counts.learning}+${counts.review}|${hardModeSetting}|${effectiveOffline}|${!!pass}`);
 
+  // 💬 Ask Claude about an answer the check didn't explain (docs/STUDY_SESSION.md "Answer feedback: one line and a diff"):
+  // every AnswerDiff on this card (Hard mode, the Sentence round, the homework pass) opens THIS card's Claude thread with
+  // the question already sent. Online only — offline nothing is offered.
+  const answerAsk = useMemo<AnswerAskValue | null>(() => (isOnline && !effectiveOffline ? {
+    ask: (question: string) => {
+      setAskAuto({ text: question, key: `answer-ask:${Date.now()}` });
+      setShowAskClaude(true);
+    },
+  } : null), [isOnline, effectiveOffline]);
+
   return (
-    <>
+    <AnswerAskContext.Provider value={answerAsk}>
       <div className="study-fullscreen">
         {/* Top bar with close button, queue counts, sync status, and offline toggle */}
         <div className={`study-topbar${topbarFit ? ` study-topbar--fit-${topbarFit}` : ''}`} ref={topbarRef} data-fit={topbarFit} data-testid="study-topbar">
@@ -3724,7 +3735,7 @@ export function StudyCard({
           }}
         />
       )}
-    </>
+    </AnswerAskContext.Provider>
   );
 }
 
