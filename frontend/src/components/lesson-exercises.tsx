@@ -494,7 +494,7 @@ export function TranslateExercise(props: {
                   <span className="speak-transcript-exact-badge">{isExactHanziMatch(answer, referenceHanzi) ? '✓ Exact match' : '✓ Sounds right'}</span>
                 )}
               </div>
-              <div className="speak-transcript-text">{matched || !marks.marks ? answer.trim() : <MarkedAnswer answer={answer.trim()} model={referenceHanzi} />}</div>
+              <div className="speak-transcript-text">{matched || !marks.marks ? answer.trim() : <MarkedAnswer answer={answer.trim()} model={referenceHanzi} spoken={source === 'spoken' || source === 'edited'} />}</div>
               {!matched && marks.note && <div className="lesson-answer-note" data-testid="lesson-answer-note">{marks.note}</div>}
               {matched && <LessonFeel moment="matched_answer" />}
             </div>

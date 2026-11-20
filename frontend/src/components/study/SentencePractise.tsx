@@ -316,6 +316,7 @@ export function SentencePractiseOutcome({ practise, row, full, onPlayModel, spea
             headline={claude.check.headline}
             check={claude.check}
             onPlayModel={onPlayModel}
+            askPrompt={row.translation}
             // Right in other words: the round's own "✓ Right — worded differently" title is the line.
             hideLine={claude.check.verdict === 'correct' || claude.check.verdict === 'acceptable'}
           />
@@ -323,7 +324,7 @@ export function SentencePractiseOutcome({ practise, row, full, onPlayModel, spea
           <AnswerCheckBody check={claude.check} answer={practised.said} speak={speak} />
         )
       ) : claude?.status === 'done' ? (
-        <TranslateVerdict check={claude.check} said={practised.said} model={row.hanzi} />
+        <TranslateVerdict check={claude.check} said={practised.said} model={row.hanzi} prompt={row.translation} />
       ) : (
         <YouSaidRow
           transcript={practised.said}
@@ -349,7 +350,7 @@ export function SentencePractiseOutcome({ practise, row, full, onPlayModel, spea
  * Claude's verdict on a translate take, slim (docs/STUDY_SESSION.md "Answer feedback: one line and a diff"): one
  * line with its chip, his take marked against the sentence, and ONE why sentence (its tips behind "Explain more ›").
  */
-function TranslateVerdict({ check, said, model }: { check: AnswerCheck; said: string; model: string }) {
+function TranslateVerdict({ check, said, model, prompt }: { check: AnswerCheck; said: string; model: string; prompt?: string | null }) {
   return (
     <div className="sentence-practise-verdict" data-testid="sentence-practise-verdict" data-verdict={check.verdict}>
       <AnswerDiff
@@ -360,6 +361,7 @@ function TranslateVerdict({ check, said, model }: { check: AnswerCheck; said: st
         verdict={ANSWER_DIFF_VERDICT[check.verdict]}
         headline={check.headline}
         check={check}
+        askPrompt={prompt}
         whySurface="sentence_translate"
       />
     </div>

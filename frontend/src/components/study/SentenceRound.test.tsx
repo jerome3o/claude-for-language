@@ -561,7 +561,9 @@ describe('SentenceRound', () => {
       await act(async () => { dictation().land('我去学校'); await Promise.resolve(); });
       expect(ex(1).dataset.status).toBe('wrong');
       expect(ex(1).dataset.difference).toBeUndefined();
-      expect([...inEx(1, 'difference-said')!.querySelectorAll('[data-kind="wrong"]')].map((e) => e.textContent).join('')).toBe('学校');
+      expect([...inEx(1, 'difference-said')!.querySelectorAll('[data-testid="answer-diff-chars"] [data-kind="wrong"]')].map((e) => e.textContent).join('')).toBe('学校');
+      // His own pinyin under it, the same syllables marked.
+      expect([...inEx(1, 'answer-diff-said-pinyin')!.querySelectorAll('[data-kind="wrong"]')].map((e) => e.textContent).join(' ')).toBe('xué xiào');
       expect(inEx(1, 'sentence-round-retry')).not.toBeNull();
       expect(track).not.toHaveBeenCalledWith('study.round_difference_shown', expect.anything());
     });

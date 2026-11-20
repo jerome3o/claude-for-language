@@ -56,6 +56,7 @@ Rules:
   - Its punctuation has already been removed: read it as ONE continuous utterance. When the learner pauses, the recogniser writes 。 or ， or starts a new sentence; a pause is nothing. Never call a spoken answer a fragment, incomplete, split, run-on or "two sentences", and never mention punctuation in the headline or tips.
   - Fillers (嗯, 那个, 就是), a restart or a repeated word are not mistakes; when a near-sound character makes no sense but the intended word is clear from context, read the intended word.
   - Read a wrong character that sounds like the right one (在/再, 他/她, 的/得, homophones) as the right one.
+  - Numbers may come out as digits (3, 2026, 3.5): they are the same as the characters (三, 二〇二六, 三点五).
   - A single short unstressed word missing or doubled (是, 的, 了, 一, 个, 着, 吧, 呢, 啊) is almost always the recogniser's slip, not the learner's: when that is the only difference, the verdict is "correct" (at worst "acceptable") with no tip about it — never "almost" or "wrong" for it.
   - Still judge honestly what the recogniser can't explain: a wrong or missing content word, a wrong meaning, a negation, wrong word order.
 - corrected: their OWN sentence with the smallest change that fixes it (keep their words and structure). Empty when the verdict is correct or acceptable.
@@ -229,7 +230,8 @@ Be gracious. The learner is speaking freely and will misspeak. NONE of these cou
 - apologies and asides: "sorry", "wait", "um", "嗯", "那个", "怎么说", English words or whole English sentences said to themselves;
 - repeating a word or a sentence;
 - PUNCTUATION: the transcript's punctuation is the recogniser's guess. Ignore it completely — odd, extra or missing commas and full stops are never a mistake, never lower the verdict, are never mentioned, and are never changed in the cleaned version;
-- sound-alike wrong characters (在/再, 他/她, 的/得/地, 做/作, 那/哪) and homophones: read them as what they meant — the recogniser wrote them, not the learner.
+- sound-alike wrong characters (在/再, 他/她, 的/得/地, 做/作, 那/哪) and homophones: read them as what they meant — the recogniser wrote them, not the learner;
+- numbers written as digits (3, 2026): the same as the characters.
 Work out what they MEANT to say, then judge that.
 
 Then look for what a good teacher would really correct: grammar, word choice, word order, measure words, missing or wrong particles and verb complements, a structure from the task used wrongly. Do not nitpick what is fine in spoken Chinese (dropped subjects, 了 / 的 / 吧 / 啊 that are optional, a simpler word than the model's, casual phrasing).

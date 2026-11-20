@@ -103,9 +103,10 @@ export function normalizeNumbersToHanzi(text: string): string {
   return result;
 }
 
-// Punctuation and whitespace that shouldn't affect whether a typed answer is
-// considered correct (e.g. a missing trailing 。).
-const ANSWER_PUNCTUATION = /[\s。，、！？．·….,!?;:；：""''"'()（）【】\[\]《》<>「」-]/g;
+// Punctuation and whitespace that shouldn't affect whether an answer is considered correct (a missing trailing 。, a
+// recogniser's “quotes”, ～ or —): every Unicode punctuation mark (\p{P}: ASCII and full-width, curly quotes, dashes,
+// 『』 〈〉 …) plus the tildes, ⋯ and < > — but never a percent sign (50% is not 50). Lab: `AnswerKey.ANSWER_PUNCTUATION`.
+const ANSWER_PUNCTUATION = /(?![%％])[\s\p{P}～~〜⋯<>]/gu;
 
 /** One run of Arabic digits (thousands separators allowed, + a decimal part, + %) — the unit `digitsToHanzi` reads. */
 export const DIGIT_RUN = /([0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:\.([0-9]+))?(%)?/g;

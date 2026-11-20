@@ -165,6 +165,8 @@ const answerInputs = [
   'twenty-one', 'IV', 'Chapter XI', 'XIV章', 'MCM', '0', '105', '110', '1010', '2008年', '他是VIP', '2.0',
   '（你好）', '「好」', '《书》', '你好…', '好-好', '你　好', ' 你好 ', '你好\n', 'hello world',
   '123456789012', '99999999999999999999', '一百零五', '第1课', '1.5.3', 'a1b2', '10%的人', 'ten thousand',
+  // A recogniser's punctuation never counts: curly quotes, tildes, dashes, corner brackets, full-width marks.
+  '“你好”', '‘好’', '你好～', '你好~', '你好—', '你好——', '『好』', '〈好〉', '你好﹗', '你・好', '50%', '50％', '他侮辱了我.',
 ];
 const answers = answerInputs.map((s) => ({
   input: s,

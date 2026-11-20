@@ -772,7 +772,14 @@ fun CardStage(
     val typed = answer.trim().takeIf { typing && it.isNotEmpty() }
     val mc = ui.extras.mc
     val mcGridUp = !revealed && typing && mc.showing && mc.rows != null
-    BoxWithConstraints(Modifier.fillMaxSize().imePadding().sentencePractiseWatch(practise)) {
+    // 💬 Ask Claude about an answer the check didn't explain (docs/STUDY_SESSION.md "Answer feedback: one line and a
+    // diff"; the web's AnswerAskContext in StudyCard): every AnswerDiffView on this card (Hard mode, the Sentence round,
+    // the homework pass) opens THIS card's Claude thread with the question already sent. Offline: nothing is offered.
+    val answerAsk: ((String) -> Unit)? = if (ui.aiAvailable) ({ question: String ->
+        claude.autoAsk = question to "answer-ask:${System.currentTimeMillis()}"
+        sheet = CardSheet.Ask
+    }) else null
+    androidx.compose.runtime.CompositionLocalProvider(LocalAnswerAsk provides answerAsk) { BoxWithConstraints(Modifier.fillMaxSize().imePadding().sentencePractiseWatch(practise)) {
     // A long multiple-choice answer (a sentence: a dozen rows) must never push the question off
     // the top or the submit button off the bottom: the card keeps [cardMin] for the prompt and
     // the grid gets the rest, scrolling its rows above a pinned button.
@@ -1112,7 +1119,7 @@ fun CardStage(
             } }
         }
     }
-    }
+    } }
 
     // The card's Claude thread keeps listening while its sheet is closed: a finished reply's card tools still apply.
     CardClaudeEffects(view, typed, claude, actions.claude)

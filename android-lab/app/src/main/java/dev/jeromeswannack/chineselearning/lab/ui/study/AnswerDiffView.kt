@@ -43,6 +43,47 @@ object AnswerDiffTags {
     const val SAID = "answer-diff-said"
     const val CHARS = "answer-diff-chars"
     const val PLAY = "answer-diff-play"
+    const val SAID_PINYIN = "answer-diff-said-pinyin"
+}
+
+private val HAN = Regex("\\p{IsHan}")
+
+/**
+ * The pinyin line under "You said" (the web's `AnswerDiffPinyin`; core [AnswerDiff.pinyinLine]; Jerome, Nov 2026: "the
+ * stuff that I said that was incorrect also has pinyin, so I can see where my pronunciation was"): HIS syllables — the
+ * device's own pinyin of what he said (+ 一 / 不), never a network call — in the answer's pinyin style, his wrong /
+ * tone-off / extra syllables in the same colour as those characters. Parts that don't line up → the device's plain line.
+ */
+@Composable
+fun DiffPinyinLine(
+    diff: AnswerDiff.Diff,
+    said: String,
+    modifier: Modifier = Modifier,
+    accepted: Boolean = false,
+    fontSize: TextUnit = 14.sp,
+    tag: String = AnswerDiffTags.SAID_PINYIN,
+    textAlign: androidx.compose.ui.text.style.TextAlign? = null,
+) {
+    val colors = Lab.colors
+    val syllables = remember(diff) { AnswerDiff.pinyinLine(diff) }
+    val plain = remember(syllables, said) { if (syllables != null || !HAN.containsMatchIn(said)) "" else tidyYouSaidPinyin(devicePinyinLine(said)) }
+    if (syllables == null && plain.isBlank()) return
+    val text = remember(syllables, plain, accepted, colors) {
+        buildAnnotatedString {
+            if (syllables == null) { append(plain); return@buildAnnotatedString }
+            syllables.forEachIndexed { i, s ->
+                if (i > 0) append(" ")
+                val color = if (accepted) null else when (s.kind) {
+                    "wrong" -> colors.markWrong
+                    "tone" -> colors.markTone
+                    "extra" -> colors.markExtra
+                    else -> null
+                }
+                if (color == null) append(s.text) else withStyle(SpanStyle(color = color)) { append(s.text) }
+            }
+        }
+    }
+    Text(text, modifier.testTag(tag), color = colors.muted, fontSize = fontSize, lineHeight = fontSize * 1.35f, textAlign = textAlign)
 }
 
 /**
@@ -159,8 +200,16 @@ fun AnswerDiffView(
      * [AnswerWhy]). None: the device's own reason where it has one (a homophone); [headline] alone works too.
      */
     check: AnswerWhy.Check? = null,
-    /** "Explain more ›" with nothing on hand: Ask Claude about this answer. */
+    /**
+     * "Explain more ›" with nothing on hand: Ask Claude about this answer. Default: the card's Claude thread when the
+     * surface provides one ([LocalAnswerAsk]) — which also offers the small "💬 Ask Claude" link when the check gave no
+     * reason at all (core `AnswerWhy.askOffered`).
+     */
     onExplainMore: (() -> Unit)? = null,
+    /** What he was asked (the English he said in Chinese), for Ask Claude's question; default [expectedEnglish]. */
+    askPrompt: String? = null,
+    /** Off: no Ask Claude here — while Claude is still checking, or while the answer is still hidden. */
+    askable: Boolean = true,
     /** Analytics: the surface (study.answer_why_more). */
     whySurface: String = "answer_diff",
     /** A WRITTEN answer (typed / handwritten characters): judged by the characters — a homophone is wrong. */
@@ -179,6 +228,13 @@ fun AnswerDiffView(
     val whyCheck = check ?: headline?.takeIf { it.isNotBlank() }?.let { AnswerWhy.Check(headline = it) }
     val why = remember(diff, whyCheck, text) { AnswerWhy.why(diff, whyCheck, text) }
     val more = remember(whyCheck, why, said, expected, showExpected) { AnswerWhy.more(whyCheck, why, said, if (showExpected) expected else "") }
+    // Ask Claude about this answer: the surface's own path, else the card's Claude thread (when it can be reached).
+    val askCard = LocalAnswerAsk.current?.takeIf { !written }?.let { ask ->
+        { ask(AnswerWhy.askQuestion(said, expected, askPrompt ?: expectedEnglish, spoken = saidLabel == AnswerDiff.YOU_SAID)) }
+    }
+    val onAsk = if (askable) onExplainMore ?: askCard else null
+    // Nothing explains a not-right answer: one small "💬 Ask Claude" link (never when a why + Explain more is there).
+    val askFallback = onAsk?.takeIf { AnswerWhy.askOffered(tone, why, more, canAsk = true) }
     Column(modifier.fillMaxWidth().testTag(tag), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         if (!hideLine) {
             val ink = answerDiffToneInk(tone)
@@ -222,9 +278,13 @@ fun AnswerDiffView(
             val label = AnswerDiff.label(diff, text, saidLabel)
             Row(Modifier.fillMaxWidth().testTag(saidTag).clearAndSetSemantics { contentDescription = label }, verticalAlignment = Alignment.Top) {
                 DiffLabel(saidLabel)
-                DiffMarkedText(diff.cells(), 22.sp, Modifier.weight(1f), accepted = accepted)
+                Column(Modifier.weight(1f)) {
+                    DiffMarkedText(diff.cells(), 22.sp, accepted = accepted)
+                    // His own pinyin, his wrong syllables marked like the characters (wǔzhù under wǔrǔ).
+                    DiffPinyinLine(diff, said, accepted = accepted)
+                }
             }
-            AnswerWhyLine(why, more, onExplainMore, whySurface)
+            AnswerWhyLine(why, more, onAsk, whySurface, askFallback = askFallback)
         }
         content()
     }

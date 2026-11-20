@@ -361,7 +361,7 @@ fun SentencePractiseOutcome(
                 if (view?.compare == true) DifferenceCompare(
                     t.take.practised.said, row.hanzi, row.pinyin, accepted = accepted, onPlayModel = onPlayModel,
                     verdict = AnswerDiff.verdict(verdict), headline = claude.check.headline, hideLine = accepted,
-                    check = dev.jeromeswannack.chineselearning.lab.core.AnswerWhy.of(claude.check),
+                    check = dev.jeromeswannack.chineselearning.lab.core.AnswerWhy.of(claude.check), askPrompt = row.translation,
                 ) else AnswerCheckBody(claude.check, t.take.practised.said, onPlay = onSpeak)
             }
         } else if (claude is SentenceClaude.Done) {
@@ -373,6 +373,7 @@ fun SentencePractiseOutcome(
                     accepted = verdict == "correct" || verdict == "acceptable",
                     verdict = AnswerDiff.verdict(verdict), headline = claude.check.headline,
                     check = dev.jeromeswannack.chineselearning.lab.core.AnswerWhy.of(claude.check), whySurface = "sentence_translate",
+                    askPrompt = row.translation,
                 )
             }
         } else {

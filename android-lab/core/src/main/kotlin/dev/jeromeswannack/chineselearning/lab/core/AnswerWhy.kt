@@ -98,4 +98,24 @@ object AnswerWhy {
         if (all.isEmpty() && fixed == null && alt == null) return null
         return More(all, fixed, alt)
     }
+
+    /** `ANSWER_ASK_CLAUDE`: the small link under a judged answer when nothing explains it. */
+    const val ASK_CLAUDE = "💬 Ask Claude"
+
+    /**
+     * `answerAskOffered`: the fallback "💬 Ask Claude" link — only for an answer judged not right ([tone] close / wrong)
+     * with no why sentence and nothing "Explain more ›" could open, where the surface can open a Claude thread now.
+     */
+    fun askOffered(tone: String, why: String?, more: More?, canAsk: Boolean): Boolean =
+        canAsk && tone != "right" && why.isNullOrEmpty() && more == null
+
+    /** `answerAskQuestion`: what the link asks in the card's Claude thread. */
+    fun askQuestion(said: String, expected: String, prompt: String? = null, spoken: Boolean = true): String {
+        fun quoted(t: String) = "“${squash(t)}”"
+        val p = AnswerKey.jsTrim(prompt ?: "")
+        val verb = if (spoken) "said" else "wrote"
+        val end = if (Regex("[.!?。！？…]$").containsMatchIn(p)) "" else "."
+        val asked = if (p.isNotEmpty()) "I was asked to say ${quoted(p)}$end " else ""
+        return "${asked}I $verb ${quoted(said)} but the answer is ${quoted(expected)}. What did I get wrong?"
+    }
 }

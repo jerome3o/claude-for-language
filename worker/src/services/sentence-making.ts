@@ -30,7 +30,15 @@ export const SPOKEN_SENTENCE_RULE = `The sentence may be SPOKEN: a speech-recogn
 - Read it as ONE continuous utterance. Punctuation and sentence breaks come from where the learner paused — never judge them, never mention punctuation, never call it split, a fragment, a run-on or "two sentences".
 - Fillers (嗯, 那个, 就是), a restart or a repeated word are not mistakes.
 - A wrong character that sounds like the right one (在/再, 他/她, 的/得/地, 有/又) is the recogniser's: read the word the learner clearly meant from the context.
+- Numbers written as digits (3, 2026) are the same as the characters.
 - Judge the words, grammar and word order only.`;
+
+/**
+ * Text a learner may have DICTATED into a voice-first box (the chat composer, the Coach / Claude box) and then asked to
+ * have checked: the recogniser's punctuation / homophones / digits are never the learner's mistake (the chat
+ * auto-check and the Coach's "Check my sentence" carry it in their static system prompt).
+ */
+export const DICTATED_TEXT_RULE = `The text may have been DICTATED (the app's composers are voice-first): then it is a speech-recognition transcript. Its punctuation, spacing and sentence breaks are the recogniser's guesses where the learner paused — never a mistake, never mentioned, never the only change in a correction; a homophone the recogniser picked (在/再, 他/她, 的/得/地) or a number written as digits is not the learner's error either. Judge the words, grammar and word order.`;
 
 export const SENTENCE_CHECK_SYSTEM = `You check one sentence a Chinese learner made in a lesson exercise: they had to make their OWN sentence using the target words (in the situation given, if any).
 

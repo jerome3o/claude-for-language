@@ -307,7 +307,10 @@ fun YouSaidBox(
         } else {
             Text(r.transcribedHanzi.ifEmpty { "…" }, fontSize = 22.sp, lineHeight = 29.sp, fontWeight = FontWeight.Medium, color = Lab.colors.ink, textAlign = TextAlign.Center)
         }
-        if (r.transcribedPinyin.isNotBlank()) {
+        if (diff != null && diffLine != null) {
+            // His own pinyin, his wrong syllables marked like the characters above (core AnswerDiff.pinyinLine).
+            DiffPinyinLine(diff, r.transcribedHanzi, accepted = claude?.state == "match", tag = YOU_SAID_PINYIN_TAG, textAlign = TextAlign.Center)
+        } else if (r.transcribedPinyin.isNotBlank()) {
             Text(tidyYouSaidPinyin(r.transcribedPinyin), fontSize = 14.sp, lineHeight = 19.sp, color = Lab.colors.muted, textAlign = TextAlign.Center)
         }
         // ONE line: what differs (the slim diff), else Claude's one-line reason.
@@ -428,6 +431,7 @@ internal fun SpokenMarkedCells(chars: List<SpokenAnswerResult.Cell>, fontSize: a
 const val SPOKEN_RESULT_HANZI_TAG = "spoken-result-hanzi"
 const val SPOKEN_RESULT_CHIP_TAG = "spoken-result-chip"
 const val SPOKEN_RESULT_PINYIN_TAG = "spoken-result-pinyin"
+const val YOU_SAID_PINYIN_TAG = "you-said-pinyin"
 
 /**
  * The spoken answer's result on a typing card (and 🎤 Say it practice) — ONE compact row under the
@@ -457,6 +461,10 @@ fun SpokenResultRow(
 ) {
     val r = SpokenAnswerResult.of(transcript, correct, verdict)
     val fullPinyin = tidyYouSaidPinyin(Transcription.compare(transcript, correct).transcribedPinyin)
+    // Close / didn't match: the row is the slim diff — its pinyin marks his wrong syllables like the characters.
+    val diff = remember(r.state, transcript, correct) {
+        if (r.state == SpokenAnswerResult.State.CLOSE || r.state == SpokenAnswerResult.State.WRONG) AnswerDiff.of(transcript, correct).takeIf { !it.empty } else null
+    }
     val showHanzi = compact == null || compact.transcript
     val pinyin = if (showHanzi && (compact == null || compact.pinyin)) fullPinyin else ""
     val state = SpokenAnswerResult.stateName(r.state)
@@ -495,7 +503,10 @@ fun SpokenResultRow(
             // Each part is its own item, so a long sentence wraps instead of squeezing its pinyin.
             Text("You said", fontSize = 12.sp, lineHeight = 15.sp, fontWeight = FontWeight.Medium, color = Lab.colors.muted, modifier = Modifier.align(Alignment.CenterVertically).padding(start = if (compact != null) 6.dp else 0.dp))
             if (showHanzi) Box(Modifier.align(Alignment.CenterVertically)) { SpokenMarkedText(r, if (compact != null) 17.sp else 22.sp) }
-            if (pinyin.isNotBlank()) Text(pinyin, fontSize = if (compact != null) 13.sp else 14.sp, lineHeight = 18.sp, color = Lab.colors.muted, modifier = Modifier.align(Alignment.CenterVertically).testTag(SPOKEN_RESULT_PINYIN_TAG))
+            if (pinyin.isNotBlank()) {
+                if (diff != null) DiffPinyinLine(diff, transcript, Modifier.align(Alignment.CenterVertically), fontSize = if (compact != null) 13.sp else 14.sp, tag = SPOKEN_RESULT_PINYIN_TAG)
+                else Text(pinyin, fontSize = if (compact != null) 13.sp else 14.sp, lineHeight = 18.sp, color = Lab.colors.muted, modifier = Modifier.align(Alignment.CenterVertically).testTag(SPOKEN_RESULT_PINYIN_TAG))
+            }
             Row(
                 Modifier
                     .align(Alignment.CenterVertically)

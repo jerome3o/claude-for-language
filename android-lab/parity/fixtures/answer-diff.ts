@@ -6,13 +6,13 @@
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  answerDiff, answerDiffLabel, answerDiffLine, answerDiffSummary, answerDiffTone, firstSentence, ANSWER_DIFF_VERDICT,
+  answerDiff, answerDiffLabel, answerDiffLine, answerDiffPinyin, answerDiffSummary, answerDiffTone, firstSentence, ANSWER_DIFF_VERDICT,
   ANSWER_DIFF_EMPTY, ANSWER_DIFF_FAR, ANSWER_DIFF_ORDER, ANSWER_DIFF_RIGHT, ANSWER_DIFF_WORDED, ANSWER_DIFF_YOU_SAID, ANSWER_DIFF_YOUR_ANSWER,
   readAloudResultLine,
 } from '../../../shared/cards/answer-diff';
 import { judgeReadAloud } from '../../../shared/reader/readAloud';
 import {
-  answerMore, answerWhy, deviceWhy, ANSWER_WHY_ALTERNATIVE, ANSWER_WHY_CORRECTED, ANSWER_WHY_LESS, ANSWER_WHY_MAX, ANSWER_WHY_MORE,
+  answerAskOffered, answerAskQuestion, answerMore, answerWhy, deviceWhy, ANSWER_ASK_CLAUDE, ANSWER_WHY_ALTERNATIVE, ANSWER_WHY_CORRECTED, ANSWER_WHY_LESS, ANSWER_WHY_MAX, ANSWER_WHY_MORE,
   ANSWER_WHY_STOCK, type AnswerWhyCheck,
 } from '../../../shared/cards/answer-why';
 
@@ -55,6 +55,17 @@ const PAIRS: [string, string][] = [
   ['银行几点开始营业', '银行几点开门？'],
   ['你好啊我是小明', '你好，我是小明。'],
   ['我去北京了吗', '我去北京。'],
+  // Pinyin under "You said" (his syllables, marked like his characters).
+  ['他捂住了我。', '他侮辱了我'],
+  ['我们去了北京了', '我们去北京'],
+  ['我不是一个学生', '我是学生'],
+  ['我dou去', '我都去'],
+  ['hello', '你好'],
+  ['我有12个', '我有十三个'],
+  // A recogniser's punctuation is never a difference.
+  ['“我去”', '我去'],
+  ['我去～', '我去。'],
+  ['我去——北京', '我去北京'],
 ];
 const HEADLINES = [null, '', 'A different sentence. Use 去 for going.', 'Almost — the 即使…也 is right, but make it a command and keep it short so it reads naturally in Chinese conversation every day.'];
 
@@ -63,7 +74,7 @@ const cases = PAIRS.map(([said, expected]) => {
   const summary = answerDiffSummary(d);
   const lines = [] as unknown[];
   for (const accepted of [false, true]) for (const headline of HEADLINES) lines.push({ accepted, headline, line: answerDiffLine({ diff: d, accepted, headline }) });
-  return { said, expected, diff: d, summary, tone: answerDiffTone(d), toneAccepted: answerDiffTone(d, true), lines, label: answerDiffLabel(d, summary), labelSaid: answerDiffLabel(d, summary, ANSWER_DIFF_YOU_SAID) };
+  return { said, expected, diff: d, pinyin: answerDiffPinyin(d), summary, tone: answerDiffTone(d), toneAccepted: answerDiffTone(d, true), lines, label: answerDiffLabel(d, summary), labelSaid: answerDiffLabel(d, summary, ANSWER_DIFF_YOU_SAID) };
 });
 const sentences = ['', '  Almost.  Then more. ', 'No end mark here', 'Short! And more', '你说得对。但是……', 'x'.repeat(120), `${'y'.repeat(88)}  z`]
   .map((text) => ({ text, first: firstSentence(text), first20: firstSentence(text, 20) }));
@@ -125,8 +136,22 @@ const written = WRITTEN_PAIRS.map(([said, expected]) => {
   return { said, expected, diff: d, summary: answerDiffSummary(d), tone: answerDiffTone(d) };
 });
 
+// The 💬 Ask Claude fallback: when it is offered, and the question it asks.
+const asks = (['right', 'close', 'wrong'] as const).flatMap((tone) => [null, 'Use 侮辱 for insult.'].flatMap((why) =>
+  [null, { tips: ['x'], corrected: null, alternative: null }].flatMap((more) => [true, false].map((canAsk) =>
+    ({ tone, why, more: more !== null, canAsk, offered: answerAskOffered({ tone, why, more, canAsk }) })))));
+const ASK_QUESTIONS: { said: string; expected: string; prompt?: string | null; spoken?: boolean }[] = [
+  { said: '他捂住了我', expected: '他侮辱了我', prompt: 'He insulted me' },
+  { said: '他打了我', expected: '他侮辱了我', prompt: 'He insulted me.' },
+  { said: '你去哪儿', expected: '你去哪里？', prompt: 'Where are you going?' },
+  { said: '我  去 ', expected: '我去。', prompt: null },
+  { said: '我得书', expected: '我的书', prompt: '  my  book ', spoken: false },
+  { said: '你好', expected: '您好', spoken: true },
+];
+const askQuestions = ASK_QUESTIONS.map((q) => ({ ...q, question: answerAskQuestion(q) }));
+
 writeFileSync(join(OUT, 'answer-diff.json'), JSON.stringify({
-  cases, written, sentences, readings, verdicts: ANSWER_DIFF_VERDICT, whys,
+  cases, written, asks, askQuestions, askLabel: ANSWER_ASK_CLAUDE, sentences, readings, verdicts: ANSWER_DIFF_VERDICT, whys,
   whyCopy: { max: ANSWER_WHY_MAX, more: ANSWER_WHY_MORE, less: ANSWER_WHY_LESS, corrected: ANSWER_WHY_CORRECTED, alternative: ANSWER_WHY_ALTERNATIVE, stock: ANSWER_WHY_STOCK },
   copy: {
     right: ANSWER_DIFF_RIGHT, worded: ANSWER_DIFF_WORDED, order: ANSWER_DIFF_ORDER, far: ANSWER_DIFF_FAR, empty: ANSWER_DIFF_EMPTY,

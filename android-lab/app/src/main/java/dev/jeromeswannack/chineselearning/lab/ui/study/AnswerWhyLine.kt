@@ -38,6 +38,7 @@ object AnswerWhyTags {
     const val TEXT = "answer-why-text"
     const val MORE = "answer-why-more"
     const val DETAIL = "answer-why-detail"
+    const val ASK = "answer-ask-claude"
 }
 
 /**
@@ -49,11 +50,35 @@ object AnswerWhyTags {
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun AnswerWhyLine(why: String?, more: AnswerWhy.More?, onAsk: (() -> Unit)? = null, surface: String = "answer_diff") {
-    if (why.isNullOrEmpty() && more == null) return
-    var open by remember(why, more) { mutableStateOf(false) }
+fun AnswerWhyLine(
+    why: String?,
+    more: AnswerWhy.More?,
+    onAsk: (() -> Unit)? = null,
+    surface: String = "answer_diff",
+    /**
+     * No why and nothing more, the answer not right (core `AnswerWhy.askOffered`): the one small "💬 Ask Claude" link —
+     * it opens the card's Claude thread with the question, his answer and the expected one.
+     */
+    askFallback: (() -> Unit)? = null,
+) {
     val app = LocalContext.current.applicationContext as? LabApp
     val colors = Lab.colors
+    if (why.isNullOrEmpty() && more == null) {
+        if (askFallback == null) return
+        Box(
+            Modifier.heightIn(min = 44.dp)
+                .bouncyClickable(pressedScale = 0.95f, role = Role.Button) {
+                    app?.analytics?.track("study.answer_why_more", mapOf("surface" to surface, "action" to "ask_fallback"))
+                    askFallback()
+                }
+                .testTag(AnswerWhyTags.ASK),
+            contentAlignment = Alignment.CenterStart,
+        ) {
+            Text(AnswerWhy.ASK_CLAUDE, color = colors.muted, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+        }
+        return
+    }
+    var open by remember(why, more) { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth().testTag(AnswerWhyTags.BOX)) {
         FlowRow(verticalArrangement = Arrangement.Center) {
             if (!why.isNullOrEmpty()) {

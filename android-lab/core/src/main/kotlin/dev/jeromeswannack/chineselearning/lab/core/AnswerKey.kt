@@ -14,9 +14,8 @@ object AnswerKey {
     private const val B_START = "(?<![$W])"
     private const val B_END = "(?![$W])"
 
-    private val ANSWER_PUNCTUATION = Regex(
-        "[$JS_WS" + "。，、！？．·….,!?;:；：\"\"''\"'()（）【】\\[\\]《》<>「」-]",
-    )
+    /** Port of ANSWER_PUNCTUATION: every Unicode punctuation mark + the tildes and < >, never a percent sign. */
+    private val ANSWER_PUNCTUATION = Regex("(?![%％])[$JS_WS\\p{P}～~〜⋯<>]")
 
     private val ENGLISH = mapOf(
         "zero" to "零", "one" to "一", "two" to "二", "three" to "三", "four" to "四", "five" to "五",
@@ -378,7 +377,7 @@ object AnswerKey {
         return jsTrim(DOUBLE_SPACES.replace(t, " "))
     }
 
-    private val SCRUB_CJK_MARKS = Regex("[。．！？，、；：…～·]+")
+    private val SCRUB_CJK_MARKS = Regex("[。．！？，、；：…⋯～〜·・—–―﹐﹑﹒﹔﹕﹖﹗]+")
     private val SCRUB_ASCII_MARKS = Regex("(?<![0-9])[.!?,;:~]+|[.!?,;:~]+(?![0-9])")
     private val SCRUB_SPACE_HAN = Regex("(?<=\\p{IsHan})[$JS_WS]+(?=[\\p{IsHan}0-9])|(?<=[0-9])[$JS_WS]+(?=\\p{IsHan})")
     private val SCRUB_WS = Regex("[$JS_WS]+")

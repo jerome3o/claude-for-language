@@ -230,6 +230,8 @@ export function HardModeFeedback({ result, said, spoken, roundFollows, differenc
             whySurface="hard_mode"
             verdict={verdict ?? ANSWER_DIFF_VERDICT[result]}
             saidLabel={spoken ? ANSWER_DIFF_YOU_SAID : ANSWER_DIFF_YOUR_ANSWER}
+            // The answer is still hidden (Try again / 👁 Show answer): asking Claude would give it away.
+            askable={false}
           />
         </div>
       ) : (
@@ -309,6 +311,7 @@ function SentenceAnswerFirst({ result, view, answer, said, difference, check, ch
           check={check}
           whySurface="hard_mode"
           verdict={view.checking ? null : checkVerdict(check) ?? (result === 'right' || result === 'close' || result === 'wrong' ? ANSWER_DIFF_VERDICT[result] : null)}
+          askable={!view.checking}
           expectedTestId="difference-model"
           saidTestId="difference-said"
           playTestId="difference-play-model"

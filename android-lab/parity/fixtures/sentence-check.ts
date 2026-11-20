@@ -58,6 +58,7 @@ const lineCuts = [...LINES, 'The second clause just states another plan rather t
 const SPOKEN = [
   '我不知道。 我妹妹有，不有新电脑。', '我有 3.5 块，好吗？', '我喜欢 coffee，你呢？', "I don't know, maybe.", '他说"好"。', '这个牛角包 3块多元',
   '  ', '虾饺我最喜欢的。 点心。', '你好…  我是 Jerome。', '嗯，那个，就是… 我想去。', '一、二、三', '他说：“你好！”', '3 个人', '我　们',
+  '我想去——北京', '他侮辱了我⋯⋯', '我去～', '你好﹐我是・小明', '一–二',
 ];
 const scrub = SPOKEN.map((t) => ({ text: t, out: scrubSpokenTranscript(t), spoken: spokenCheckAnswer(t, 'spoken'), edited: spokenCheckAnswer(t, 'edited'), typed: spokenCheckAnswer(t, 'typed') }));
 

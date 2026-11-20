@@ -29,6 +29,7 @@ import { useSegmentedWords } from '../../services/chineseSegmenter';
 import { useTakeLock } from '../voice/TakeLock';
 import { answerDiff, answerDiffLabel, answerDiffSummary } from '@shared/cards/answer-diff';
 import { AnswerDiffChars } from '../study/AnswerDiff';
+import { AnswerDiffPinyin } from '../study/AnswerDiffPinyin';
 import '../study/AnswerDiff.css';
 import './LessonFeedback.css';
 
@@ -93,7 +94,7 @@ export function SayItAgain({ hanzi, exerciseType, kind = 'answer', testId = 'les
  * His answer lined up with the model answer, character by character (the slim answer diff), and ONE line under it
  * that says what differs ("1 wrong character, 1 missing") — no explanation.
  */
-export function MarkedAnswer({ answer, model }: { answer: string; model: string }) {
+export function MarkedAnswer({ answer, model, spoken = false }: { answer: string; model: string; spoken?: boolean }) {
   const diff = answerDiff(answer, model);
   const line = answerDiffSummary(diff);
   return (
@@ -101,6 +102,8 @@ export function MarkedAnswer({ answer, model }: { answer: string; model: string 
       <span className="lesson-marked-answer" data-testid="lesson-marked-answer" aria-label={answerDiffLabel(diff, line)}>
         <AnswerDiffChars parts={diff.parts} />
       </span>
+      {/* Said aloud: his own pinyin under it, his wrong syllables marked like the characters. */}
+      {spoken && <AnswerDiffPinyin diff={diff} said={answer} className="lesson-marked-answer-py" testId="lesson-marked-answer-pinyin" />}
       <span className="lesson-answer-diff-line" data-testid="lesson-answer-diff-line">{line}</span>
     </>
   );

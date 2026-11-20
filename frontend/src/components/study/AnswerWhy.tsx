@@ -8,22 +8,43 @@
  */
 import { useState } from 'react';
 import {
-  ANSWER_WHY_ALTERNATIVE, ANSWER_WHY_CORRECTED, ANSWER_WHY_LESS, ANSWER_WHY_MORE, type AnswerMore,
+  ANSWER_ASK_CLAUDE, ANSWER_WHY_ALTERNATIVE, ANSWER_WHY_CORRECTED, ANSWER_WHY_LESS, ANSWER_WHY_MORE, type AnswerMore,
 } from '@shared/cards/answer-why';
 import { track } from '../../services/analytics';
 import './AnswerDiff.css';
 
-export function AnswerWhy({ why, more, onAsk, surface = 'answer_diff' }: {
+export function AnswerWhy({ why, more, onAsk, askFallback, surface = 'answer_diff' }: {
   why: string | null;
   more: AnswerMore | null;
   /** Nothing to open in place: Ask Claude about this answer. */
   onAsk?: () => void;
+  /**
+   * No why and nothing more, the answer not right (`answerAskOffered`): the one small "💬 Ask Claude" link instead —
+   * it opens the card's Claude thread with the question, his answer and the expected one.
+   */
+  askFallback?: () => void;
   /** Analytics: which surface the why sits on. */
   surface?: string;
 }) {
   const [open, setOpen] = useState(false);
   const canMore = !!more || !!onAsk;
-  if (!why && !more) return null;
+  if (!why && !more) {
+    if (!askFallback) return null;
+    return (
+      <div className="adiff-why-box" data-testid="answer-why">
+        <p className="adiff-why">
+          <button
+            type="button"
+            className="adiff-why-more adiff-why-ask"
+            onClick={(e) => { e.stopPropagation(); track('study.answer_why_more', { surface, action: 'ask_fallback' }); askFallback(); }}
+            data-testid="answer-ask-claude"
+          >
+            {ANSWER_ASK_CLAUDE}
+          </button>
+        </p>
+      </div>
+    );
+  }
   const toggle = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!more) {

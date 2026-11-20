@@ -38,6 +38,11 @@ export interface AnswerDiffPart {
   kind: AnswerDiffKind;
   /** The expected character(s) this part stands for ('' for `extra` / `plain`). */
   expected: string;
+  /**
+   * HIS syllable(s) for this part in the context of what he said (the device's automatic pinyin + 一 / 不, tone marks,
+   * no spaces inside a part) — '' for `missing` / `plain`, a non-Chinese part, or a run whose pinyin didn't line up.
+   */
+  pinyin: string;
 }
 
 export interface AnswerDiff {
@@ -83,7 +88,7 @@ function diffOfJudged(r: ReadAloudResult, said: string, expected: string, readin
     let at = parts.length;
     while (at > 0 && parts[at - 1].kind === 'plain') at--;
     const before = parts[at - 1];
-    if (before && before.kind === 'extra') before.text += p.text;
+    if (before && before.kind === 'extra') { before.text += p.text; before.pinyin += p.pinyin; }
     else parts.splice(at, 0, p);
   };
   const count = { wrong: 0, tone: 0, missing: 0, extra: 0, sound: 0 };
@@ -91,30 +96,31 @@ function diffOfJudged(r: ReadAloudResult, said: string, expected: string, readin
   for (let i = 0; i < chars.length; i++) {
     const c = chars[i];
     if (c.extraBefore) {
-      push({ text: c.extraBefore, kind: 'extra', expected: '' });
+      push({ text: c.extraBefore, kind: 'extra', expected: '', pinyin: c.extraBeforePinyin ?? '' });
       count.extra += cps(c.extraBefore).length;
     }
     if (c.unitCont) continue;
     // A unit's expected text: the character, or a whole digit run ("12").
     let unit = c.char;
     for (let n = i + 1; n < chars.length && chars[n].unitCont; n++) unit += chars[n].char;
+    const py = c.heardPinyin ?? '';
     switch (c.mark) {
-      case 'plain': push({ text: c.char, kind: 'plain', expected: '' }); break;
-      case 'ok': push({ text: c.heard || unit, kind: 'ok', expected: unit }); break;
+      case 'plain': push({ text: c.char, kind: 'plain', expected: '', pinyin: '' }); break;
+      case 'ok': push({ text: c.heard || unit, kind: 'ok', expected: unit, pinyin: py }); break;
       case 'sound':
       case 'close':
         // Written: another character is wrong, whatever it sounds like.
-        if (written) { push({ text: c.heard, kind: 'wrong', expected: unit }); count.wrong++; break; }
-        if (c.mark === 'sound') { push({ text: c.heard, kind: 'sound', expected: unit }); count.sound++; break; }
-        push({ text: c.heard, kind: 'tone', expected: unit }); count.tone++; break;
-      case 'wrong': push({ text: c.heard, kind: 'wrong', expected: unit }); count.wrong++; break;
+        if (written) { push({ text: c.heard, kind: 'wrong', expected: unit, pinyin: py }); count.wrong++; break; }
+        if (c.mark === 'sound') { push({ text: c.heard, kind: 'sound', expected: unit, pinyin: py }); count.sound++; break; }
+        push({ text: c.heard, kind: 'tone', expected: unit, pinyin: py }); count.tone++; break;
+      case 'wrong': push({ text: c.heard, kind: 'wrong', expected: unit, pinyin: py }); count.wrong++; break;
       default: // missed / unread — a page read aloud: unread = he stopped before here, not missing
         if (reading && c.mark === 'unread') break;
-        push({ text: unit, kind: 'missing', expected: unit }); count.missing++; break;
+        push({ text: unit, kind: 'missing', expected: unit, pinyin: '' }); count.missing++; break;
     }
   }
   if (r.extraAtEnd) {
-    push({ text: r.extraAtEnd, kind: 'extra', expected: '' });
+    push({ text: r.extraAtEnd, kind: 'extra', expected: '', pinyin: r.extraAtEndPinyin ?? '' });
     count.extra += cps(r.extraAtEnd).length;
   }
   if (reading) {
@@ -301,3 +307,30 @@ export function answerDiffLabel(d: AnswerDiff, line: string, label = 'Your answe
 /** The diff's small label in each surface. */
 export const ANSWER_DIFF_YOU_SAID = 'You said';
 export const ANSWER_DIFF_YOUR_ANSWER = 'Your answer';
+
+/** One syllable group of his answer's pinyin line, marked like its characters (`ok` / `sound` = no mark). */
+export interface AnswerDiffSyllable {
+  text: string;
+  kind: AnswerDiffKind;
+}
+
+const HAN_CHAR = /\p{Script=Han}/u;
+
+/**
+ * The pinyin line under "You said" (Jerome, Nov 2026: "the stuff that I said that was incorrect also has pinyin, so I
+ * can see where my pronunciation was"): HIS syllables, part by part, in the same order as his characters and marked the
+ * same way — wrong rose, tone off amber, extra violet; what he left out (`missing`) and punctuation have none. The
+ * syllables are the device's own automatic pinyin of what he said (+ 一 / 不), never a network call. Shown in the same
+ * style as the expected answer's pinyin, so wǔzhù sits under wǔrǔ. `null` = no line (nothing Chinese said, or a part
+ * whose pinyin didn't line up — the surface may show the device's plain line instead). Lab: `AnswerDiff.pinyinLine`.
+ */
+export function answerDiffPinyin(d: AnswerDiff): AnswerDiffSyllable[] | null {
+  const out: AnswerDiffSyllable[] = [];
+  for (const p of d.parts) {
+    if (p.kind === 'missing' || p.kind === 'plain') continue;
+    if (!HAN_CHAR.test(p.text)) continue;
+    if (!p.pinyin) return null;
+    out.push({ text: p.pinyin, kind: p.kind });
+  }
+  return out.length > 0 ? out : null;
+}

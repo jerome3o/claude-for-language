@@ -36,7 +36,7 @@ class AnswerDiffParityTest {
             val want = o["diff"]!!.jsonObject
             val parts = want["parts"]!!.jsonArray.map {
                 val p = it.jsonObject
-                AnswerDiff.Part(p["text"]!!.str!!, p["kind"]!!.str!!, p["expected"]!!.str!!)
+                AnswerDiff.Part(p["text"]!!.str!!, p["kind"]!!.str!!, p["expected"]!!.str!!, p["pinyin"]!!.str!!)
             }
             val ctx = "$said / $expected"
             assertEquals(parts, d.parts, ctx)
@@ -44,6 +44,8 @@ class AnswerDiffParityTest {
             assertEquals(want["right"]!!.jsonPrimitive.boolean, d.right, ctx)
             assertEquals(want["reordered"]!!.jsonPrimitive.boolean, d.reordered, ctx)
             assertEquals(want["empty"]!!.jsonPrimitive.boolean, d.empty, ctx)
+            val py = o["pinyin"]!!.let { e -> if (e is JsonNull) null else e.jsonArray.map { AnswerDiff.Syllable(it.jsonObject["text"]!!.str!!, it.jsonObject["kind"]!!.str!!) } }
+            assertEquals(py, AnswerDiff.pinyinLine(d), "$ctx pinyin")
             val summary = AnswerDiff.summary(d)
             assertEquals(o["summary"]!!.str, summary, ctx)
             assertEquals(o["tone"]!!.str, AnswerDiff.tone(d), ctx)
@@ -69,7 +71,7 @@ class AnswerDiffParityTest {
             val want = o["diff"]!!.jsonObject
             val parts = want["parts"]!!.jsonArray.map {
                 val p = it.jsonObject
-                AnswerDiff.Part(p["text"]!!.str!!, p["kind"]!!.str!!, p["expected"]!!.str!!)
+                AnswerDiff.Part(p["text"]!!.str!!, p["kind"]!!.str!!, p["expected"]!!.str!!, p["pinyin"]!!.str!!)
             }
             val ctx = "written $said / $expected"
             assertEquals(parts, d.parts, ctx)
