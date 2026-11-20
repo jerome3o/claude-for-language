@@ -33,6 +33,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -47,6 +48,7 @@ import dev.jeromeswannack.chineselearning.lab.ui.kit.LoadingState
 import dev.jeromeswannack.chineselearning.lab.ui.kit.NoticeKind
 import dev.jeromeswannack.chineselearning.lab.ui.kit.ScreenTitle
 import dev.jeromeswannack.chineselearning.lab.ui.kit.bouncyClickable
+import dev.jeromeswannack.chineselearning.lab.ui.bumps.BumpAmber
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 
 /** One row of the list (core UpNext.statusLabel for [status]). */
@@ -122,9 +124,50 @@ data class UpNextActions(
     val onRetry: () -> Unit = {},
 )
 
-private val Indigo = Color(0xFF4338CA)
-private val IndigoSoft = Color(0xFFEEF2FF)
-private val Amber = Color(0xFFB45309)
+/**
+ * The screen's own colours, one set per theme (Jerome, Nov 2026: "The Up next page doesn't look very good on dark
+ * mode" — the ⚡ Today rows were a hard-coded cream card with the dark theme's near-white words on it, and the
+ * "↑ Up next" pill was a black card-coloured blob on it). Everything else comes from [Lab.colors]; these are the
+ * Up next accents (web: components/upNext/upNext.css `--upnext-*`). Contrast-tested in `UpNextPaletteTest`.
+ */
+internal data class UpNextPalette(
+    /** Indigo ink: the position number, "✓ Up next", the "↑ Up next" pill's label, a lifted / drop-here edge. */
+    val indigo: Color,
+    /** The position badge, the drop-here row and the "↑ Up next" pill's fill. */
+    val indigoSoft: Color,
+    /** The "↑ Up next" pill's outline (≥ 3:1 on the page and on a ⚡ Today row). */
+    val indigoLine: Color,
+    /** "added by Minghui" / "⚡ from Minghui". */
+    val violet: Color,
+    /** A ⚡ Today row: a warm amber tint of the page, and its edge. */
+    val todayBg: Color,
+    val todayLine: Color,
+    /** The Undo toast. */
+    val toastBg: Color,
+)
+
+internal val UpNextLight = UpNextPalette(
+    indigo = Color(0xFF4338CA),
+    indigoSoft = Color(0xFFEEF2FF),
+    indigoLine = Color(0xFF6366F1),
+    violet = Color(0xFF7C3AED),
+    todayBg = Color(0xFFFFFBEB),
+    todayLine = Color(0xFFFDE68A),
+    toastBg = Color(0xFF1F2937),
+)
+
+internal val UpNextDark = UpNextPalette(
+    indigo = Color(0xFFA5B4FC),
+    indigoSoft = Color(0xFF25274A),
+    indigoLine = Color(0xFF6E73D9),
+    violet = Color(0xFFC4B5FD),
+    todayBg = Color(0xFF2A2110),
+    todayLine = Color(0xFF5C4515),
+    toastBg = Color(0xFF34343C),
+)
+
+private val upNextColors: UpNextPalette
+    @Composable get() = if (Lab.colors.card.luminance() < 0.4f) UpNextDark else UpNextLight
 
 /**
  * The Up next screen (web pages/UpNextPage.tsx + components/upNext/UpNextBoard.tsx): ⚡ Today, then a
@@ -239,7 +282,7 @@ fun UpNextScreen(ui: UpNextUi, actions: UpNextActions, previewOrder: List<String
             if (ui.toast != null) {
                 Row(
                     Modifier.align(Alignment.BottomCenter).padding(16.dp).shadow(8.dp, RoundedCornerShape(28.dp))
-                        .clip(RoundedCornerShape(28.dp)).background(Color(0xFF1F2937)).padding(start = 18.dp, end = 6.dp, top = 6.dp, bottom = 6.dp)
+                        .clip(RoundedCornerShape(28.dp)).background(upNextColors.toastBg).padding(start = 18.dp, end = 6.dp, top = 6.dp, bottom = 6.dp)
                         .testTag("upnext-toast"),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -271,7 +314,11 @@ private fun SectionTitle(title: String, count: String?, hint: String?) {
 @Composable
 private fun WordText(hanzi: String, pinyin: String, english: String, meta: String, modifier: Modifier = Modifier, metaExtra: String? = null) {
     Column(modifier) {
-        Row(verticalAlignment = Alignment.Bottom) {
+        // A sentence (我等会儿要下去拿。) leaves no room for its pinyin beside it ("W…"): it goes on its own line.
+        if (hanzi.length > 5) {
+            Text(hanzi, fontSize = 21.sp, fontWeight = FontWeight.SemiBold, color = Lab.colors.ink)
+            if (pinyin.isNotBlank()) Text(pinyin, fontSize = 15.sp, color = Lab.colors.muted, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        } else Row(verticalAlignment = Alignment.Bottom) {
             Text(hanzi, fontSize = 21.sp, fontWeight = FontWeight.SemiBold, color = Lab.colors.ink)
             Spacer(Modifier.width(8.dp))
             Text(pinyin, fontSize = 15.sp, color = Lab.colors.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -279,7 +326,7 @@ private fun WordText(hanzi: String, pinyin: String, english: String, meta: Strin
         Text(english, fontSize = 15.sp, color = Lab.colors.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Row {
             Text(meta, fontSize = 13.sp, color = Lab.colors.muted, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-            if (metaExtra != null) Text(" · $metaExtra", fontSize = 13.sp, color = Color(0xFF7C3AED), maxLines = 1)
+            if (metaExtra != null) Text(" · $metaExtra", fontSize = 13.sp, color = upNextColors.violet, maxLines = 1)
         }
     }
 }
@@ -302,15 +349,29 @@ private fun SmallPill(text: String, description: String, onClick: () -> Unit) {
     ) { Text(text, fontSize = 15.sp, color = Lab.colors.ink) }
 }
 
+/** "↑ Up next" on a ⚡ Today row: a tonal indigo pill (web `.upnext-btn`), readable on the row in both themes. */
+@Composable
+private fun UpNextPill(text: String, description: String, onClick: () -> Unit) {
+    val c = upNextColors
+    Box(
+        Modifier.heightIn(min = 44.dp).clip(RoundedCornerShape(22.dp)).border(1.dp, c.indigoLine, RoundedCornerShape(22.dp))
+            .background(c.indigoSoft).bouncyClickable(onClick = onClick).padding(horizontal = 14.dp)
+            .semantics { contentDescription = description }.testTag("upnext-today-to-list"),
+        contentAlignment = Alignment.Center,
+    ) { Text(text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = c.indigo, maxLines = 1) }
+}
+
 @Composable
 private fun TodayRow(t: UpNextTodayUi, actions: UpNextActions) {
+    val c = upNextColors
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color(0xFFFFFBEB)).border(1.dp, Color(0xFFFDE68A), RoundedCornerShape(12.dp))
-            .padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(c.todayBg).border(1.dp, c.todayLine, RoundedCornerShape(12.dp))
+            .padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp).testTag("upnext-today-row"),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         WordText(t.hanzi, t.pinyin, t.english, t.deck, Modifier.weight(1f), t.from?.let { "⚡ from $it" })
-        if (t.canMoveToUpNext) SmallPill("↑ Up next", "Not today — introduce ${t.hanzi} next instead") { actions.onTodayToUpNext(t.noteId) }
+        Spacer(Modifier.width(6.dp))
+        if (t.canMoveToUpNext) UpNextPill("↑ Up next", "Not today — introduce ${t.hanzi} next instead") { actions.onTodayToUpNext(t.noteId) }
         IconAction("✕", "Take ${t.hanzi} out of today") { actions.onTodayClear(t.noteId) }
     }
 }
@@ -322,7 +383,7 @@ private fun HitRow(h: UpNextHitUi, lifted: Boolean, learner: Boolean, actions: U
         Modifier.fillMaxWidth().zIndex(if (lifted) 1f else 0f).graphicsLayer { scaleX = scale; scaleY = scale }
             .then(if (lifted) Modifier.shadow(10.dp, RoundedCornerShape(12.dp)) else Modifier)
             .clip(RoundedCornerShape(12.dp)).background(Lab.colors.card)
-            .border(if (lifted) 2.dp else 1.dp, if (lifted) Indigo else Lab.colors.cardBorder, RoundedCornerShape(12.dp))
+            .border(if (lifted) 2.dp else 1.dp, if (lifted) upNextColors.indigo else Lab.colors.cardBorder, RoundedCornerShape(12.dp))
             .padding(start = 10.dp, end = 6.dp, top = 8.dp, bottom = 8.dp)
             .testTag("upnext-result"),
         verticalAlignment = Alignment.CenterVertically,
@@ -330,7 +391,7 @@ private fun HitRow(h: UpNextHitUi, lifted: Boolean, learner: Boolean, actions: U
         if (!h.onList && !h.studied) Text("⠿", color = Lab.colors.muted, fontSize = 18.sp, modifier = Modifier.padding(end = 8.dp))
         WordText(h.hanzi, h.pinyin, h.english, if (h.studied) "${h.deck} · already studied" else h.deck, Modifier.weight(1f))
         when {
-            h.onList -> Text("✓ Up next", color = Indigo, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 8.dp))
+            h.onList -> Text("✓ Up next", color = upNextColors.indigo, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 8.dp))
             h.studied -> if (learner) SmallPill("⚡ Today", "Study ${h.hanzi} today instead") { actions.onBoltHit(h.noteId) }
             else -> {
                 SmallPill("＋ Top", "Add ${h.hanzi} at the top") { actions.onAdd(h.noteId, "top") }
@@ -356,24 +417,25 @@ private fun ListRow(
 ) {
     val scale by animateFloatAsState(if (lifted) 1.03f else 1f, label = "lift")
     val shape = RoundedCornerShape(12.dp)
+    val c = upNextColors
     Row(
         Modifier.fillMaxWidth().zIndex(if (lifted) 1f else 0f)
             .graphicsLayer { translationY = offsetY; scaleX = scale; scaleY = scale }
             .then(if (lifted) Modifier.shadow(12.dp, shape) else Modifier)
             .clip(shape)
-            .background(if (placeholder) IndigoSoft else Lab.colors.card)
-            .border(if (placeholder || lifted) 2.dp else 1.dp, if (placeholder || lifted) Indigo else Lab.colors.cardBorder, shape)
+            .background(if (placeholder) c.indigoSoft else Lab.colors.card)
+            .border(if (placeholder || lifted) 2.dp else 1.dp, if (placeholder || lifted) c.indigo else Lab.colors.cardBorder, shape)
             .padding(start = 10.dp, end = 4.dp, top = 8.dp, bottom = 8.dp)
             .testTag("upnext-row"),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.size(30.dp).clip(CircleShape).background(IndigoSoft), contentAlignment = Alignment.Center) {
-            Text("${index + 1}", color = Indigo, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+        Box(Modifier.size(30.dp).clip(CircleShape).background(c.indigoSoft), contentAlignment = Alignment.Center) {
+            Text("${index + 1}", color = c.indigo, fontWeight = FontWeight.Bold, fontSize = 14.sp)
         }
         Spacer(Modifier.width(10.dp))
         WordText(row.hanzi, row.pinyin, row.english, "${row.deck} · ${row.status}", Modifier.weight(1f), row.addedBy?.let { "added by $it" })
         if (!placeholder && !readOnly) {
-            if (learner) IconAction("⚡", "Study ${row.hanzi} today instead", Amber) { actions.onBolt(row.noteId) }
+            if (learner) IconAction("⚡", "Study ${row.hanzi} today instead", BumpAmber) { actions.onBolt(row.noteId) }
             if (!first) IconAction("↑", "Move ${row.hanzi} to the top", Lab.colors.ink) { actions.onReorder(listOf(row.noteId) + allIds.filter { it != row.noteId }, "top") }
             IconAction("✕", "Take ${row.hanzi} off Up next") { actions.onRemove(row.noteId) }
         }
