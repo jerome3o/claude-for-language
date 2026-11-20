@@ -183,6 +183,8 @@ import studyBumpsRoutes from './routes/study-bumps';
 import cardHoldsRoutes from './routes/card-holds';
 import skipHandwritingRoutes from './routes/skip-handwriting';
 import dayRolloverRoutes from './routes/day-rollover';
+import sentenceStyleRoutes from './routes/sentence-style';
+import { getSentenceStyle } from './services/sentence-style';
 import cardForgetsRoutes from './routes/card-forgets';
 import studyQueueRoutes from './routes/study-queue';
 import sentencePracticeRoutes from './routes/sentence-practice';
@@ -598,6 +600,8 @@ app.get('/api/auth/me', async (c) => {
     skip_handwriting: await getSkipHandwriting(c.env.DB, user.id).catch(() => false),
     // "New day starts at" (0–6, default 4 am; shared/study/studyDay.ts) — cached on the device.
     day_rollover_hour: await getDayRolloverHour(c.env.DB, user.id).catch(() => null),
+    // "Example sentence style" (standard / everyday / casual; shared/study/sentenceStyle.ts) — cached on the device.
+    sentence_style: await getSentenceStyle(c.env.DB, user.id).catch(() => null),
     // Legacy "revisit later" settings (gone Oct 2026): fixed defaults for older app builds that still read them.
     revisit_settings: LEGACY_REVISIT_SETTINGS,
     // The voices this account's conversation exercises use (its own selection,
@@ -740,6 +744,7 @@ app.route('/api', cardForgetsRoutes); // Forget this card — GET/POST /api/me/c
 app.route('/api', cardHoldsRoutes); // Suspend & snooze — GET/POST /api/me/card-holds, POST /api/me/card-holds/clear, PUT /api/profile/bury-siblings
 app.route('/api', skipHandwritingRoutes); // "Skip handwriting exercises" — PUT /api/profile/skip-handwriting
 app.route('/api', dayRolloverRoutes); // "New day starts at" — PUT /api/profile/day-rollover
+app.route('/api', sentenceStyleRoutes); // "Example sentence style" — PUT /api/profile/sentence-style
 app.route('/api', studyBumpsRoutes); // "⚡ Study it today" — GET/POST/DELETE /api/me/bumps, POST /api/relationships/:relId/student-bumps
 app.route('/api', upNextRoutes); // "Up next" — GET/POST/DELETE /api/me/up-next, PUT /api/me/up-next/order, /api/relationships/:relId/student-up-next…
 app.route('/api', audioBackfillRoutes); // /api/admin/audio/* (docs/AUDIO.md)
@@ -1737,6 +1742,7 @@ app.post('/api/notes/:id/sentences/generate', async (c) => {
         customPrompt,
         knownWords: learner.knownWords,
         structures: learner.structures,
+        style: learner.style,
       },
       count,
       { fake: c.env.E2E_TEST_MODE === 'true' }
@@ -1753,6 +1759,7 @@ app.post('/api/notes/:id/sentences/generate', async (c) => {
           focus: s.focus,
           focusNote: s.focus_note,
           structure: s.structure ?? null,
+          style: s.style ?? null,
         }))
       : [];
 
@@ -1766,6 +1773,7 @@ app.post('/api/notes/:id/sentences/generate', async (c) => {
         focus: s.focus,
         focusNote: s.focusNote,
         structure: s.structure ?? null,
+        style: learner.style,
       })),
     ]);
 
@@ -4974,6 +4982,8 @@ app.get('/api/sync/changes', async (c) => {
     skip_handwriting: await getSkipHandwriting(c.env.DB, userId).catch(() => null),
     // "New day starts at" (0–6, default 4 am; shared/study/studyDay.ts) — the device's study day follows it.
     day_rollover_hour: await getDayRolloverHour(c.env.DB, userId).catch(() => null),
+    // "Example sentence style" (default everyday; shared/study/sentenceStyle.ts) — Settings shows it offline.
+    sentence_style: await getSentenceStyle(c.env.DB, userId).catch(() => null),
     // "Forget this card": every live forget (a short list, sent whole; the device keeps its own
     // not-yet-uploaded ones on top and replays the cards whose forgets changed). shared/scheduler.
     card_forgets: await listForgets(c.env.DB, userId).catch(() => null),
@@ -6510,6 +6520,7 @@ async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | Ima
                 bio: learner.bio,
                 knownWords: learner.knownWords,
                 structures: learner.structures,
+                style: learner.style,
               },
               round ? Math.max(1, Math.min(count ?? SENTENCE_TOPUP_MIN, SENTENCE_SET_MAX_TOTAL - total)) : count ?? topUpCount(natural),
               { fake: env.E2E_TEST_MODE === 'true' }
@@ -6527,6 +6538,7 @@ async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | Ima
                 focus: s.focus,
                 focusNote: s.focusNote,
                 structure: s.structure ?? null,
+                style: learner.style,
               }))
             );
             // The round's buffer is played within minutes: its clips go ahead of the backfill.
@@ -6561,6 +6573,7 @@ async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | Ima
               bio: learner.bio,
               knownWords: learner.knownWords,
               structures: learner.structures,
+              style: learner.style,
             },
             count
             // No E2E stand-in for a note's first set: specs stub GET /api/notes/:id/sentences and expect the
@@ -6578,6 +6591,7 @@ async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | Ima
               focus: s.focus,
               focusNote: s.focusNote,
               structure: s.structure ?? null,
+              style: learner.style,
             }))
           );
 

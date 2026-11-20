@@ -17,6 +17,7 @@ import type { NewCardOrderInfo, StudyBudgetInfo } from '@shared/decks';
 import { writeStudyBudget } from './studyBudget';
 import { writeNewCardOrder } from './newCardOrder';
 import { writeDayRolloverHour } from './studyDay';
+import { writeSentenceStyle } from './sentenceStyle';
 import {
   db,
   LocalDeck,
@@ -115,6 +116,8 @@ interface SyncChangesResponse {
   new_card_order?: NewCardOrderInfo | null;
   /** "New day starts at" (0–6; shared/study/studyDay.ts). */
   day_rollover_hour?: number | null;
+  /** "Example sentence style" (shared/study/sentenceStyle.ts); older servers omit it. */
+  sentence_style?: string | null;
   /** Every folder of the account (all kinds), sent whole; older servers omit it. */
   folders?: Folder[] | null;
   /** "⚡ Study it today": every active bump, sent whole (shared/decks/bumps.ts). */
@@ -747,6 +750,8 @@ class SyncService {
     if (changes.new_card_order) writeNewCardOrder(changes.new_card_order);
     // "New day starts at": which study day it is (services/studyDay.ts), offline too.
     if ('day_rollover_hour' in changes) writeDayRolloverHour(changes);
+    // "Example sentence style": shown by Settings offline (the server writes the sentences).
+    if ('sentence_style' in changes) writeSentenceStyle(changes);
     // Folders (decks / lessons / readers): a short list, replaced whole.
     if (changes.folders) await replaceLocalFolders(changes.folders).catch(err => console.error('[Sync] Folders failed:', err));
     // "⚡ Study it today": the server's pocket, this device's pending changes on top.

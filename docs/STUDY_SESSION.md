@@ -2667,6 +2667,31 @@ easily-confused / similar-sounding word or near-synonym (`contrast`). Now:
     `getNotesForSentenceTopUp` / the queue's top-up check) count natural rows only — so a word that relied on them
     is topped up with natural ones. The 80-sentence cap still counts every row.
 
+### Example sentence style (standard · everyday · casual)
+
+Jerome (Nov 2026): "I might be learning a relatively formal form of Chinese through this method … a setting where you
+can change the formality / neutralness of the generated sentences … a gentle suggestion that if there is a relevant
+colloquial term, saying or usage, occasionally use it."
+
+- **Settings → Study → "Example sentence style"** (per account, both apps; web `components/settings/SentenceStyleSetting.tsx`,
+  Lab `ui/settings/SentenceStyleSettings.kt`): **Standard** — neutral, textbook-safe (the behaviour before);
+  **Everyday** (the default) — how people actually talk, now and then a common spoken word, particle (吧 / 呗 / 啦 …) or
+  saying where it genuinely fits; **Casual** — chatty spoken Chinese most of the time. Rules + words in
+  `shared/study/sentenceStyle.ts` (Lab `core/…/SentenceStyle.kt`, parity-tested `parity/fixtures/sentence-style.ts`).
+- Stored as `users.sentence_style` (migration 0155, NULL = everyday); `PUT /api/profile/sentence-style
+  { sentence_style: standard | everyday | casual | null }` → `{ sentence_style, is_default }` (400 + `problems`); on
+  `/api/auth/me` and `/api/sync/changes` as `sentence_style`, cached on the device (web localStorage
+  `services/sentenceStyle.ts`, Lab `Prefs.sentenceStyle` / `SentenceStyleStore`, saved through the Outbox) so Settings
+  shows it offline. Analytics `settings.sentence_style { style, from }`.
+- **The generator** (`worker/src/services/sentence-set.ts`) reads the note OWNER's style
+  (`sentenceLearnerContext` → `style`) for every path that writes sentences — the first set, "+ More sentences" and the
+  listening / Sentence round top-ups — and adds `sentenceStylePrompt(style)` to the per-learner USER message (the system
+  prompt stays the same for everyone). Every other rule holds: natural sentences only, the word exactly as written,
+  short and simple, easiest → hardest. Everyday / Casual also ask for varied situations and speakers, explain a
+  colloquialism briefly in `focus_note`, and rule out vulgarity, fleeting internet slang and regional dialect words.
+- **New sentences only**: nothing is regenerated. Each new row records the style it was written in
+  (`note_sentences.style`, NULL = before the setting / the card's own sentence) — not shown anywhere yet.
+
 ### The study card's layout — one frame at the screen's edge, no boxes inside (Nov 2026)
 
 Jerome (Pixel Fold, folded): "this whole red card, hard mode experience is pretty broken … All the padding is pretty
