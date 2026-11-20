@@ -82,7 +82,7 @@ words; the tint only repeats them.
   `Pinyin.readings` + the character records, `ToneChange.autoPinyin`. Jerome's bug (Nov 2026):
   a reader chip 吴侬软语 (not in the 60k word dictionary) carried Haiku's "wúnóngkuǎnyǔ", and the
   old greedy split gave wún | óng | kuǎn | yǔ. The server now checks the chips' pinyin too
-  (CLAUDE.md "Reader word chips").
+  (docs/READERS.md "Reader word chips").
 - **Characters**: one chip per character with its syllable, coloured by tone (`wordChars`, which
   cuts the pinyin per character the same way even without the device's readings) → the
   Character view. A character that is a card of its own carries a small badge in the chip's corner —
@@ -307,3 +307,74 @@ stroke data once cached).
 
 `explorer.open` (source, kind — source `word_tag` from a word tag's sheet), `explorer.push` (kind, from), `explorer.more` (kind),
 `explorer.add_card` (kind = word | char), `explorer.add_gloss` (kind, found), `explorer.add_fill` (kind, reason), `explorer.bump` (kind = word | char), `explorer.card_variant_open` / `explorer.card_variant_action` (the card tiles), `study.word_tag_word` (a tap on Chinese in a word tag's sheet), `explorer.write`, `explorer.drill_start` (kind, items), `explorer.drill_finish` (kind, items, correct, duration_ms). Ids / enums / counts only.
+
+## Code map & API (moved from CLAUDE.md, Nov 2026)
+
+The agent-facing detail that used to live in CLAUDE.md: where the code is, the endpoints, the rules each
+part follows. CLAUDE.md keeps only the cross-cutting rules and points here.
+
+### Word chips without an LLM (`shared/chinese/segment.ts`; docs/LANGUAGE_EXPLORER.md "Word chips without an LLM")
+A deterministic segmenter on the device (jieba's algorithm: DAG of every dictionary word in a Han run, DP for the cheapest
+path; cost = 3300 + 1000·ln(rank) milli-nats, integer so both apps tie-break alike) over `shared/data/frequency/word-freq.txt`
++ `segment-words.txt` (CC-CEDICT headwords outside the list with their wordfreq rank, and the list's jieba "compounds" such as
+这是 that get +3500; `npm run build:segment-words` from `worker/char-dict/words`). Rules: numbers + measure word (三本, 第一次,
+十二月), AA / AABB, A一A / A不A, word + 儿; punctuation / Latin / spaces are plain segments (concatenation invariant). Pinyin per
+word from the app's auto-pinyin on each run; gloss '' (the Word view looks the word up). Web `services/chineseSegmenter.ts`
+(lists lazily imported + precached, preloaded at idle; `useSegmentedWords`; `ChatWordsText` / `ReaderWordsText` fall back to
+it), Lab `core/…/chinese/Segmenter.kt` + `data/text/DeviceWords.kt` (preloaded at app start; tests opt in with `setForTests`),
+parity-tested over `shared/chinese/__fixtures__/corpus.txt` (`parity/fixtures/segment.ts` → `SegmenterParityTest`, segments AND
+pinyin). **Ask Claude and the audio-lesson transcript always use it** (the transcript: web `components/audioLessons/TranscriptLine.tsx`, Lab `TranscriptRowView`; a word → the explorer, the rest of the row still seeks) (Claude's `/note-questions/:id/words` was slow — 2–31 s — and sometimes failed, leaving
+single characters); the chat and reader pages keep Claude's contextual words as primary and use it while those load / fail.
+ICU / `Intl.Segmenter` deliberately not used (dictionaries differ across Node, browsers and Android → parity drift). ~0.05 ms per
+line; the lists load in ~100–300 ms once.
+
+### Language explorer (docs/LANGUAGE_EXPLORER.md)
+ONE reusable bottom sheet holding a STACK of views — the Character view (the character sheet below) and a Word view
+(hanzi · ▶ cached practice TTS · pinyin · meaning · "#N most common word" from the shipped frequency list · a chip per
+character coloured by tone · "📚 You have this card in <deck>" → Open card / ⚡ Study it today, else + Add as card
+(AddChunkModal) · dictionary senses · the sentence it was tapped in + the learner's own cards with it · ✨ More about this
+word (the cached `/api/reader-words/explain`, online only) · related words sharing a character with ✓ Known / 📚 badges).
+Every Chinese character / word inside a view pushes another view; ← / the breadcrumb pop, ✕ closes. Rules in
+`shared/explorer` (Lab `core/…/explorer`, parity-tested). Web: `components/explorer/` — `ExplorerProvider` (App.tsx,
+`useExplorer().open(item, { source })`), `LanguageExplorer`, `CharacterView`, `WordView`, and **`<ExplorableText text
+segments? source />`**: makes any Chinese tappable, by word when segments match the text, by character otherwise. Used on
+the study card answer side, the homework pass answer side, reader word chips, chat word chips, sentence breakdown rows
+(study / homework / chat Explain / Coach) and lesson note sentences — never where a tap already means something (answer
+inputs, call board, games, the sentence rows' reveal). Word data: **`GET /api/words?w=银行,学生`** (≤ 50) → `{ version,
+records: { hanzi: WordRecord }, missing }` from `worker/char-dict/words/NNN.dat` (60,000 most frequent CC-CEDICT words,
+`npm run build:word-dict`, `buildWordDict` in `shared/chars/build.ts`, sharded by `wordShard`), cached on the device
+(IndexedDB `wordDict`, Dexie v30, `services/wordDict.ts`); offline the Word view builds from the character records + cards.
+**Pinyin per character** (`shared/pinyin/wordSyllables.ts`, Lab `core/…/WordSyllables.kt`, parity-tested in the `explorer`
+fixture; docs/LANGUAGE_EXPLORER.md): the header's pinyin is dictionary → the card's / the tapped text's pinyin CHECKED against
+its characters → the device's own reading. `wordChars` cuts a word's pinyin into exactly one syllable per character
+(`alignWordSyllables`: the cut with the fewest syllables its character can't have, then the fewest vowel-initial cuts inside a
+word — wú | nóng, never the greedy wún | óng; nǎr covers 哪儿); `resolveWord(…, { device })` (web `devicePinyin(charRecords)` in
+`utils/autoPinyin.ts` = pinyin-pro's `polyphonic` + the character records + `autoPinyin`; Lab `Pinyin.readings` +
+`ToneChange.autoPinyin`) replaces a syllable no reading allows by the device's reading of that character (软 kuǎn → ruǎn),
+and pinyin that can't be lined up (or none) gives way to the device's reading of the word; the word dictionary's is never
+touched, the character lists' only cut.
+**A character's own card**: the Character view says first whether the character ITSELF is a note (`charOwnCards` in
+`shared/chars/status.ts`, Lab `CharWords.ownCards`, parity-tested) — "📚 You have 性 as a card in <deck>" / "✓ Known — …"
+→ Open card / ⚡, else "+ Add 性 as a card" (web `components/explorer/CardTieIn.tsx`, shared with the Word view's footer;
+Lab `ui/explorer/OwnCardBlock.kt`) — and the Word view's character chips carry 📚 / ✓. **Word tag sheets** ("Word tags on the
+answer side") render their Chinese through ExplorableText by word (device segmenter): a tap opens the explorer (source
+`word_tag`), the sheet returns when it closes (`ExplorerOpenOptions.onClosed`). **Card variants** (docs/LANGUAGE_EXPLORER.md "Card variants"): under "📚 You have this" (both views) the study card ⋯ menu's tiles for EVERY card of the word — 读 Read · 写 Write · 听 Listen, status + strength from `shared/decks/sibling-status.ts` (`siblingTiles(cards, '', …)`, the ⚡ pocket's cards as in today), offline; a tap → ⚡ Study it today = a card-level bump of that type (source `explorer`) / Unsuspend / Wake now (web `components/explorer/CardVariants.tsx` in `CardTieIn`, Lab `ui/explorer/CardVariants.kt`; `explorer.card_variant_open` / `_action`). **🎯 Quick drill** on both views (`shared/explorer/drill.ts` `buildDrill`: meaning / listen / tone / reverse / write, seeded so the Lab port is parity-tested) — practice only, never review events. Analytics `explorer.open / push / more / add_card / bump / write / drill_start / drill_finish`.
+
+### Character sheet (tap a character on the card back; docs/STUDY_SESSION.md "Character sheet")
+Card-INDEPENDENT dictionary data — readings, meaning, radical / components, strokes, frequency rank and
+the ~20 most frequent words with the character, each marked **✓ Known** (mature card) / **📚 In your decks**
+from the learner's own cards on the device (`shared/chars/status.ts`, Lab `CharWords.kt`, parity-tested);
+a row → the explorer's Word view (⚡ Study it today / Open card → / + Add as card there); the radical and components are tappable too. Replaces the per-card Claude
+popup (`WordDefinitionPopup`, `/api/vocabulary/define` — both retired Nov 2026: the endpoint answers 410, docs/CHAT.md "Practice with Claude"). Data: built by
+`npm run build:char-dict` (`scripts/build-char-dict.ts`, rules in `shared/chars/build.ts`) from **CC-CEDICT**
+(CC BY-SA 4.0), **Make Me a Hanzi** `dictionary.txt` (LGPL-3.0) and **wordfreq** `large_zh` (CC BY-SA 4.0
+data) → ~10,200 characters in 128 gzipped JSON shards `worker/char-dict/NNN.dat` (committed, 2.3 MB), the
+worker's static assets (`[assets]` binding `CHAR_DICT`, `run_worker_first = true`; `services/char-dict.ts`
+keeps shards in memory per isolate) — chosen over D1 (no 10k-row data load path in CI) and R2 (no
+separate upload step): immutable, versioned with the code, deployed with the worker. Bump `CHAR_DICT_VERSION`
+(`shared/chars/types.ts`) when the shape or rules change so devices refetch. Device: IndexedDB `charDict` /
+`charExplanations` (Dexie v28, `services/charDict.ts`), the upcoming queue's characters prefetched hourly in
+sync. Licences: `/about/licences` (Settings → About · Licences).
+- `GET /api/chars/:char` → `{ version, record }` (404 not in the dictionary, 400 not one Han character)
+- `GET /api/chars?c=` → `{ version, records, missing }` (distinct Han characters of `c`, ≤ 100)
+- `POST /api/chars/:char/explain` → `{ char, explanation, cached }` — "More about 字", Haiku from the dictionary record only (never the card), cached globally in `char_explanations`; 503 without a key and no cached answer

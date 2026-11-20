@@ -1,5 +1,5 @@
 /**
- * Folders on the device (shared/folders; docs in CLAUDE.md "Folders").
+ * Folders on the device (shared/folders; docs/API.md "Folders").
  *
  * The folder list lives in IndexedDB (`db.folders`), replaced whole by every sync
  * (`/api/sync/changes` carries `folders`; a full sync asks `GET /api/folders`), so the

@@ -374,3 +374,39 @@ Generated from `shared/analytics/events.ts` (the source of truth — regenerate 
 | `server.email_sent` | `kind`, `ok` | An e-mail was sent. *(server)* |
 | `server.coach_auto_detect` | — | A coach conversation started WITHOUT an action (old clients). **Old path → `coach.start`.** *(server)* |
 | `server.study_session_api` | — | POST /api/study/sessions — kept only for old clients. **Old path → `study.session_start`.** *(server)* |
+
+## Code map & API (moved from CLAUDE.md, Nov 2026)
+
+The agent-facing detail that used to live in CLAUDE.md: where the code is, the endpoints, the rules each
+part follows. CLAUDE.md keeps only the cross-cutting rules and points here.
+
+### Usage analytics (`docs/ANALYTICS.md`; `shared/analytics/`, `routes/analytics.ts`, `services/analytics/`)
+What people do in the apps, so Claude (MCP, admin) can say "Minghui hasn't used X yet" / "she still uses the old Y".
+**Every new user-facing feature must emit its catalogue event(s)**: one line in `shared/analytics/events.ts`
+(+ the Kotlin mirror `android-lab/core/…/analytics/AnalyticsEvents.kt`, parity-tested; `replacedBy` when it
+supersedes an older path) and one call — web `track('area.event', { … })` (`frontend/src/services/analytics.ts`),
+Lab `app.analytics.track(…)` (`data/analytics/`), worker `trackServer(…)`. **Privacy rule: ids, enums, counts,
+durations, booleans only — never message text, card content, answers, recordings, tokens, URLs or e-mails**;
+`sanitizeProps` (`shared/analytics/privacy.ts`) enforces it on the device and again on the server.
+- Clients queue events offline (web: own IndexedDB `usage-analytics`; Lab: own Room db) and upload in sync + every
+  ~60 s: `POST /api/me/usage-events { events }` (idempotent by id; NOT `/api/analytics/events` — EasyPrivacy's generic `/analytics/event` rule makes content blockers drop it in the browser; the old path stays for old Lab builds) → D1 `usage_events` (migration 0100). Screen
+  views (route pattern + time on screen) come from ONE router hook per app.
+- Server: `trackServer` for content created / homework assigned / push / e-mail; every Anthropic + Gemini call's
+  tokens and estimated cost via a `fetch` wrapper (`services/analytics/ai-usage.ts`) and an AsyncLocalStorage
+  request scope (`scope.ts`, compat flag `nodejs_als`); one JSON log line per request with the route pattern
+  (`request-log.ts`, Workers Observability, sampling 1.0).
+- **Cost guard** (docs/ANALYTICS.md "Cost guard", `middleware/cost-guard.ts`, mounted after auth): per-user
+  rate limits — `ai` 60/min (`/api/ai/*`, sentence / coach / explain, transcribe, Ask Claude, answer checks,
+  idioms), `tts` 600/min (`/api/practice/tts`), `jobs` 10/min + 30/hour (job-creating POSTs: audio lessons,
+  readers/generate, picture hunts, quests, podcast episodes, session notes / drafts) via the
+  `AI_RATE_LIMITER` / `TTS_RATE_LIMITER` / `JOB_RATE_LIMITER` bindings + D1 for the hour — and the daily
+  AI cost cap (`AI_DAILY_COST_CAP_USD`) from `server.ai_call`; 429 `{ error, code, retry_after }` +
+  Retry-After. **A new costly endpoint must be added to its group** (`costGroupFor`, tested).
+- Gemini image models' picture tokens are priced at the image rate (`GEMINI_IMAGE_OUTPUT_PRICES` in
+  `ai-usage.ts`); Workers Logs keep console lines only (`[observability.logs] invocation_logs = false`,
+  docs/ANALYTICS.md "Workers Logs").
+- Switches: `ANALYTICS_LEVEL` = off | basic | verbose (default); per user Settings → Advanced → "Share usage data"
+  (`PUT /api/profile/analytics { share_usage }`, `users.analytics_opt_out`, off deletes their rows; `share_usage`
+  on `/api/auth/me`). The daily cron (`[triggers]`, `scheduled()` in index.ts) prunes rows older than 180 days.
+- Admin endpoints `GET /api/admin/usage/summary|adoption|timeline|counts|errors|ai` → MCP tools `usage_summary`,
+  `feature_adoption`, `user_timeline`, `event_counts`, `recent_errors`, `ai_usage` (`mcp-server/src/tools/usage.ts`).

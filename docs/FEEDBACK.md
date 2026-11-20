@@ -103,3 +103,20 @@ the same plus comments and console logs. Claim / status / comment work unchanged
 - Lab: `data/feedback/FeedbackCenter.kt` (capture, send), `ShakeWatcher.kt`, `ui/feedback/FeedbackSheet.kt`
   (sheet, host, settings card, screenshot loader), core `feedback/Feedback.kt`
 - MCP: `mcp-server/src/tools/feedback.ts`
+
+## Code map & API (moved from CLAUDE.md, Nov 2026)
+
+The agent-facing detail that used to live in CLAUDE.md: where the code is, the endpoints, the rules each
+part follows. CLAUDE.md keeps only the cross-cutting rules and points here.
+
+### In-app feedback (`worker/src/routes/feedback.ts`, `services/feedback.ts`, `shared/feedback`; docs/FEEDBACK.md)
+"Something's wrong / an idea" with a screenshot, from anywhere: web More → 💬 Send feedback, Settings → Feedback, the 💬
+button, Shift + ?, a phone shake (Android Chrome, Settings toggle) — `components/feedback/FeedbackProvider.tsx` +
+`FeedbackSheet.tsx` (html2canvas screenshot, draw on it, voice-first message), offline queue `services/feedback.ts`
+(IndexedDB `feedback-outbox`, flushed on `online` + every sync); Lab: shake (`data/feedback/ShakeWatcher.kt`, core
+`feedback/Feedback.kt` `Shake`, never in a call / while recording), More, Settings → `FeedbackCenter` (PixelCopy of the
+app's own window, Outbox `kind: feedback`), `ui/feedback/FeedbackSheet.kt`; the VR front end posts with `platform: 'vr'`.
+Each item is a `feature_requests` row (kind feedback | bug), so the admin page, Settings → Feature requests and the MCP
+feature-request tools show it; approval follows the feature-request rule (an admin's with a message is approved).
+- `POST /api/feedback` - multipart `message?` (≤ 4000), `kind?` feedback|bug, `client_id?`, `context?` (JSON string), `console_logs?`, `screenshot?` (PNG / JPEG / WebP by bytes, ≤ 4 MB) — or JSON without the screenshot → 201 `{ feedback, created: true }` / 200 same client id; 400 `problems`, 413, 415, 429 `retry_after` (20 an hour)
+- `GET /api/feature-requests?kind=feedback|bug|request` - rows carry `kind`, `context` (parsed), `context_line`; feedback screenshots are `/api/audio/feedback/…` (Bearer / media token / signed link)

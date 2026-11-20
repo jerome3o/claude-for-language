@@ -197,3 +197,24 @@ spec JSON, the generation request + progress / error / tokens, the mini lesson's
 status }`, `clips.quiz_answer { right, timeout }` (timeout = skipped), `clips.interact { layout, result,
 waited_ms }`, `clips.next { via, dir }`, `clips.explore`, `clips.caption_toggle { toggle: pinyin | english |
 mute | music }`, and the server's `clips.generate { count, via }`.
+
+## Code map & API (moved from CLAUDE.md, Nov 2026)
+
+The agent-facing detail that used to live in CLAUDE.md: where the code is, the endpoints, the rules each
+part follows. CLAUDE.md keeps only the cross-cutting rules and points here.
+
+### 🎬 Clips (EXPERIMENTAL; `routes/clips.ts`, `services/clips/`, `shared/clips`, docs/CLIPS.md)
+Short vertical "TikTok" clips the apps PLAY from a JSON script (spec v1, `CLIP_SPEC_DOC`): scenes on a timeline (title /
+big_word / sentence / compare / quiz / story / list / fact), practice-TTS voice-over (made ahead into R2 `tts-cache/` on
+`clip-queue`, cached on the device), pictures by prompt hash (the lesson-images pipeline), the lesson music loop, eight
+themes, captions (拼 / EN) so it works muted. Web `pages/ClipsPage.tsx` + `components/clips/` (feed: snap scroll, only the
+clip on screen plays, the next prefetched; own IndexedDB `clips` with an events outbox); the clock is `shared/clips/playback.ts`
+(scenes hold for their audio, a quiz waits for a tap). Tap = pause, double-tap = ❤️ + like + **Learn more** ("Keep going with
+<topic>": ✨ one mini lesson per clip on clip-queue, 📖 graded reader, 🎧 dialogue audio lesson, ⚡ study / ＋ add the words,
+🎬 more clips like this — all in his OWN account), long press = Learn more, Chinese → the explorer. Generation: Claude writes
+a spec from the topic / words + his recent and struggling words (forced tool, thinking off, validateClipSpec + 2 repairs; E2E
+stand-in `fakeClipSpec`). Cost guard `jobs`: generate / retry / learn-more. MCP `create_clip` / `list_clips` / `get_clip` /
+`generate_clips`. Lab: `ui/clips/` (VerticalPager, the same clock / speech / offers from core `clips/Clips.kt`, parity-tested), `data/clips/ClipStore.kt` (JsonCache feed, Outbox events, LessonMedia audio + pictures).
+- `GET /api/clips` (feed: unseen first, then by fit — `rankClipFeed`) · `GET|DELETE /api/clips/:id` · `POST /api/clips { spec }` → 201 `{ clip, pinyin_fixes }` / 400 `problems`
+- `POST /api/clips/generate { topic?, words?, count? (1–3) }` → 202 · `POST /api/clips/:id/retry` · `POST /api/clips/events { events }` (idempotent)
+- `POST /api/clips/:id/learn-more { action: lesson | reader | podcast | more }`

@@ -154,3 +154,17 @@ duration_bucket }`, `phone.persona_message { scenario, persona, turn, actions, o
 path per scenario), `worker/src/routes/__tests__/phone.test.ts` (the endpoint: stand-in, 400 / 404 / 503, the model call's
 shape), the cost-guard group, `e2e/tests/phone-practice.spec.ts` (the easy rail and food tasks end to end, and a persona
 chat).
+
+## Code map & API (moved from CLAUDE.md, Nov 2026)
+
+The agent-facing detail that used to live in CLAUDE.md: where the code is, the endpoints, the rules each
+part follows. CLAUDE.md keeps only the cross-cutting rules and points here.
+
+### 📱 Phone practice (`routes/phone.ts`, `services/phone-persona.ts`, `shared/phone`, docs/PHONE_PRACTICE.md)
+Simulated Chinese phone apps (fictional names / logos, real flows and copy): 铁路出行 (rail), 招手打车 (rides), 饭点外卖
+(delivery), 爆米花电影 (cinema), 吃喝玩乐 (restaurants), 微聊 (messenger), 安付钱包 (wallet + the shared pay sheet), 信息
+(SMS). A task is a scenario SPEC (JSON, `validateScenarioSpec`): the apps' seeded world, goal en + zh, declarative goals
+checked by the engine against the phone's event log, hints, vocab, personas. Web `pages/PhonePracticePage.tsx`,
+`PhoneScenarioPage.tsx`, `frontend/src/phone/` (runtime context, shell, apps/, pay sheet, persona chats, long-press →
+explorer, task card / hints / summary). Plays are local-only (IndexedDB `phone-practice`). Lab: `ui/phone/` + `core/…/phone/` (same scenario JSON, `PhoneParityTest`), plays in the JsonCache.
+- `POST /api/phone/persona-reply` `{ scenario_id, persona_id, messages: [{ from: me | them, text }], context? }` → `{ reply, english, actions }` — Claude playing a bundled scenario's persona (driver / rider / host / landlord): one `structuredCall` on the small model, thinking off; cost guard `ai`; E2E_TEST_MODE → `fakePersonaReply`; 400 / 404 / 503 retryable / 502

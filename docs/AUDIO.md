@@ -470,3 +470,68 @@ study needs offline — are unchanged for every version.
 - Perceived speed after a model change: `audio_tts_compare` returns durations for the old and
   new model; if they differ, set `TTS_SPEED_OVERRIDE` (0.5–2) — the settings hash changes and the
   backfill regenerates everything at the new speed.
+
+## Code map & API (moved from CLAUDE.md, Nov 2026)
+
+The agent-facing detail that used to live in CLAUDE.md: where the code is, the endpoints, the rules each
+part follows. CLAUDE.md keeps only the cross-cutting rules and points here.
+
+### Audio Storage & the TTS pipeline (read docs/AUDIO.md before touching TTS)
+- Generated TTS audio and user recordings stored in Cloudflare R2
+- Audio URLs follow pattern: `/{bucket}/{type}/{id}.mp3`
+- Types: `generated` (TTS), `recordings` (user voice)
+- **Every response that streams an R2 object goes through `applyStoredFileHeaders`** (`worker/src/services/stored-file-headers.ts`): `nosniff`, `CSP: sandbox`, and `Content-Disposition: attachment` for anything that isn't audio / video / a raster picture (HTML / SVG never inline). Uploads store a type sniffed from the bytes, never the uploader's (`sniffOriginalType`, `lessonNoteFileType`, `screenshotImageType`). CORS echoes only the apps' own origins (`services/cors-origins.ts`, `CORS_EXTRA_ORIGINS` for more).
+- **`GET /api/audio/<key>` is an allowlist** (`shared/media/access.ts`, `routes/media.ts`, docs/AUDIO.md
+  "Private media"): generated clips / pictures + avatars are public; person-made media (`recordings/`,
+  `calls/`, `note-uploads/`, `lesson-notes/`, `feedback/` — feedback screenshots: author + admins) needs a credential — a signed link `?exp=&sig=` (the API
+  signs `audio_url`s it returns; `POST /api/media/sign` for the MCP tools, 24 h), the web's media token
+  `?mt=` (`GET /api/media/token`, `api/mediaToken.ts`, used by `getAudioUrl`), or the Lab's
+  `Authorization: Bearer` (`Api.mediaHeaders`) — and the right person (`services/media-access.ts`: owner,
+  their tutor, call members); everything else is 404. Device caches stay keyed by R2 key, never URL.
+  A new R2 prefix goes in BOTH registries (STORAGE_PREFIXES and shared/media/access.ts).
+- **Providers: MiniMax · Azure Speech · Google** (docs/AUDIO.md "Providers"): which one speaks, in what
+  order (`stored_order` for anything kept, `live_order` for played-once audio), voices per role
+  (default / female / male), enabled + max RPM and "upgrade backup clips" are an ADMIN SETTING —
+  `shared/tts/config.ts` (`TtsConfig`, validation, voice catalogues, speed mapping), D1 `tts_settings`
+  (migration 0107), `services/tts/config.ts` (cached 30 s, `storedClipPolicy`), page **/admin/audio**,
+  `GET|PUT /api/admin/audio/settings`, `POST /api/admin/audio/sample`, MCP `audio_settings_get` /
+  `audio_settings_update`. Defaults = MiniMax only for stored clips (`speech-2.8-hd`, Radio Host, 0.6),
+  Google live fallback. Providers in `services/tts/providers.ts`; every call goes through
+  `callProviderTTS` / `synthesizeOrdered` (`services/audio.ts`): that provider's limiter + account
+  pause, fallback on account pause / failure (a plain rate limit falls back only for interactive).
+  A backup provider's clip is "current" while the first provider is paused (or always with upgrade off).
+  Other providers map a MiniMax catalogue voice by gender. Azure: secrets `AZURE_SPEECH_KEY` /
+  `AZURE_SPEECH_REGION` (skipped when unset), SSML + `<prosody rate>`, F0 default 15 RPM.
+- **Every provider call goes through `callProviderTTS`** (`services/audio.ts`; `callMiniMaxTTS` for
+  MiniMax-only paths), which asks that provider's `TtsLimiter` Durable Object (idFromName = provider) for a slot (a LEARNED rate — AIMD: starts at 8/min, +2 per clean busy
+  minute, ×0.5 on a 1002, floor 2, capped by `MINIMAX_RPM` = 55 (pay-as-you-go) and `MINIMAX_RPM_MAX` = 60;
+  interactive before batch, a waiting tap reserves the next token;
+  a 1002 / 429 is requeued 60 s later, never retried in the request). A new TTS path must use it.
+- **No refuse-and-requeue churn** (docs/AUDIO.md "Queue churn"; 16 Oct 2026: ~250k tts-queue messages
+  and ~525k limiter calls for ~19k clips): a refused BATCH clip the backfill would find (`backfillFinds`)
+  is dropped and the pump nudged; any other refused clip BOOKS its slot in the limiter's line
+  (`AcquireOptions.book` → `ticket`) and is requeued with that delay + ticket; in-process batch waiters
+  (pump, lesson audio) book within their deadline and sleep; an account-paused provider is skipped
+  without a DO call for ≤ 2 min (`services/tts/known-pauses.ts`). Simulated in `tts-churn-sim.test.ts`.
+- **Account problems** (no credit 2053 / 1008 / 2056, bad key 1004 / 2049 / HTTP 401 / 403;
+  `services/tts/account.ts`): every call paused 5 → 60 min, never a clip failure; one probe per pause
+  clears it (account-failed clips retried, pump started, ntfy on start + clear). Status:
+  `audio_backfill_status.account_problem`; on demand: MCP `audio_retry_failed`. MiniMax has no balance
+  API for pay-as-you-go keys.
+- **Google fallback only for live playback nobody keeps** (`allowGoogleFallback`: chat `/tts`, role-play
+  replies). `/api/practice/tts` is MiniMax only (503 retryable) because both apps cache it on the device.
+- **Stored clips** (word, card sentence, sentence-set row) are made by `ensureClip`
+  (`services/tts/clips.ts`): idempotent by a settings + text signature (`audio_settings`,
+  `audio_voice`, `audio_model`, migration 0103), fresh key, swap only while the row still
+  points at the old key, copies sharing the key move too, old object deleted only when
+  unreferenced, `updated_at` bumped. Background clips go through **`tts-queue`**
+  (`services/tts/queue.ts`); the backlog (missing → Google → old voice) drains via the pump,
+  nightly at London midnight + hourly crons. Admin: MCP `audio_backfill_status` / `audio_backfill_run` / `audio_retry_failed`.
+
+### Conversation voices (`worker/src/routes/conversation-voices.ts`, `services/conversation-voices.ts`)
+- `GET /api/conversation-audio` - the account's conversation-audio prefs + the active provider, its default speed, speed steps, voices (with the deliveries each supports)
+- `PUT /api/conversation-audio` - partial update `{ speed?, delivery?, voices?: { <provider>: { female?, male? } }, exercise_voices?: { "<provider>:<key>": [voice|null…] | null } }` (400 + `problems`)
+- `POST /api/practice/tts` with `kind: 'conversation'` - a conversation line: `speed` = the provider's own rate (clamped), `delivery`, `regenerate`; `voice_id` may be any provider's conversation voice
+- `GET /api/conversation-voices` - catalogue + `enabled`, `customised`, `default_enabled`, `default_source` (admin | app), `is_admin`, `speed`
+- `PUT /api/conversation-voices` - `{ enabled: string[] }` (known ids, ≥ 1 female and ≥ 1 male; 400 with `problems`) or `{ reset: true }`; an admin's selection is everyone else's default
+- `GET /api/conversation-voices/sample?voice=` - `{ audio_base64, content_type }`: the sample line in that voice, MiniMax only (no fallback voice), made once and kept in R2 (`voice-samples/v1/…`)
