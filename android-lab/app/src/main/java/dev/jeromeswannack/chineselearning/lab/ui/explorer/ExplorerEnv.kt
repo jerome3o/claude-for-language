@@ -91,6 +91,17 @@ class ExplorerEnv(
     val bumpJustAdded: (suspend (hanzi: String, noteId: String, preferDeck: String?) -> String)? = null,
     /** "Open card" → the card hub (null = no link). */
     val openCard: ((noteId: String) -> Unit)? = null,
+    /**
+     * Every card of a note as the study card ⋯ sheet's tiles (core SiblingStatus; the ⚡ pocket's cards of the note
+     * count as in today) — the "Card variants" row under "📚 You have this". Null = not shown (previews).
+     */
+    val wordCards: suspend (noteId: String) -> dev.jeromeswannack.chineselearning.lab.ui.study.SiblingsUi? = { null },
+    /** ⚡ on one card of the word: a card-level bump of that card type (source explorer). Null = not offered. */
+    val bumpCardType: (suspend (noteId: String, cardType: String) -> Unit)? = null,
+    /** Unsuspend / Wake now one card. Null = not offered. */
+    val releaseCard: (suspend (cardId: String) -> Unit)? = null,
+    /** A light haptic tick (a card tile opened). */
+    val tick: () -> Unit = {},
     /** "✍️ Write it" is offered (the stroke-order practice). */
     val canWrite: Boolean = false,
     /** A quick drill's right / wrong / good-score feedback (Sounds + Haptics). */
@@ -190,6 +201,36 @@ object ExplorerData {
 
     /** `myWord`: the learner's note spelled [hanzi] and up to 3 notes using it. */
     suspend fun myWord(app: LabApp, hanzi: String, fresh: Boolean = false): MyWord = index(app, fresh).myWord(hanzi)
+
+    /**
+     * Every card of [noteId] as the ⋯ sheet's tiles (core SiblingStatus, no card on screen) from Room: the replayed
+     * state, the holds, and the ⚡ pocket's cards of the note as in today (core Bumps.bumpedCardsForNote). Null = no cards.
+     */
+    suspend fun wordCards(app: LabApp, noteId: String): dev.jeromeswannack.chineselearning.lab.ui.study.SiblingsUi? = withContext(Dispatchers.IO) {
+        val dao = app.repo.dao
+        val cards = dao.cardsOfNotes(listOf(noteId)).map { it.toQueueCard() }
+        if (cards.isEmpty()) return@withContext null
+        val now = System.currentTimeMillis()
+        val cutoffMs = dev.jeromeswannack.chineselearning.lab.core.StudyQueue.cutoff(now, java.time.ZoneId.systemDefault(), dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.rolloverHour).ts
+        val inToday = HashSet<String>()
+        dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.queueBumps(dao)?.let { qb ->
+            for (b in qb.bumps) if (b.noteId == noteId) {
+                dev.jeromeswannack.chineselearning.lab.core.Bumps.bumpedCardsForNote(cards, b, qb.lastReviewMs, qb.firstReviewMs, cutoffMs).forEach { inToday += it.id }
+            }
+        }
+        val ctx = dev.jeromeswannack.chineselearning.lab.core.SiblingStatus.Context(
+            cutoffMs = cutoffMs,
+            today = dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.todayKey(),
+            holds = dev.jeromeswannack.chineselearning.lab.data.holds.HoldStore.activeByCard(dao),
+            inToday = inToday,
+            canBump = true,
+        )
+        val sib = dev.jeromeswannack.chineselearning.lab.core.SiblingStatus
+        dev.jeromeswannack.chineselearning.lab.ui.study.SiblingsUi(
+            sib.tiles(cards.map(sib::card), "", ctx),
+            sib.missingTypes(cards.map { it.cardType }, ""),
+        )
+    }
 }
 
 /** The running app's explorer environment. */
@@ -227,6 +268,13 @@ fun rememberExplorerEnv(app: LabApp, nav: LabNav?, close: () -> Unit): ExplorerE
                 dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.bumpHanzi(app, listOf(hanzi), "explorer", deck, justCreated = mapOf(hanzi to noteId)).message
             },
             openCard = nav?.let { n -> { id: String -> close(); n.open(Routes.cardHub(id)) } },
+            wordCards = { noteId -> ExplorerData.wordCards(app, noteId) },
+            bumpCardType = { noteId, cardType ->
+                dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.bumpCardTypes(app, noteId, listOf(cardType), "explorer")
+                app.haptics.correct()
+            },
+            releaseCard = { cardId -> dev.jeromeswannack.chineselearning.lab.data.holds.HoldStore.release(app, listOf(cardId), "explorer") },
+            tick = { app.haptics.tick() },
             idiomKnown = { h -> dev.jeromeswannack.chineselearning.lab.data.idioms.IdiomStore.isCached(app, h) },
             openIdiom = nav?.let { n -> { h: String -> close(); n.open(Routes.idiom(h, "explorer")) } },
             canWrite = true,

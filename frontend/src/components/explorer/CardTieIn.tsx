@@ -12,6 +12,7 @@ import { addCardToSourceDeck, type AddedToDeck } from '../../services/sourceDeck
 import type { Chunk } from '../AddChunkModal';
 import { BumpButton } from '../bumps/BumpButton';
 import { AddedToDeckLine } from '../sourceDecks/AddedToDeckLine';
+import { CardVariants } from './CardVariants';
 import { useExplorer } from './ExplorerContext';
 
 /** What the learner has of this word / character: null = still reading this device's cards. */
@@ -133,6 +134,8 @@ export function CardTieIn({
       ) : have.noteIds.length > 0 ? (
         <div className={`xp-have${have.status === 'known' ? ' xp-have--known' : ''}`}>
           <div className="xp-have-line">{have.line}</div>
+          {/* Where he's at with each card of the word (the study card ⋯ menu's tiles; docs/LANGUAGE_EXPLORER.md "Card variants"). */}
+          <CardVariants noteId={have.noteIds[0]} hanzi={hanzi ?? ''} kind={kind} onBumped={setBumpMsg} />
           {bumpMsg && <div className="bump-hint" role="status">{bumpMsg}</div>}
           <div className="xp-footer-row">
             <button

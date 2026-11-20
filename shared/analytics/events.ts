@@ -103,6 +103,8 @@ export const ANALYTICS_EVENTS = {
   'explorer.more': e('study', '"More about this word" in the explorer\'s Word view.', ['kind']),
   'explorer.add_card': e('study', 'Added a word as a card from the explorer (kind = word — the Word view — or char — the Character view\'s "+ Add 字 as a card"; source_deck = it went straight into a source deck, deck_key = which: readers / chats / sentences / claude / explorer / practice).', ['kind', 'source_deck', 'deck_key']),
   'explorer.bump': e('study', '"⚡ Study it today" from the explorer (kind = word | char; just_added = right after "+ Add as card", before the new card synced to the device).', ['kind', 'just_added']),
+  'explorer.card_variant_open': e('study', 'Tapped one of the word\'s card tiles (读 Read · 写 Write · 听 Listen) under "📚 You have this" in the explorer (kind = word | char; status = the tile\'s status, shared/decks/sibling-status.ts).', ['kind', 'card_type', 'status']),
+  'explorer.card_variant_action': e('study', 'An action on one card of the word from the explorer\'s card tiles (action = bump — a card-level ⚡ Study it today — | unsuspend | wake).', ['kind', 'card_type', 'action']),
   'explorer.add_gloss': e('study', '"+ Add as card" with no meaning on the device: the gloss path was asked for one (kind = word | char; found = it gave a meaning).', ['kind', 'found']),
   'explorer.add_fill': e('study', '"+ Add as card" opened the fill sheet — the meaning to type (kind = word | char; reason = offline | no_meaning).', ['kind', 'reason']),
   'explorer.drill_start': e('study', 'Started a quick drill from the explorer (kind = char / word; practice only, no review events).', ['kind', 'items']),

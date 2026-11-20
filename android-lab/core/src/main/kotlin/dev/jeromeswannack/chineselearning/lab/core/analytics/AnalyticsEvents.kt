@@ -62,6 +62,8 @@ object AnalyticsEvents {
         ev("explorer.more", "study", listOf("kind")),
         ev("explorer.add_card", "study", listOf("kind", "source_deck", "deck_key")),
         ev("explorer.bump", "study", listOf("kind", "just_added")),
+        ev("explorer.card_variant_open", "study", listOf("kind", "card_type", "status")),
+        ev("explorer.card_variant_action", "study", listOf("kind", "card_type", "action")),
         ev("explorer.add_gloss", "study", listOf("kind", "found")),
         ev("explorer.add_fill", "study", listOf("kind", "reason")),
         ev("explorer.drill_start", "study", listOf("kind", "items")),

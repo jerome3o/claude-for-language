@@ -48,7 +48,7 @@ export function useSiblingTiles(scope: SiblingScope): { tiles: SiblingTile[]; mi
   return { tiles, missing: missingSiblingTypes(cards.map((c) => c.card_type), scope.currentCardType) };
 }
 
-function StrengthBar({ strength, tone }: { strength: number; tone: string }) {
+export function StrengthBar({ strength, tone }: { strength: number; tone: string }) {
   return (
     <span className={`sibling-strength sibling-tone-${tone}`} aria-hidden="true">
       {[1, 2, 3].map((n) => (

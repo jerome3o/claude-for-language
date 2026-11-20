@@ -211,6 +211,8 @@ class WordViewActions(
     val onDrill: ((dev.jeromeswannack.chineselearning.lab.core.explorer.DrillTarget, List<DictWord>) -> Unit)? = null,
     /** "📜 Story & usage" → the 成语 page (null = not offered). */
     val onIdiom: (() -> Unit)? = null,
+    /** Under "📚 You have this": the word's card tiles (CardVariants.kt); null = none. */
+    val cardExtras: (@Composable () -> Unit)? = null,
 )
 
 const val EXPLORER_WORD_TAG = "explorer-word"
@@ -321,6 +323,10 @@ fun WordViewContent(ui: WordViewUi, actions: WordViewActions, modifier: Modifier
                     .background(if (dark) Palette.Easy.copy(alpha = 0.18f) else Color(0xFFDBEAFE))
                     .padding(horizontal = 12.dp, vertical = 10.dp).testTag("explorer-your-card"),
             )
+            actions.cardExtras?.let { extras ->
+                Spacer(Modifier.height(8.dp))
+                extras()
+            }
         }
         ui.bumped?.let {
             Spacer(Modifier.height(8.dp))

@@ -142,6 +142,7 @@ class ExplorerController(
         if (openSource == "add") when (event) {
             "explorer.add_card" -> track("add.word_added", mapOf("via" to "card"))
             "explorer.bump" -> track("add.word_added", mapOf("via" to "bump"))
+            "explorer.card_variant_action" -> if (props["action"] == "bump") track("add.word_added", mapOf("via" to "bump"))
         }
     }
 
