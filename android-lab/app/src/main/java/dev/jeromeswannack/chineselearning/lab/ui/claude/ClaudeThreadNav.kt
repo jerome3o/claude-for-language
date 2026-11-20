@@ -157,9 +157,7 @@ fun ClaudeThreadRoute(
     draft: String? = null,
     source: String = "link",
     hasSentence: Boolean = false,
-    autoListen: Boolean = false,
     showBack: Boolean = true,
-    onAutoListen: (Boolean) -> Unit = {},
 ) {
     val app = nav.app
     val vm: ClaudeThreadViewModel = viewModel(key = "claude-thread-$id-${newContext?.kind}-${newContext?.note_id}-${newContext?.message_id}", factory = ClaudeThreadViewModel.Factory(app, id, newContext, source, hasSentence))
@@ -175,7 +173,7 @@ fun ClaudeThreadRoute(
     LaunchedEffect(autoSend) { autoSend?.let { (text, intent) -> vm.autoSend(text, intent, started, chatMessageId = fromMessage) } }
     LaunchedEffect(draft) { if (!draft.isNullOrBlank()) vm.claimDraft(draft) }
     ClaudeThreadContent(
-        app, vm, open = { path -> nav.open(path) }, back = nav::back, started = started, autoListen = autoListen, showBack = showBack, onAutoListen = onAutoListen,
+        app, vm, open = { path -> nav.open(path) }, back = nav::back, started = started, showBack = showBack,
         headerExtra = if (fromCard) ({ BackToCardButton(nav::back) }) else null,
     )
 }
@@ -214,9 +212,7 @@ fun ClaudeThreadContent(
     toolResults: (@Composable (dev.jeromeswannack.chineselearning.lab.data.api.ClaudeMessageDto) -> Unit)? = null,
     closedNote: String? = null,
     explorerSource: String = "claude_chat",
-    autoListen: Boolean = false,
     showBack: Boolean = true,
-    onAutoListen: (Boolean) -> Unit = {},
 ) {
     val ui by vm.ui.collectAsStateWithLifecycle()
     val explore = rememberExplorerTap(explorerSource)
@@ -281,8 +277,6 @@ fun ClaudeThreadContent(
         menuItems = menuItems,
         toolResults = toolResults,
         closedNote = closedNote,
-        autoListen = autoListen,
         showBack = showBack,
-        onAutoListen = onAutoListen,
     )
 }
