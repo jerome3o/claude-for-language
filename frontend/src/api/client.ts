@@ -1,5 +1,6 @@
 import type { NewCardOrderInfo, NewCardOrderUpdate, StudyBudget, StudyBudgetInfo, StudyBudgetUpdate } from '@shared/decks';
 import type { AskLanguage } from '@shared/study/askClaude';
+import type { SentenceStyle } from '@shared/study/sentenceStyle';
 import {
   Deck,
   LandingPage,
@@ -1718,6 +1719,15 @@ export async function updateDayRollover(day_rollover_hour: number | null): Promi
     body: JSON.stringify({ day_rollover_hour }),
   });
   return data.day_rollover_hour;
+}
+
+/** "Example sentence style" (null = back to the default, everyday) → the style now in effect. */
+export async function updateSentenceStyle(sentence_style: SentenceStyle | null): Promise<SentenceStyle> {
+  const data = await fetchJSON<{ sentence_style: SentenceStyle }>('/profile/sentence-style', {
+    method: 'PUT',
+    body: JSON.stringify({ sentence_style }),
+  });
+  return data.sentence_style;
 }
 
 export async function getFeatureRequests(options?: { status?: string; all?: boolean; kind?: 'request' | 'feedback' | 'bug' }): Promise<FeatureRequest[]> {

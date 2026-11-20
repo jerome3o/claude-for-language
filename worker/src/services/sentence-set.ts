@@ -8,6 +8,7 @@ import {
   structuresPromptBlock,
   type LearnerStructure,
 } from '@shared/lesson/learnerStructures';
+import { sentenceStyleOf, sentenceStylePrompt, type SentenceStyle } from '@shared/study/sentenceStyle';
 
 /**
  * Sentence sets: a graded list of example sentences for a single vocabulary
@@ -31,6 +32,11 @@ import {
  * where natural, one of the grammar structures from his done mini lessons (shared/lesson/learnerStructures.ts),
  * tagged on the row (`structure`). A NEW sentence over the limits is dropped (`simpleSentenceProblems`,
  * shared/study/sentenceSimplicity.ts); stored sentences are never touched.
+ *
+ * Example sentence style (Nov 2026, Jerome: "I might be learning a relatively formal form of Chinese … a gentle
+ * suggestion that if there is a relevant colloquial term, saying or usage, occasionally use it"): the note OWNER's
+ * register — standard / everyday (default) / casual (shared/study/sentenceStyle.ts `sentenceStylePrompt`) — goes in
+ * the USER message (per learner), never the static system prompt. Only new sentences follow it.
  *
  * Sonnet is used here (rather than Opus) because the set is generated
  * interactively while studying and speed matters more than prose quality.
@@ -80,6 +86,8 @@ export interface SentenceSetInput {
   knownWords?: string[];
   /** Grammar structures from his done mini lessons to use where natural (≤ ~10, structuresForPrompt). */
   structures?: LearnerStructure[];
+  /** The owner's "Example sentence style" (`users.sentence_style`); absent = the default, everyday. */
+  style?: SentenceStyle | null;
 }
 
 export const SENTENCE_SET_SYSTEM_PROMPT = `You are an expert Mandarin teacher building a graded "sentence set" for a single vocabulary item.
@@ -110,10 +118,13 @@ focus_note is a short learner-facing English note (under 90 characters). It is R
 
 Return the sentences via the create_sentence_set tool.`;
 
-function buildUserPrompt(input: SentenceSetInput, count: number): string {
+/** The per-learner user message (exported for tests). */
+export function buildUserPrompt(input: SentenceSetInput, count: number): string {
   const parts = [
     `Target word: ${input.hanzi} (${input.pinyin}) — "${input.english}"`,
     `Produce exactly ${count} sentences, ordered from easiest to hardest.`,
+    // The learner's register (Settings → "Example sentence style"). Every rule of the system prompt still holds.
+    sentenceStylePrompt(sentenceStyleOf(input.style)),
   ];
 
   const existing = (input.existing || []).filter(Boolean);
@@ -318,7 +329,7 @@ export async function generateSentenceSet(
               focus_note: {
                 type: 'string',
                 description:
-                  'Short English note (<90 chars) naming the pattern. Required for collocation.',
+                  'Short English note (<90 chars) naming the pattern, or the colloquial word / saying the sentence uses. Required for collocation.',
               },
               structure: {
                 type: 'string',

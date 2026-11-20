@@ -454,6 +454,7 @@ export const ANALYTICS_EVENTS = {
   'settings.new_card_order': e('settings', 'Changed "Order new cards by" (Settings → New cards): which new words come first (incl. everyday words before formal ones), whether a word of known characters starts with English → Chinese, and whether new words start by ear (or reset it). Props = the switch changed and the switches after the change.', ['field', 'reset', 'new_characters_first', 'new_words_first', 'most_common_first', 'sentences_last', 'known_characters_english_first', 'everyday_first', 'new_words_by_ear']),
   'settings.analytics': e('settings', 'Turned usage data sharing on / off.', ['on']),
   'settings.day_rollover': e('settings', 'Changed "New day starts at" (Settings → Study; shared/study/studyDay.ts): hour = 0 (midnight) – 6, from = the hour before, reset = back to the default (4 am).', ['hour', 'from', 'reset']),
+  'settings.sentence_style': e('settings', 'Changed "Example sentence style" (Settings → Study; shared/study/sentenceStyle.ts): style = standard | everyday | casual, from = the style before. Applies to new example sentences only.', ['style', 'from']),
   'settings.full_sync': e('settings', 'Ran a full sync by hand.', []),
   'settings.debug_report': e('settings', 'Sent a debug report by hand.', []),
   'settings.sign_out_all': e('settings', 'Signed out of all devices (Settings → Sign out of all devices; every session of the account revoked).', []),

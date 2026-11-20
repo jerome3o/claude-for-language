@@ -15,6 +15,7 @@ import { PodcastFeedSection } from '../components/settings/PodcastFeedSection';
 import { SignOutSection } from '../components/settings/SignOutSection';
 import { FeedbackSettingsSection } from '../components/settings/FeedbackSettingsSection';
 import { DayRolloverSetting } from '../components/settings/DayRolloverSetting';
+import { SentenceStyleSetting } from '../components/settings/SentenceStyleSetting';
 import { readStudyBudget, readStudyBudgetInfo, writeStudyBudget } from '../services/studyBudget';
 import { readWordTagsOn, writeWordTagsOn } from '../services/wordTags';
 import { readNewCharShimmerOn, writeNewCharShimmerOn } from '../services/newCharacters';
@@ -846,6 +847,7 @@ function SpokenAnswerSection() {
       </p>
       <HardModeSetting />
       <SentencesByEarSetting />
+      <SentenceStyleSetting />
       <StudyFeelSetting />
       <PassHardModeSetting />
       <WordTagsSetting />

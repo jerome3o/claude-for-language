@@ -3488,6 +3488,8 @@ export interface NoteSentenceInput {
   focusNote: string | null;
   /** The learner's lesson structure the sentence uses ("除了…还…", migration 0151); null = none. */
   structure?: string | null;
+  /** The "Example sentence style" it was written in (migration 0155, shared/study/sentenceStyle.ts); null = unknown. */
+  style?: string | null;
 }
 
 export async function getNoteSentences(db: D1Database, noteId: string): Promise<NoteSentence[]> {
@@ -3517,8 +3519,8 @@ export async function replaceNoteSentences(
       db
         .prepare(
           `INSERT INTO note_sentences
-             (id, note_id, position, hanzi, pinyin, translation, audio_url, focus, focus_note, structure, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+             (id, note_id, position, hanzi, pinyin, translation, audio_url, focus, focus_note, structure, style, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .bind(
           crypto.randomUUID(),
@@ -3531,6 +3533,7 @@ export async function replaceNoteSentences(
           sentence.focus,
           sentence.focusNote,
           sentence.structure ?? null,
+          sentence.style ?? null,
           now,
           now
         )
@@ -3566,8 +3569,8 @@ export async function appendNoteSentences(
       db
         .prepare(
           `INSERT INTO note_sentences
-             (id, note_id, position, hanzi, pinyin, translation, audio_url, focus, focus_note, structure, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+             (id, note_id, position, hanzi, pinyin, translation, audio_url, focus, focus_note, structure, style, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .bind(
           crypto.randomUUID(),
@@ -3580,6 +3583,7 @@ export async function appendNoteSentences(
           sentence.focus,
           sentence.focusNote,
           sentence.structure ?? null,
+          sentence.style ?? null,
           now,
           now
         )

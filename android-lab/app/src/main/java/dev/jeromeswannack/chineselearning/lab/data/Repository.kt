@@ -215,6 +215,7 @@ class Repository(context: Context, val db: LabDatabase, val api: Api, val prefs:
         me.bury_siblings?.let { prefs.burySiblings = it }
         me.skip_handwriting?.let { prefs.skipHandwriting = it }
         me.day_rollover_hour?.let { prefs.dayRolloverHour = it }
+        me.sentence_style?.let { prefs.sentenceStyle = it }
         me.conversation_voices?.let { dev.jeromeswannack.chineselearning.lab.data.lessons.ConversationVoiceCache.put(platform.cache, it) }
         me.conversation_audio?.let { dev.jeromeswannack.chineselearning.lab.data.lessons.ConversationAudioCache.put(platform.cache, it) }
     }
@@ -353,6 +354,7 @@ class Repository(context: Context, val db: LabDatabase, val api: Api, val prefs:
         changes.bury_siblings?.let { prefs.burySiblings = it }
         changes.skip_handwriting?.let { prefs.skipHandwriting = it }
         changes.day_rollover_hour?.let { prefs.dayRolloverHour = it }
+        changes.sentence_style?.let { prefs.sentenceStyle = it }
         prefs.changesCursor = Js.parseDate(changes.server_time)
         // New cards may already have events (reviewed on another device).
         changes.cards.mapTo(dirty.ids) { it.id }
