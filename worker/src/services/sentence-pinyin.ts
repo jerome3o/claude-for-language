@@ -18,7 +18,7 @@ import { fixReaderWordsPinyin } from './reader-words';
  * - A breakdown: each word's pinyin against its own characters, then 一 / 不 over the sentence — the
  *   reader word chips' check (`fixReaderWordsPinyin`), reused as is.
  * - New rows are written checked (`note_sentences.pinyin_checked` = SENTENCE_PINYIN_CHECK_VERSION,
- *   migration 0155); stored rows are checked by `repairSentencePinyin` (the hourly cron over everyone,
+ *   migration 0156); stored rows are checked by `repairSentencePinyin` (the hourly cron over everyone,
  *   and per user before `GET /api/sentences/changes`), which bumps every row of a corrected note so
  *   both apps pull the fix.
  * - The card's own sentence row (`is_card`, `<note>-card`) mirrors `notes.sentence_clue_pinyin` — a

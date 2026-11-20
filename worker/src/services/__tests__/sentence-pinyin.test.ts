@@ -2,7 +2,7 @@
  * The pinyin check on example sentences and their breakdowns (services/sentence-pinyin.ts):
  * - 这些破烂东西可以扔掉。 "… zhuāngdiào" → "… rēngdiào" in a set row and in its breakdown (Jerome, Nov 2026);
  * - real readings are never touched (大人 dàrén, 还 hái, 好好 hǎohāo, 东西 dōngxi);
- * - new sets are returned checked; the stored-row repair (migration 0155, real SQLite) corrects a row,
+ * - new sets are returned checked; the stored-row repair (migration 0156, real SQLite) corrects a row,
  *   bumps every row of its note past the sync cursor, leaves the card row's pinyin (a note field) alone,
  *   marks every row it looked at and is idempotent.
  */
@@ -115,7 +115,7 @@ describe('generateSentenceSet returns checked pinyin', () => {
   });
 });
 
-describe('repairSentencePinyin (stored rows, migration 0155)', () => {
+describe('repairSentencePinyin (stored rows, migration 0156)', () => {
   let db: SqliteD1;
   const D1 = () => db as unknown as D1Database;
   const OLD = '2026-10-01T00:00:00.000Z';

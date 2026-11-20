@@ -250,6 +250,8 @@ export interface User {
   secondary_cards_per_day?: number | null;
   /** "New day starts at": the study day's rollover hour 0–6 (migration 0149); NULL = 4 am (shared/study/studyDay.ts). */
   day_rollover_hour?: number | null;
+  /** "Example sentence style" (migration 0155): standard | everyday | casual; NULL = everyday (shared/study/sentenceStyle.ts). */
+  sentence_style?: string | null;
   /** JSON array of the conversation voices this account plays (migration 0078);
    * NULL = the admin's selection, else the shipped defaults (shared/lesson/voices.ts). */
   conversation_voices?: string | null;
@@ -385,6 +387,8 @@ export interface NoteSentence {
   focus_note: string | null;
   /** The learner's lesson structure it uses ("除了…还…", migration 0151); null / absent = none */
   structure?: string | null;
+  /** The "Example sentence style" it was written in (migration 0155); null / absent = before the setting / the card's own */
+  style?: string | null;
   /** JSON SentenceExplanation, generated on demand and cached (see 0055) */
   explanation: string | null;
   /**
@@ -392,7 +396,7 @@ export interface NoteSentence {
    * shared/study/cardSentence.ts). 0 = a generated set row.
    */
   is_card?: number;
-  /** The pinyin check version the row went through (services/sentence-pinyin.ts, migration 0155); null = not yet. */
+  /** The pinyin check version the row went through (services/sentence-pinyin.ts, migration 0156); null = not yet. */
   pinyin_checked?: number | null;
   created_at: string;
   updated_at: string;
