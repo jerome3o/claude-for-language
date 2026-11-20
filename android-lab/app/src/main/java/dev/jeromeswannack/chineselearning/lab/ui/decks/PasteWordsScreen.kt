@@ -286,7 +286,7 @@ private fun PlanRow(p: ImportPlanner.Planned, ui: PasteUi, d: PasteDerived, a: P
                         if (done) "⚡ First in today’s study" else "⚡ Study it today",
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.SemiBold,
-                        color = if (done) dev.jeromeswannack.chineselearning.lab.ui.bumps.BumpAmber else Lab.colors.accent,
+                        color = if (done) dev.jeromeswannack.chineselearning.lab.ui.bumps.BumpAmberInk else Lab.colors.accent,
                         modifier = Modifier.padding(top = 2.dp).heightIn(min = 36.dp).clip(RoundedCornerShape(10.dp))
                             .clickable(enabled = !done) { a.onBump(have.id) }.padding(vertical = 8.dp).testTag("paste-bump"),
                     )
