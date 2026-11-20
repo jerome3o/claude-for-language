@@ -9,6 +9,7 @@ import {
   topUpSentenceSets,
   getSentenceExplanation,
   getTextExplanation,
+  TEXT_EXPLANATION_VERSION,
   getSentenceTranslation,
   cachedSentenceTranslation,
   getNoteSentenceRows,
@@ -402,12 +403,25 @@ describe('getSentenceExplanation', () => {
   it('uses a breakdown held for the same text (the card sentence explained before it was a row), offline', async () => {
     const explanation = { words: [{ hanzi: '银行', pinyin: 'yínháng', gloss: 'bank' }], construction: 'Topic-comment.' };
     await putLocalNoteSentences('note-1', [makeSentence({ id: 'note-1-card', hanzi: '我去银行。' })]);
-    await db.sentenceTextExplanations.put({ key: '我去银行。', explanation: JSON.stringify(explanation), cached_at: Date.now() });
+    await db.sentenceTextExplanations.put({ key: '我去银行。', explanation: JSON.stringify(explanation), cached_at: Date.now(), v: TEXT_EXPLANATION_VERSION });
     vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('should not fetch'); }));
 
     expect(await getSentenceExplanation('note-1-card', '我去银行。')).toEqual(explanation);
     // …and it is the row's from now on.
     expect(JSON.parse((await db.noteSentences.get('note-1-card'))!.explanation!)).toEqual(explanation);
+  });
+
+  it('a breakdown kept before the pinyin check (no version) is refetched online, used only when the fetch fails', async () => {
+    const old = { words: [{ hanzi: '扔掉', pinyin: 'zhuāngdiào', gloss: 'throw away' }], construction: '.' };
+    const fresh = { words: [{ hanzi: '扔掉', pinyin: 'rēngdiào', gloss: 'throw away' }], construction: '.' };
+    await putLocalNoteSentences('note-1', [makeSentence({ id: 's-9', hanzi: '扔掉吧。' })]);
+    await db.sentenceTextExplanations.put({ key: '扔掉吧。', explanation: JSON.stringify(old), cached_at: Date.now() });
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ explanation: fresh }), { status: 200, headers: { 'Content-Type': 'application/json' } })));
+    expect(await getSentenceExplanation('s-9', '扔掉吧。')).toEqual(fresh);
+
+    await putLocalNoteSentences('note-1', [makeSentence({ id: 's-10', hanzi: '扔掉吧。' })]);
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch'); }));
+    expect(await getSentenceExplanation('s-10', '扔掉吧。')).toEqual(old);
   });
 
   it('regenerates when the cached explanation is corrupt', async () => {
@@ -472,6 +486,13 @@ describe('getTextExplanation', () => {
     await getTextExplanation({ ...sentence, hanzi: '他明白了。' });
 
     expect((globalThis.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls).toHaveLength(2);
+  });
+
+  it('stamps the cache version and refetches a breakdown cached before it', async () => {
+    mockExplainText();
+    await db.sentenceTextExplanations.put({ key: sentence.hanzi, explanation: JSON.stringify({ words: [], construction: 'old' }), cached_at: 1 });
+    expect(await getTextExplanation(sentence)).toEqual(explanation);
+    expect((await db.sentenceTextExplanations.get(sentence.hanzi))!.v).toBe(TEXT_EXPLANATION_VERSION);
   });
 
   it('refetches when the cached value is corrupt', async () => {

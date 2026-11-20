@@ -49,7 +49,7 @@ readerWords.post('/reader-words/explain', async (c) => {
       sentence,
       pinyin: typeof body.pinyin === 'string' ? body.pinyin : undefined,
       gloss: typeof body.gloss === 'string' ? body.gloss : undefined,
-    });
+    }, { pinyin: pinyinSources(c.env) });
     return c.json(result);
   } catch (error) {
     if (error instanceof Error && error.message === 'AI is not configured') return c.json({ error: error.message }, 503);

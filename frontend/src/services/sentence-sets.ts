@@ -424,13 +424,21 @@ export async function getSentenceExplanation(
   }
   // The same text explained before by its text (the card's own sentence before it was a row, the Coach's Explain):
   // that breakdown, offline too.
-  const byText = hanzi ? await getCachedTextExplanation(hanzi) : null;
+  const byText = hanzi ? await getCachedTextExplanation(hanzi, { stale: false }) : null;
   if (byText) {
     if (local) await db.noteSentences.update(sentenceId, { explanation: JSON.stringify(byText) });
     return byText;
   }
 
-  const explanation = await explainNoteSentence(sentenceId);
+  let explanation: SentenceBriefExplanation;
+  try {
+    explanation = await explainNoteSentence(sentenceId);
+  } catch (err) {
+    // No connection: a breakdown kept before the pinyin check is better than none.
+    const stale = hanzi ? await getCachedTextExplanation(hanzi, { stale: true }) : null;
+    if (stale) return stale;
+    throw err;
+  }
   await db.noteSentences.update(sentenceId, {
     explanation: JSON.stringify(explanation),
   });
@@ -447,19 +455,42 @@ export async function getTextExplanation(sentence: {
   pinyin?: string | null;
   translation?: string | null;
 }): Promise<SentenceBriefExplanation> {
-  const cached = await getCachedTextExplanation(sentence.hanzi);
+  const cached = await getCachedTextExplanation(sentence.hanzi, { stale: false });
   if (cached) return cached;
 
-  const explanation = await explainSentenceText(sentence);
+  let explanation: SentenceBriefExplanation;
+  try {
+    explanation = await explainSentenceText(sentence);
+  } catch (err) {
+    // No connection: a breakdown kept before the pinyin check is better than none.
+    const stale = await getCachedTextExplanation(sentence.hanzi, { stale: true });
+    if (stale) return stale;
+    throw err;
+  }
   await cacheTextExplanation(sentence.hanzi, explanation);
   return explanation;
 }
 
-/** The breakdown this device holds for a sentence's text, or null (corrupt cache = none). */
-export async function getCachedTextExplanation(hanzi: string): Promise<SentenceBriefExplanation | null> {
+/**
+ * Version of the breakdowns kept by text. 2 = the worker checks every breakdown's pinyin (Nov 2026: 扔掉 came back
+ * "zhuāngdiào"); older ones are used only while offline and refetched otherwise. Lab: CardTools `explainTextKey` (v2).
+ */
+export const TEXT_EXPLANATION_VERSION = 2;
+
+/**
+ * The breakdown this device holds for a sentence's text, or null (corrupt cache = none). `stale`: also one kept
+ * before TEXT_EXPLANATION_VERSION — by default only while offline (online, it is refetched and replaced).
+ */
+export async function getCachedTextExplanation(
+  hanzi: string,
+  opts: { stale?: boolean } = {},
+): Promise<SentenceBriefExplanation | null> {
   try {
     const cached = await db.sentenceTextExplanations.get(hanzi);
-    return cached ? (JSON.parse(cached.explanation) as SentenceBriefExplanation) : null;
+    if (!cached) return null;
+    const stale = opts.stale ?? isEffectivelyOffline();
+    if ((cached.v ?? 1) < TEXT_EXPLANATION_VERSION && !stale) return null;
+    return JSON.parse(cached.explanation) as SentenceBriefExplanation;
   } catch {
     return null;
   }
@@ -472,6 +503,7 @@ export async function cacheTextExplanation(hanzi: string, explanation: SentenceB
       key: hanzi,
       explanation: JSON.stringify(explanation),
       cached_at: Date.now(),
+      v: TEXT_EXPLANATION_VERSION,
     });
   } catch (err) {
     console.warn('[sentence-sets] Could not cache the breakdown:', err);

@@ -376,6 +376,7 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `podcast_feeds` - The private podcast feed of a user's audio lessons (migration 0112): one row per user, `token_hash` (SHA-256, how a feed request finds the user), `token_enc` (AES-GCM, so Settings can show the link again), created / rotated / last fetched, fetch count. Reset = new token; Turn off = row deleted
 - `card_flags` - A student flags one card for their tutor with a note (relationship, student, tutor, note, card, message, status open/resolved, tutor_reply, student_seen_reply_at). Migration 0070. See "Card flags & card hub" below
 - `note_sentences` - Every example sentence of a note (position, hanzi, pinyin, translation, audio_url, focus, explanation, `is_card`): the card's own sentence is the row `<note id>-card` (`is_card = 1`, position −1, migration 0154 — kept in step with the deprecated `notes.sentence_clue*` by `db/card-sentence.ts`), then the generated set (0..n). `/api/sentences/changes` hands out whole notes + `note_ids`; synced to IndexedDB / Room for offline study. "Has a set" = a row with `is_card = 0`.
+- `note_sentences.pinyin_checked` - The pinyin check version a row's pinyin + cached breakdown went through (migration 0155, NULL = not yet; `services/sentence-pinyin.ts`, see "Pinyin check on lessons and readers")
 - `note_sentence_jobs` - Tracks which notes have been queued for background sentence-set generation (status, attempts)
 - `clips` / `clip_events` - 🎬 Clips (migration 0137, docs/CLIPS.md): one row per clip in its owner's account (status ready/generating/failed, source agent/generated/manual, title / topic / theme, `spec` JSON per `shared/clips`, the generation `request` + progress / error / tokens, the clip's one mini lesson `lesson_status` / `lesson_id`), and the learner's events (view / complete / like / unlike / save / unsave / skip / double_tap / quiz / learn_more / interact — an interactive scene settled, value wrong 0 · right 1 · close 2 · done 3 · skipped −1; client ids, idempotent)
 - `idioms` - 成语 Idioms (migration 0115, docs/IDIOMS.md): ONE generated entry per idiom for every account, keyed by the normalised hanzi (status generating/ready/failed/not_idiom, `entry` JSON per `shared/idioms`, error, suggestion, attempts, generator_version, view_count). No user ids
@@ -689,6 +690,22 @@ over the whole page — 吴侬软语 "wúnóngkuǎnyǔ" → "wúnóngruǎnyǔ"),
 before (Nov 2026) — see "Reader word chips". The call board's tab-complete uses the same aligner
 (`services/calls/gloss-pinyin.ts`, which also replaces whole words, rebuilds its own short gloss when the count is off, and
 applies the 一 / 不 rule).
+**Example sentences + breakdowns** (`services/sentence-pinyin.ts`, Nov 2026 — the set row 这些破烂东西可以扔掉。 came back
+"… zhuāngdiào" and its breakdown said 扔掉 zhuāngdiào): every sentence-set row Claude writes (generate route, the queue's first set
+and top-ups — `generateSentenceSet` returns checked pinyin) goes through `checkAuthoredPinyin` + the 一 / 不 rule and is stored with
+`note_sentences.pinyin_checked` (migration 0155); every "What's going on here?" breakdown (`explainSentenceBriefly`: the row's
+`/explain`, `/explain-text`, `/translate`, the Coach's Explain — and a breakdown the device sends to the Coach) has each word's
+pinyin checked like a reader word chip (`fixReaderWordsPinyin`). Stored rows: `repairSentencePinyin` — the hourly cron (≤ 5 × 1,000
+rows a run, anyone's) and a throttled per-user pass before `GET /api/sentences/changes` — corrects a row only while it is unchanged,
+bumps every row of its note (both apps replace a note's rows whole from that sync) and stamps the version (idempotent). The card's
+own row (`<note>-card`) keeps its pinyin (it mirrors `notes.sentence_clue_pinyin`, a note field: the word check proposes fixes, notes
+are never mass-rewritten); its cached breakdown IS corrected. Device caches of breakdowns by text are versioned (web
+`sentenceTextExplanations.v` / `TEXT_EXPLANATION_VERSION` 2, Lab `study/explain/v2/<id>` + `study/explain-text/v2/<hanzi>`): an
+older one is used only offline or when the fetch fails. Also checked with `fixSpecPinyin` (hanzi + pinyin pairs) on write / before
+answering: the Coach's check + translation (and `/api/sentence/coach`), `/api/sentence/analyze`, `/api/sentence/explain`, a chat
+message's auto-check, new idiom entries, the reader word sheet's "More about this word" (word + card sentence). NOT checked
+(note fields — the word check's job): Generate / gloss / enrich / add-words / create_flashcards / chat & call flashcards / picture
+hunts (一 / 不 only).
 
 ### Word checks — "⚠ Possible issue" (`worker/src/services/card-check.ts`, `routes/card-checks.ts`, `shared/cards/check.ts`)
 A cheap batched Haiku check (`structuredCall`, `CHECK_BATCH_SIZE` 40 words per call, forced `report_issues`

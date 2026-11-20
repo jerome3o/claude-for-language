@@ -141,7 +141,7 @@ fun passCardUi(deck: PassUi.Deck, word: PassNote): PassCardUi = PassCardUi(
 
 /**
  * The pass's example sentences use the study card's tools (CardTools): the breakdown from the
- * offline cache first (`study/explain/<id>`, `study/explain-text/<hanzi>` — the same keys the
+ * offline cache first (`study/explain/v2/<id>`, `study/explain-text/v2/<hanzi>` — the same keys the
  * study card and the Coach fill), else the explain endpoints; "+ Add as card" through the
  * content service. None of it writes a review event or a homework event.
  */

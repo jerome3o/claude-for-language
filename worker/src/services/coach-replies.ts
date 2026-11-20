@@ -26,6 +26,7 @@ import { applyCheckpointed, runClaudeTurn, type ActionCheckpoint, type ChatTurn 
 import { coachSentence } from './sentence-coach';
 import { translateSentence } from './sentence-translate';
 import { explainSentenceBriefly, toCoachBreakdown } from './sentence-explain-brief';
+import { fixSpecPinyin, pinyinSources } from './pinyin-check';
 import { StructuredCallError } from './structured-call';
 import { createCustomLessonFromSpec } from './custom-lesson';
 import * as content from './content';
@@ -94,17 +95,29 @@ export function coachAvailable(env: Pick<Env, 'ANTHROPIC_API_KEY' | 'E2E_TEST_MO
   return !!env.ANTHROPIC_API_KEY || env.E2E_TEST_MODE === 'true';
 }
 
-/** The first reply of each action: correction, brief breakdown or translation. */
-export function defaultAnalyse(env: Pick<Env, 'ANTHROPIC_API_KEY' | 'E2E_TEST_MODE'>): CoachAnalyseFn | null {
+/**
+ * The first reply of each action: correction, brief breakdown or translation. Claude's pinyin in it goes
+ * through the deterministic pinyin check (services/pinyin-check.ts — only an impossible syllable is
+ * corrected): the breakdown's words in `explainSentenceBriefly`, every hanzi + pinyin pair of a check /
+ * translation (corrected sentence, alternatives) by `fixSpecPinyin`.
+ */
+export function defaultAnalyse(env: Pick<Env, 'ANTHROPIC_API_KEY' | 'E2E_TEST_MODE' | 'CHAR_DICT'>): CoachAnalyseFn | null {
   // E2E_TEST_MODE always takes the stand-in, like every other fake: the E2E workflow also has a
   // real (or dummy "test-key") ANTHROPIC_API_KEY, and the specs assert the stand-in's answers.
   if (env.E2E_TEST_MODE === 'true') return fakeAnalyse;
   if (!env.ANTHROPIC_API_KEY) return null;
   const key = env.ANTHROPIC_API_KEY;
+  const pinyin = pinyinSources(env);
   return async (action, input) => {
-    if (action === 'check') return { kind: 'chinese', coach: await coachSentence(key, input) };
-    if (action === 'explain') return { kind: 'explain', breakdown: toCoachBreakdown(input, await explainSentenceBriefly(key, { hanzi: input })) };
-    return { kind: 'english', translation: await translateSentence(key, input) };
+    if (action === 'check') {
+      const coach = await coachSentence(key, input);
+      await fixSpecPinyin(coach, pinyin).catch(() => []);
+      return { kind: 'chinese', coach };
+    }
+    if (action === 'explain') return { kind: 'explain', breakdown: toCoachBreakdown(input, await explainSentenceBriefly(key, { hanzi: input }, { pinyin })) };
+    const translation = await translateSentence(key, input);
+    await fixSpecPinyin(translation, pinyin).catch(() => []);
+    return { kind: 'english', translation };
   };
 }
 

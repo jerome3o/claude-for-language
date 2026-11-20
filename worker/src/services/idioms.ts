@@ -27,6 +27,7 @@ import {
 import type { Env } from '../types';
 import { structuredCall, StructuredCallError } from './structured-call';
 import { fakeIdiomClient } from './idioms-fake';
+import { fixSpecPinyin, logPinyinFixes, pinyinSources } from './pinyin-check';
 
 export const IDIOM_MODEL = 'claude-sonnet-5';
 /** A generating row older than this is reported failed (Retry shows). */
@@ -36,7 +37,7 @@ export interface IdiomQueueMessage {
   hanzi: string;
 }
 
-type IdiomEnv = Pick<Env, 'DB' | 'ANTHROPIC_API_KEY' | 'E2E_TEST_MODE'> & Partial<Pick<Env, 'IDIOM_QUEUE'>>;
+type IdiomEnv = Pick<Env, 'DB' | 'ANTHROPIC_API_KEY' | 'E2E_TEST_MODE'> & Partial<Pick<Env, 'IDIOM_QUEUE' | 'CHAR_DICT'>>;
 
 /** Can an idiom be generated here (a key, or the E2E stand-in)? */
 export function idiomsAvailable(env: Pick<Env, 'ANTHROPIC_API_KEY' | 'E2E_TEST_MODE'>): boolean {
@@ -312,6 +313,9 @@ export async function runIdiomJob(env: IdiomEnv, hanzi: string, deps: { client?:
     if (!env.ANTHROPIC_API_KEY && !client) throw new StructuredCallError('AI is not configured', false);
     const result = await generateIdiomEntry({ apiKey: env.ANTHROPIC_API_KEY ?? '', hanzi, client, sleep: deps.sleep });
     if (result.kind === 'idiom') {
+      // Claude's pinyin (the idiom, its characters, story lines, collocations, examples, 近义 / 反义): only the
+      // impossible is corrected (services/pinyin-check.ts), before it is shared with everyone.
+      logPinyinFixes('idiom entry', await fixSpecPinyin(result.entry, pinyinSources(env)).catch(() => []));
       await env.DB.prepare(
         `UPDATE idioms SET status = 'ready', entry = ?, error = NULL, suggestion = NULL, generator_version = ?, updated_at = datetime('now') WHERE hanzi = ?`,
       )

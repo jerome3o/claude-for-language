@@ -44,6 +44,8 @@ import { sanitizeAttemptData } from '@shared/lesson';
 import { insertLessonAttempt } from '../db/lesson-attempt-queries';
 import { createCustomLessonFromSpec } from '../services/custom-lesson';
 import { parseClientBriefExplanation, toCoachBreakdown } from '../services/sentence-explain-brief';
+import { checkBriefExplanationPinyin } from '../services/sentence-pinyin';
+import { pinyinSources } from '../services/pinyin-check';
 import { StructuredCallError } from '../services/structured-call';
 import { trackServer } from '../services/analytics/server-events';
 import { askConversationTitle, conversationKind, COACH_ASK_ACTION, COACH_ASK_MAX_CHARS } from '@shared/coach/askChat';
@@ -134,7 +136,9 @@ coach.post('/coach/conversations', async (c) => {
     seeded = await chatMessageCheckSeed(c.env.DB, userId, chatMessageId, action, input);
   }
 
-  const cached = action === 'explain' ? parseClientBriefExplanation(clientExplanation) : null;
+  // A breakdown the device cached (maybe before the pinyin check existed): checked like a new one.
+  const clientCached = action === 'explain' ? parseClientBriefExplanation(clientExplanation) : null;
+  const cached = clientCached ? (await checkBriefExplanationPinyin(clientCached, pinyinSources(c.env))).explanation : null;
   const ready: CoachAnalysis | null = seeded ?? (cached ? { kind: 'explain', breakdown: toCoachBreakdown(input, cached) } : null);
   if (!ready && !coachAvailable(c.env)) {
     return c.json({ error: 'AI coaching is not configured' }, 500);
