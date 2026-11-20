@@ -124,7 +124,7 @@ fun CardHubScreen(
         if (ui.canBump) item {
             if (ui.bumped) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text("⚡ First in today’s study", color = dev.jeromeswannack.chineselearning.lab.ui.bumps.BumpAmber, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                    Text("⚡ First in today’s study", color = dev.jeromeswannack.chineselearning.lab.ui.bumps.BumpAmberInk, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                     dev.jeromeswannack.chineselearning.lab.ui.kit.SecondaryPill("Remove from today", onClick = actions.onUnbump)
                 }
             } else {

@@ -148,7 +148,7 @@ export function UpNextPage() {
                 {canAddToUpNext(queuesOf(c)) && !listIds.includes(id) && (
                   <button
                     type="button"
-                    className="upnext-chip-btn"
+                    className="upnext-btn upnext-today-btn"
                     title="Not today — introduce it next instead"
                     onClick={async () => {
                       await addToUpNext([id], { position: 'top', source: 'up_next_page' });

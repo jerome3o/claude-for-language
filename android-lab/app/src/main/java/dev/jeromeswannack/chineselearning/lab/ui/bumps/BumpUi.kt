@@ -26,6 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
@@ -51,8 +52,19 @@ import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 /** The primary label when the word is already in a deck. */
 const val STUDY_IT_TODAY = "⚡ Study it today"
 
-/** The amber of the ⚡ pocket (Home's chip, the card badge). */
+/** The amber of the ⚡ pocket (Home's chip, the card badge): a FILL / outline colour in both themes. */
 val BumpAmber = Color(0xFFB45309)
+
+/**
+ * ⚡ words drawn in amber (the chip's "⚡ Today", "⚡ First in today’s study", the toggle's label): a deep amber on the
+ * light theme (the web's `.bump-badge` #92400e), a light amber on the dark one — [BumpAmber] is only ~3.4:1 on the
+ * dark card, too dim to read (Jerome, Nov 2026: Up next in dark mode). `UpNextPaletteTest` keeps both ≥ 4.5:1.
+ */
+val BumpAmberInk: Color
+    @Composable get() = if (Lab.colors.card.luminance() < 0.4f) BumpAmberInkDark else BumpAmberInkLight
+
+internal val BumpAmberInkLight = Color(0xFF92400E)
+internal val BumpAmberInkDark = Color(0xFFFCD34D)
 
 /** Bumps the local note(s) spelled `hanzi` and returns the toast text (core Bumps.bumpedMessage). */
 typealias BumpHanzi = suspend (hanzi: List<String>, preferDeck: String?) -> String
@@ -79,7 +91,7 @@ fun BumpChip(bumpedBy: String?, modifier: Modifier = Modifier) {
         if (bumpedBy.isNullOrBlank()) "⚡ Today" else "⚡ from ${bumpedBy.substringBefore(' ')}",
         style = MaterialTheme.typography.labelMedium,
         fontWeight = FontWeight.SemiBold,
-        color = BumpAmber,
+        color = BumpAmberInk,
         maxLines = 1,
         modifier = modifier.testTag("bump-chip").clip(CircleShape).background(BumpAmber.copy(alpha = 0.14f)).padding(horizontal = 10.dp, vertical = 4.dp),
     )
@@ -106,7 +118,7 @@ fun BumpToggle(on: Boolean, bumpedBy: String?, onChange: (Boolean) -> Unit, modi
         text,
         style = MaterialTheme.typography.labelLarge,
         fontWeight = FontWeight.SemiBold,
-        color = if (on) Color.White else BumpAmber,
+        color = if (on) Color.White else BumpAmberInk,
         maxLines = 1,
         modifier = modifier
             .heightIn(min = 44.dp)
