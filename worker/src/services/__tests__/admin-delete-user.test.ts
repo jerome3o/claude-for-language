@@ -87,8 +87,6 @@ function seed(db: SqliteD1) {
   exec(db, "INSERT INTO graded_readers (id, user_id, title_chinese, title_english, difficulty_level, source_deck_ids, vocabulary_used) VALUES ('s-reader', ?, '小猫', 'Kitten', 'beginner', '[]', '[]')", STUDENT);
   exec(db, "INSERT INTO reader_pages (id, reader_id, page_number, content_pinyin, content_english, content_chinese, image_url) VALUES ('s-page', 's-reader', 1, 'p', 'e', '小猫', 'reader-images/shared.png')");
   exec(db, "INSERT INTO shared_readers (id, relationship_id, source_reader_id, target_reader_id) VALUES ('sr-1', 'rel-1', 't-reader', 's-reader')");
-  exec(db, "INSERT INTO homework_assignments (id, tutor_id, student_id, reader_id) VALUES ('hw-1', ?, ?, 't-reader')", TUTOR, STUDENT);
-  exec(db, "INSERT INTO homework_recordings (id, homework_id, page_id, audio_url) VALUES ('hwr-1', 'hw-1', 't-page', 'homework/hwr-1.webm')");
 
   // Lessons: library item assigned to the student.
   exec(db, "INSERT INTO lesson_library (id, owner_id, title, spec) VALUES ('lib-1', ?, 'Tones', '{\"image_url\":\"lesson-images/shared.png\"}')", TUTOR);
@@ -179,7 +177,7 @@ describe('deleteUserAccount', () => {
       .toEqual([{ assigned_by: null, library_item_id: null, assigned_relationship_id: null }]);
     // The relationship and everything in it are gone (incl. the student's messages there).
     expect(db.rows('SELECT COUNT(*) AS n FROM claude_learner_memory')[0]).toEqual({ n: 0 });
-    for (const table of ['tutor_relationships', 'conversations', 'messages', 'shared_decks', 'shared_readers', 'card_flags', 'calls', 'call_recording_pieces', 'call_transcript_segments', 'tutor_note_jobs', 'student_profiles', 'student_summaries', 'tutor_lesson_log', 'homework_assignments', 'tutor_recording_marks']) {
+    for (const table of ['tutor_relationships', 'conversations', 'messages', 'shared_decks', 'shared_readers', 'card_flags', 'calls', 'call_recording_pieces', 'call_transcript_segments', 'tutor_note_jobs', 'student_profiles', 'student_summaries', 'tutor_lesson_log', 'tutor_recording_marks']) {
       expect(db.rows(`SELECT COUNT(*) AS n FROM ${table}`)[0], table).toEqual({ n: 0 });
     }
     // The bystander is untouched.
@@ -189,7 +187,7 @@ describe('deleteUserAccount', () => {
     // R2: only keys nothing else uses.
     expect(deleted).toEqual(expect.arrayContaining([
       'generated/tutor-only-clue.mp3', 'generated/tutor-sentence.mp3', 'recordings/t-ev.webm', 'recordings/msg.webm',
-      'reader-images/tutor-only.png', 'calls/piece-1.webm', 'calls/piece-1/0', 'homework/hwr-1.webm', 'screenshots/tutor-1/x.png',
+      'reader-images/tutor-only.png', 'calls/piece-1.webm', 'calls/piece-1/0', 'screenshots/tutor-1/x.png',
       'chat-media/conv-1/m-3.jpg', 'chat-media/conv-1/m-4.webm',
     ]));
     expect(deleted).not.toContain('generated/shared.mp3');
