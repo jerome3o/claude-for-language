@@ -56,6 +56,7 @@ fun NavGraphBuilder.addGraph(nav: LabNav) {
             ui,
             AddActions(
                 onMethod = vm::pickMethod,
+                onListened = vm::listened,
                 onTakePhoto = {
                     if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) launchCamera()
                     else permission.launch(Manifest.permission.CAMERA)

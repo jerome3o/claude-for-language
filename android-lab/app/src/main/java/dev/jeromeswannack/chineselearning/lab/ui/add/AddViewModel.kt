@@ -93,6 +93,12 @@ data class AddUi(
     val offline: Boolean = false,
     /** Each new value: the word box starts over (a different method). */
     val boxKey: Int = 0,
+    /**
+     * The word box that starts listening as it opens: set ONLY by a tap on 🎤 Say it / 🗣 In English (that tap WAS
+     * "say it"), consumed by the box ([AddViewModel.listened]). Opening the tab — or coming back to it with a method
+     * still picked — never records: the box waits for a tap on its 🎤 (Jerome, Nov 2026).
+     */
+    val listenBox: Int? = null,
 )
 
 /**
@@ -124,11 +130,16 @@ class AddViewModel(
     // ---------------- word ----------------
 
     fun pickMethod(method: String) = _ui.update {
-        it.copy(method = method, photo = null, typedLine = null, candidates = null, lookupError = null, boxKey = it.boxKey + 1)
+        val box = it.boxKey + 1
+        val listen = if (method == AddMethod.SAY_ZH || method == AddMethod.SAY_EN) box else null
+        it.copy(method = method, photo = null, typedLine = null, candidates = null, lookupError = null, boxKey = box, listenBox = listen)
     }
 
+    /** The word box started listening for the tap that opened it: never again by itself. */
+    fun listened() = _ui.update { it.copy(listenBox = null) }
+
     fun photo(context: Context, uri: Uri) {
-        _ui.update { it.copy(method = AddMethod.PHOTO, photo = PhotoUi(), typedLine = null, candidates = null, lookupError = null) }
+        _ui.update { it.copy(method = AddMethod.PHOTO, photo = PhotoUi(), typedLine = null, candidates = null, lookupError = null, listenBox = null) }
         app.analytics.track("add.word_input", mapOf("method" to AddMethod.PHOTO, "kind" to AddTab.CHINESE))
         viewModelScope.launch {
             val bitmap = withContext(Dispatchers.Default) { runCatching { PhotoPrep.decodeForOcr(context, uri) }.getOrNull() }

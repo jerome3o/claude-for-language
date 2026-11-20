@@ -287,25 +287,18 @@ class ClaudeThreadScreenTest : LabScreenshotTest() {
         compose.onNodeWithText("FOLLOWED", substring = true).assertIsDisplayed()
     }
 
-    // ---------------- the ✦ Claude tab ----------------
+    // ---------------- nothing records until he taps 🎤 ----------------
 
-    @Test fun theClaudeTabStartsDictatingAtOnceAndHidesBack() {
+    @Test fun aThreadNeverStartsTheMicrophoneByItself() {
         val app = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.app.Application>()
         org.robolectric.Shadows.shadowOf(app).grantPermissions(android.Manifest.permission.RECORD_AUDIO)
-        val heard = mutableListOf<Boolean>()
-        compose.setContent { LabTheme { ClaudeThreadScreen(ClaudeThreadUi(isNew = true), ClaudeThreadActions(), autoListen = true, showBack = false, onAutoListen = { heard += it }) } }
+        dev.jeromeswannack.chineselearning.lab.ui.kit.TakeLocks.reset()
+        compose.setContent { LabTheme { ClaudeThreadScreen(ClaudeThreadUi(isNew = true), ClaudeThreadActions(), showBack = false) } }
         compose.waitForIdle()
-        assertEquals(listOf(true), heard) // 🎤 Say it was pressed for him (no microphone in a test: the box then says why)
+        compose.onNodeWithTag(dev.jeromeswannack.chineselearning.lab.ui.kit.VoiceTextFieldTags.STOP).assertDoesNotExist()
+        assertEquals(dev.jeromeswannack.chineselearning.lab.core.TakeLock.IDLE, dev.jeromeswannack.chineselearning.lab.ui.kit.TakeLocks.phase)
         compose.onNode(androidx.compose.ui.test.hasContentDescription("Back")).assertDoesNotExist()
         compose.onNodeWithTag(ClaudeThreadTags.EMPTY).assertIsDisplayed()
-    }
-
-    @Test fun aThreadOpenedAnyOtherWayNeverStartsTheMicrophone() {
-        val heard = mutableListOf<Boolean>()
-        compose.setContent { LabTheme { ClaudeThreadScreen(ClaudeThreadUi(isNew = true), ClaudeThreadActions(), onAutoListen = { heard += it }) } }
-        compose.waitForIdle()
-        assertEquals(emptyList(), heard)
-        compose.onNode(androidx.compose.ui.test.hasContentDescription("Back")).assertIsDisplayed()
     }
 
     // ---------------- screenshots ----------------

@@ -110,7 +110,7 @@ const setOnline = (on: boolean) => {
   Object.defineProperty(navigator, 'onLine', { configurable: true, get: () => on });
 };
 
-async function render(props: { threadId: string; newContext?: ClaudeThreadContext & ClaudeContextSnapshot; initialDraft?: string; onThreadCreated?: (id: string) => void; autoListen?: boolean; onAutoListen?: (l: boolean) => void; hideBack?: boolean }) {
+async function render(props: { threadId: string; newContext?: ClaudeThreadContext & ClaudeContextSnapshot; initialDraft?: string; onThreadCreated?: (id: string) => void; hideBack?: boolean }) {
   await act(async () =>
     root.render(
       <MemoryRouter initialEntries={['/chats/claude/x']}>
@@ -178,31 +178,7 @@ describe('ClaudeThreadView', () => {
     expect(explorerOpen).toHaveBeenCalledWith({ kind: 'word', hanzi: '取钱', pinyin: 'qǔqián', gloss: 'withdraw money' }, { source: 'claude_card', justAdded: [{ noteId: 'n9', hanzi: '取钱', deckId: 'src-claude', deckName: 'From Claude' }] });
   });
 
-  it('the ✦ Claude tab: 🎤 starts at once, once, and no ← on the tab root', async () => {
-    fake.mode = 'voice';
-    const say = vi.fn();
-    fake.say = say;
-    const heard: boolean[] = [];
-    await render({ threadId: 'new', newContext: { kind: 'general' }, autoListen: true, hideBack: true, onAutoListen: (l) => heard.push(l) });
-    await flush();
-    expect(say).toHaveBeenCalledTimes(1);
-    expect(heard).toEqual([true]);
-    expect(q('claude-thread-back')).toBeNull();
-    expect(q('claude-thread-empty')).toBeTruthy();
-  });
-
-  it('the ✦ Claude tab offline: stays on typing (the box says why), no 🎤', async () => {
-    fake.mode = 'voice';
-    fake.blocked = 'offline';
-    const say = vi.fn();
-    fake.say = say;
-    const heard: boolean[] = [];
-    await render({ threadId: 'new', newContext: { kind: 'general' }, autoListen: true, onAutoListen: (l) => heard.push(l) });
-    expect(say).not.toHaveBeenCalled();
-    expect(heard).toEqual([false]);
-  });
-
-  it('a thread opened any other way never starts the 🎤 by itself', async () => {
+  it('opening a thread never starts the 🎤 by itself', async () => {
     fake.mode = 'voice';
     const say = vi.fn();
     fake.say = say;
