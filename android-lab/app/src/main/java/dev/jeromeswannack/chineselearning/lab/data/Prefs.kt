@@ -211,9 +211,23 @@ class Prefs(context: Context) {
             StudyDayClock.hour.value = hour
         }
 
+    /**
+     * "Example sentence style" (core SentenceStyle; Settings → Study, everyday by default). From /api/auth/me,
+     * /api/sync/changes or a save; [SentenceStyleStore.style] follows it. Only Settings reads it — the server
+     * writes the sentences.
+     */
+    var sentenceStyle: String
+        get() = dev.jeromeswannack.chineselearning.lab.core.SentenceStyle.of(sp.getString("sentence_style", null))
+        set(v) {
+            val style = dev.jeromeswannack.chineselearning.lab.core.SentenceStyle.of(v)
+            sp.edit().putString("sentence_style", style).apply()
+            SentenceStyleStore.style.value = style
+        }
+
     init {
         dev.jeromeswannack.chineselearning.lab.data.lessons.SkipHandwriting.state.value = sp.getBoolean("skip_handwriting", false)
         StudyDayClock.hour.value = dayRolloverHour
+        SentenceStyleStore.style.value = sentenceStyle
     }
 
     /** Epoch ms of the last full sync (0 = never). */

@@ -63,6 +63,6 @@ describe('learner structures cache', () => {
     expect(ctx.knownWords).toEqual(['去']);
     expect(ctx.structures.map((s) => s.name)).toEqual(['除了…还…']);
     const none = await sentenceLearnerContext(db as unknown as D1Database, 'n-missing');
-    expect(none).toEqual({ userId: null, bio: null, knownWords: [], structures: [] });
+    expect(none).toEqual({ userId: null, bio: null, knownWords: [], structures: [], style: 'everyday' });
   });
 });

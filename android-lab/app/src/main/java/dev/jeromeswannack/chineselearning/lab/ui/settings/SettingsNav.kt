@@ -49,6 +49,8 @@ fun NavGraphBuilder.settingsGraph(nav: LabNav) {
                 androidx.compose.foundation.layout.Column(verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(androidx.compose.ui.unit.Dp(12f))) {
                     // "New day starts at" (core StudyDay, 4 am by default).
                     DayRolloverSettingsCard(app)
+                    // "Example sentence style" (core SentenceStyle, everyday by default).
+                    SentenceStyleSettingsCard(app)
                     dev.jeromeswannack.chineselearning.lab.ui.study.AskClaudeLanguageSettings(app)
                     dev.jeromeswannack.chineselearning.lab.ui.study.SpokenAnswerSettings(app)
                     // Suspend & snooze: sibling burying + the held cards list (core CardHolds).

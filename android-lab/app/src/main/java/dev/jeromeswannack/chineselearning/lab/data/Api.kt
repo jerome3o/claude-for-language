@@ -59,6 +59,8 @@ data class MeDto(
     val skip_handwriting: Boolean? = null,
     /** "New day starts at" (0–6; core StudyDay); null from an older server. */
     val day_rollover_hour: Int? = null,
+    /** "Example sentence style" (standard | everyday | casual; core SentenceStyle); null from an older server. */
+    val sentence_style: String? = null,
     /** Usage analytics on (Settings → Advanced → "Share usage data"; data/analytics/). */
     val share_usage: Boolean = true,
     /** Word checks: "Check new words for mistakes" — the effective switch (on by default for tutors); null from an older server. */
@@ -150,6 +152,8 @@ data class ChangesDto(
     val skip_handwriting: Boolean? = null,
     /** "New day starts at" (0–6; core StudyDay); null from an older server. */
     val day_rollover_hour: Int? = null,
+    /** "Example sentence style" (standard | everyday | casual; core SentenceStyle); null from an older server. */
+    val sentence_style: String? = null,
 )
 
 @Serializable
