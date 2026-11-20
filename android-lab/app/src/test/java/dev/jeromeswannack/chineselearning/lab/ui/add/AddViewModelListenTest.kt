@@ -2,6 +2,10 @@ package dev.jeromeswannack.chineselearning.lab.ui.add
 
 import androidx.test.core.app.ApplicationProvider
 import dev.jeromeswannack.chineselearning.lab.LabApp
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.ViewModelStore
+import org.junit.After
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -17,7 +21,15 @@ import kotlin.test.assertNull
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33], application = LabApp::class)
 class AddViewModelListenTest {
-    private fun vm() = AddViewModel(ApplicationProvider.getApplicationContext<LabApp>())
+    private val store = ViewModelStore()
+    private var n = 0
+    private fun vm(): AddViewModel = ViewModelProvider(store, object : ViewModelProvider.Factory {
+        @Suppress("UNCHECKED_CAST")
+        override fun <T : ViewModel> create(modelClass: Class<T>): T = AddViewModel(ApplicationProvider.getApplicationContext<LabApp>()) as T
+    })["add-${n++}", AddViewModel::class.java]
+
+    /** Cancel each ViewModel's scope (its connectivity collector) so nothing outlives the test. */
+    @After fun clear() = store.clear()
 
     @Test fun aFreshTabHasNothingToStart() {
         val ui = vm().ui.value
