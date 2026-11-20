@@ -1476,12 +1476,10 @@ How-to-say-it-better sheet) → `/coach?text=&action=check|explain&from_message=
 
 ### Features
 - **Pairing**: Either party invites by email, specifying their role (tutor/student)
-- **Chat**: Polling-based messaging (3-second intervals). Per-message tools: Reply and Play inline
-  (44px), everything else (React, Check my Chinese, Translate / Make a card, Word by word, Discuss
-  with Claude, Copy) under ⋯ / long-press — a bottom sheet on phones, a popover ≥640px. The set is
-  role-aware (`toolsForMessage` in `frontend/src/components/chat/messageTools.ts`, unit-tested):
-  Check my Chinese only on the learner's own messages, Translate only on the other party's. Failures
-  show as Coach-style inline notices (`InlineNotice`), never `alert()`.
+- **Chat**: live over the per-user ChatHub socket (polling only while it is down — see "Live delivery" below).
+  Every per-message tool lives in the message menu (long-press, right-click or the hover ⋯), built by the role-aware
+  `messageMenu` in `shared/chats/messageMenu.ts` (Lab `MessageMenu.kt`, parity-tested; it replaced the old ⋯ tool list
+  `toolsForMessage` / `learningToolsForMessage`). Failures show as inline notices, never `alert()`.
 - **Voice-first composer** (docs/CHAT.md "Voice-first composer"): the composer opens on 🎤 **Say it** (dictate the
   message as TEXT — live words, then 🔁 · ✏️ · ✓ Check my Chinese · ➤), ⌨️ types; the round **waveform** button is the
   hold-to-record VOICE MESSAGE (unchanged gestures). Web `components/chat/DictationComposer.tsx` on
@@ -1523,7 +1521,7 @@ How-to-say-it-better sheet) → `/coach?text=&action=check|explain&from_message=
   `POST /api/decks/:id/notes/batch`) replaces the old single "+ Card"; **Correct this** (the relationship's tutor,
   `PUT|DELETE /api/messages/:id/correction`, shown as a `diffHanzi` red-pen diff, push `chat_correction`, the student's
   "Make a card from this" = propose with `focus: 'correction'`); **Check my Chinese** on the compose box (`/api/sentence/coach`).
-  Which ⋯ tools show is `learningToolsForMessage` in `shared/chats/messageTools.ts` (Lab `MessageTools.kt`, parity-tested).
+  Which tools show is the message menu's rule (`messageMenu`, `shared/chats/messageMenu.ts`; Lab `MessageMenu.kt`, parity-tested).
   Web: `components/chat/ChatWords.tsx`, `MakeFlashcardsSheet.tsx`, `ChatCorrection.tsx`, `CheckDraftPanel.tsx`,
   `services/chatLearning.ts`; Lab: `ui/chat/ChatLearningViews.kt`, `ChatCardsSheet.kt`, core `ChatLearning.kt`.
 - **Chat round 2 — a normal chat app** (docs/CHAT.md "Round 2"): Signal-like bubbles with NO buttons on them —
