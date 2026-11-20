@@ -130,3 +130,25 @@ A mini lesson ≈ $0.05–0.15 (Sonnet).
 - A tutor view: send an issue (or its lesson) as homework through the homework model.
 - Better sourcing: a curated domain allow-list, fetching the original post for exact quotes, and an
   editor pass (a second model checking origins) before publishing.
+
+## Code map & API (moved from CLAUDE.md, Nov 2026)
+
+The agent-facing detail that used to live in CLAUDE.md: where the code is, the endpoints, the rules each
+part follows. CLAUDE.md keeps only the cross-cutting rules and points here.
+
+### 梗 Meme review (PROTOTYPE; `routes/meme-review.ts`, `services/meme-review/`, `shared/meme-review`, docs/MEME_REVIEW.md)
+An isolated tracer bullet (nothing in the study queue / sync reads it): ONE issue per calendar month for everyone
+(D1 `meme_issues`, migration 0130, no user ids in the content) about the Chinese internet of the last ~8 weeks — 6–10
+memes, each with meaning in simple Chinese, origin + confidence, chat-style examples, register, "would you say it?",
+related memes, real sources and the original videos / posts (LINKED OUT, never embedded; only YouTube's public thumbnail),
+our own Gemini picture (R2 `meme-review/images/`, public) and a 3–5 question quiz (practice only). Written by a research
+agent (`agent.ts`: `OPUS_MODEL` + server-side `web_search_20260209` / `web_fetch_20260209`, ~25 searches / 10 fetches, ≤
+14 calls, `submit_issue` + ≤ 2 repairs, `pause_turn` resumed, transcript checkpointed in R2 `meme-review/agent/<month>.json`)
+on **`meme-review-queue`**; `validateMemeIssue` drops every URL the tools didn't return and re-derives pinyin
+(`rederivePinyin`). Cron: the 03:17 UTC run on the 1st–2nd starts the month (`ensureMonthlyMemeIssue`). "Make a mini
+lesson" = the lesson writer → a normal custom lesson in the CALLER's account (`meme_review_lessons` jobs; cost guard
+`jobs`). E2E / no key: `services/meme-review/fake.ts`. ≈ $1.5–2.5 an issue. Web `pages/MemeReviewPage.tsx`,
+`MemeIssuePage.tsx`, own IndexedDB `meme-review` (`services/memeReview.ts`); Lab `ui/memereview/`, core
+`memereview/MemeReview.kt` (parity-tested). MCP `get_meme_review` / `generate_meme_review` (admin).
+- `GET /api/meme-review` → `{ issues, current_month, can_generate }` · `GET /api/meme-review/:month` → `{ issue, lesson, stats? (admin) }`
+- `POST /api/meme-review/generate` `{ month?, regenerate? }` - admin only → 202 · `POST /api/meme-review/:month/lesson` → 202 `{ job }` · `GET /api/meme-review/lessons/:jobId`

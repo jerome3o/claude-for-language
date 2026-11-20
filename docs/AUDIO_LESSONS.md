@@ -67,7 +67,7 @@ English, Chinese again) is now one row too, "+1".
 **The learner's voice (Oct 2026).** In lessons A and B (滴滴司机打电话, 面馆排队) the traveller / customer — the learner's
 own part, "我" — got a woman's voice though Jerome is a man; D only got a man because its description said so. Now the
 learner's part follows the account's `users.voice_gender` (Profile → "Your voice when your messages are read aloud",
-the chat's read-aloud setting, CLAUDE.md "Chat read-aloud voice"):
+the chat's read-aloud setting, docs/CHAT.md "Chat read-aloud voice"):
 - The plan's speakers carry `learner: true` on the ONE speaker whose part the learner plays (the traveller / customer /
   guest / patient who says 我); `validateDialoguePlan` allows at most one, a boolean.
 - The briefing (`learnerPartLine`): "The learner is a man: their own part in the dialogue … is spoken in a male voice.
@@ -571,7 +571,7 @@ transcript (on for dialogue and story, off for sleep; the current line highlight
 jump; an English sentence with Chinese inside shows as one row, `transcriptRows`; 拼 / EN chips hide the pinyin / English
 lines, remembered per device — `audio-lesson-transcript-pinyin-v1` / `-english-v1`, Lab `AudioLessonPrefs`), **word chips** in
 the transcript (every format: the Chinese of each row — and the Chinese inside an English narration row — is word chips made on
-the device by the deterministic segmenter, CLAUDE.md "Word chips without an LLM": web `components/audioLessons/TranscriptLine.tsx`
+the device by the deterministic segmenter, docs/LANGUAGE_EXPLORER.md "Word chips without an LLM": web `components/audioLessons/TranscriptLine.tsx`
 over the chat's `ChatWordsText`, Lab `TranscriptRowView` over `ChineseWords` + `DeviceWords`; a word opens the language
 explorer's Word view (source `audio_lesson`), a word already in a deck has the quieter underline; a tap anywhere else on the row
 still seeks, a word tap never does; layout unchanged — no per-word pinyin, the row's own pinyin line follows 拼; until the word
@@ -682,3 +682,52 @@ chapters, no offline player and no notion of what the learner already knew.
 - No URL input yet (paste the text).
 - Story: a lesson is at most ~90 minutes (~1,500 characters); a longer text needs several lessons (the first part is made, the
   notice says so).
+
+## Code map & API (moved from CLAUDE.md, Nov 2026)
+
+The agent-facing detail that used to live in CLAUDE.md: where the code is, the endpoints, the rules each
+part follows. CLAUDE.md keeps only the cross-cutting rules and points here.
+
+### Audio lessons (`worker/src/routes/audio-lessons.ts`, `services/audio-lessons/`, page at `/audio-lessons`; read docs/AUDIO_LESSONS.md)
+Agent-written listening lessons rendered to ONE MP3 each. **dialogue** = English host + a Chinese dialogue
+played three times, line by line, then the new words / structures; **sleep** = Chinese, very slow:
+the new words of a pasted text, per word: "这是一个新词。我说三遍。" + the word ×3 (short pauses), each character's tone
+(`char_tones`) + its characters (`characters_zh`), what it MEANS in 5–8 short comprehensible-input sentences
+(`meaning_zh`), ONE English recap line in a calm English voice ("The word was 银行: bank, as in …" — `recap_en`, voice
+role `recap`), then three sentences each ×3, its English translation (recap voice), then ×2 more (layout 2 `SLEEP_LAYOUT`, Nov 2026; transcript "×3 +2"; ready layout-1 sleep lessons are re-rendered from their own MP3 by the same `rerender.ts` — `upgradeSleepScript`, no TTS; cron once `sleep_rerender_layout_2`); **story** ("Listen &
+repeat a story", `shared/audio-lesson/story.ts`, worker `services/audio-lessons/story.ts`) = a pasted longer story or
+conversation split BY CODE (`splitStoryText`: after 。！？!?…, at line breaks / speaker turns, never inside quotes; labels
+"A：" / "明慧：" off the spoken text and onto two voices `speaker_a` / `speaker_b`, narration in the app voice `teacher`;
+`# …` / 第一章 headings = chapters, else a chapter every 10 chunks; a short sentence merged into the next, ~8–40
+characters a chunk), each chunk said ×3 at the slowest rate with 2 s after each, then its English once (recap voice),
+2 s, then the Chinese ×2 more, 2.5 s (layout 2, `STORY_LAYOUT`; transcript "×3 +2"; ready layout-1 stories are re-rendered
+from their own MP3 — no translation / TTS — by `services/audio-lessons/rerender.ts`, queued once by the cron after deploy and by
+admin `POST /api/admin/audio-lessons/rerender` = MCP `audio_lessons_rerender`; new audio version); Claude only TRANSLATES (`structuredCall`, Sonnet, forced tool, thinking off, 30 chunks a call, checkpointed in
+`agent_transcript`; pinyin through `applyYiBuToneChanges`) — the Chinese is never rewritten; ≤ 6,000 characters pasted,
+≤ 90 minutes / 120 chunks made (~1,500 characters; `fitStoryChunks`; the rest is left out and `notice` says so); no `target_minutes`. The sleep
+voice (and any Chinese at app rate 0.5, i.e. a story's chunks) runs at each provider's slowest natural rate
+(`SLEEP_ZH_PROVIDER_RATE`: MiniMax 0.5, Azure 0.6, Google 0.6). Both players mix a
+soft procedural music loop under the lesson (`shared/audio-lesson/music.ts`; CC0, made by
+`scripts/audio/generate-lesson-music.mjs` → `frontend/public/audio/lesson-music-v1.mp3` + Lab `res/raw/lesson_music.mp3`;
+🎵 toggle + volume, on for sleep and story / off for dialogue); the MP3 and the podcast feed stay speech-only. The players'
+transcript has 拼 / EN toggles (remembered per device) and its Chinese is word chips from the device segmenter (a word → the language explorer; a tap elsewhere on the row seeks).
+Claude Opus 5.5 (`agent.ts`, tools `check_known_words` + `submit_lesson`, transcript checkpointed) writes a
+PLAN; `shared/audio-lesson/compile.ts` makes the speech/pause SCRIPT; each distinct clip goes through
+`callProviderTTS` (`synth.ts`; Chinese in the stored order with the first provider PINNED per lesson,
+English Azure → Google; all clips 24 kHz mono MP3); `mp3.ts` joins frames + generated silence + one Xing
+header in the Worker. Queue `audio-lesson-queue` (re-enqueues on rate limits / after 4 min). R2
+`audio-lessons/` (person-made). Web player: offline (Cache API), chapters, ±10 s, speed, transcript,
+sleep timer, Media Session. MCP `create_audio_lesson` / `get_audio_lesson` / `list_audio_lessons` / `get_audio_lesson_feed`.
+- `GET|POST /api/audio-lessons` (POST `{ format: dialogue|sleep|story, … }` → 202 `{ lesson, notice?, chunks? }`), `GET|DELETE /api/audio-lessons/:id` (a story's detail carries `notice`), `GET /api/audio-lessons/:id/audio`, `POST /api/audio-lessons/:id/retry`
+- **Private podcast feed** (`routes/podcast.ts`, `services/podcast-feed.ts`, docs/AUDIO_LESSONS.md "Podcast feed"): public,
+  mounted BEFORE the auth middleware — `GET /api/podcast/:token/feed.xml` (RSS 2.0 + iTunes + `podcast:chapters`, one item
+  per ready lesson), `GET /api/podcast/:token/lessons/:id/:version/audio.mp3` (Range → 206, HEAD, 416),
+  `…/lessons/:id/chapters.json`, `…/lessons/:id/:version/transcript.vtt|srt|json` (`<podcast:transcript>`, one cue per
+  transcript row: hanzi / pinyin / English, a dialogue's speaker); each item's `content:encoded` = the whole transcript by
+  chapter (hanzi / pinyin / English; repeated listens point back; ~3 MB feed budget, then short notes), `description` =
+  the first ~4,000 characters (`services/podcast-transcript.ts`, docs/AUDIO_LESSONS.md "Transcripts in podcast apps"); the token (32 random bytes) is the only credential and grants that user's lessons only;
+  stored as SHA-256 (lookup) + AES-GCM (key from `SESSION_SECRET`, so Settings shows it again); wrong / reset token = 404;
+  rate-limited (`PODCAST_RATE_LIMITER` `[[ratelimits]]`, 120/min per token, per IP for unknown tokens); never logged (the
+  request log carries the route pattern). Signed in: `GET /api/me/podcast-feed` (made on first use), `POST …/reset`,
+  `DELETE` (off). Settings → "🎧 Audio lessons · Podcast feed" (`components/settings/PodcastFeedSection.tsx`; Lab
+  `ui/audiolessons/PodcastFeed.kt`, also a sheet from the Audio lessons screen). Artwork `frontend/public/podcast-artwork.jpg`.

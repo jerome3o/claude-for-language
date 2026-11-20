@@ -63,7 +63,7 @@ update the PARITY.md row (⬜/🟡 with what's missing) — never leave it silen
      bump — never `fallbackToDestructiveMigration`: the database holds unsynced review events.
    Writes the web app makes through the content service go through the same API
    routes; never add server behaviour that only the Lab app uses without also
-   documenting it in the worker (and CLAUDE.md).
+   documenting it in the worker (and the feature's doc in `docs/`).
    Review events stay the source of truth: card state is always
    `CardScheduler.computeCardState(events)`.
 4. **Routes**: the Lab app navigates by the web's own paths. Put your screens in

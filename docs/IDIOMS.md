@@ -61,3 +61,21 @@ offline. Generating offline → "You're offline and this idiom isn't on the devi
 
 Lab: `core/…/idioms/Idioms.kt` (shape, starter list, key, link rule, card fields, score line —
 parity-tested by `parity/fixtures/idioms.ts`), `data/idioms/IdiomStore.kt`, `ui/idioms/`.
+
+## Code map & API (moved from CLAUDE.md, Nov 2026)
+
+The agent-facing detail that used to live in CLAUDE.md: where the code is, the endpoints, the rules each
+part follows. CLAUDE.md keeps only the cross-cutting rules and points here.
+
+### 成语 Idioms (beta; `worker/src/routes/idioms.ts`, `services/idioms.ts`, `shared/idioms`, docs/IDIOMS.md)
+One entry per idiom, generated once by Claude (`structuredCall`, forced `write_idiom_entry`, thinking off, no Haiku
+fallback) on **`idiom-queue`** and shared by everyone: meaning, character by character, the 典故 in simple Chinese
+(pinyin + English per paragraph; source / era only when certain, uncertain or modern origins say so, a confidence
+field), usage (roles, register, 褒义 / 贬义), collocations, examples easiest → hardest, the common mistake,
+近义 / 反义, 2–3 "Try it" questions (practice only). Web `pages/IdiomsPage.tsx` / `IdiomPage.tsx`,
+`services/idioms.ts` (IndexedDB `idioms`, Dexie v31 — opened entries read offline, narration prefetched through
+practice TTS); Lab `ui/idioms/`, `data/idioms/IdiomStore.kt`, core `idioms/Idioms.kt`. The explorer's Word view
+links a 成语 ("📜 Story & usage", `showIdiomLink`). E2E_TEST_MODE: `services/idioms-fake.ts`.
+- `GET /api/idioms` → `{ starter, more }` (IdiomSummary rows with status) · `GET /api/idioms/:hanzi` → `{ idiom }` (status `missing` when never asked)
+- `POST /api/idioms` `{ hanzi, retry? }` → get-or-generate: 200 ready / not_idiom, 202 generating; 400 not a possible 成语 key; 503 without AI
+- `POST /api/admin/idioms/backfill` `{ limit? }` - admin: queue starter idioms with no entry yet

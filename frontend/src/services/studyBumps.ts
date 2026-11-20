@@ -1,5 +1,5 @@
 /**
- * "⚡ Study it today" on the device (shared/decks/bumps.ts; CLAUDE.md "Study it today").
+ * "⚡ Study it today" on the device (shared/decks/bumps.ts; docs/STUDY_SESSION.md "⚡ Study it today").
  *
  * A learner who tries to add a word they already have bumps it instead: the note's
  * cards come first in today's session (the shared queue rule). Offline-first:
