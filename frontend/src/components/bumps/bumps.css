@@ -52,17 +52,19 @@
   font-size: 0.85rem;
 }
 
-@media (prefers-color-scheme: dark) {
-  .bump-btn--on,
-  .bump-badge {
-    background: #451a03;
-    color: #fcd34d;
-    border-color: #92400e;
-  }
-  .bump-hint {
-    background: #2a1a05;
-    color: #fcd34d;
-  }
+/* The dark set follows the app's dark theme (index.css :root[data-theme='dark']), not the browser's preference: the
+   web is light-only today, and under a dark OS setting these used to turn into dark-brown chips on the light page
+   (the Up next page's "⚡ Today" chip, the study card's badge). */
+:root[data-theme='dark'] .bump-btn--on,
+:root[data-theme='dark'] .bump-badge {
+  background: #451a03;
+  color: #fcd34d;
+  border-color: #92400e;
+}
+
+:root[data-theme='dark'] .bump-hint {
+  background: #2a1a05;
+  color: #fcd34d;
 }
 
 /* The deck page's per-word ⚡: quiet until used ("⚡ Today ✓" once bumped). */
