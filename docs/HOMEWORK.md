@@ -569,3 +569,74 @@ part: time zones, which rows, lines, the templates; `index.ts` = D1 + sending), 
 - **Never**: the tutor herself, no address, test accounts (`@test.e2e`, `google_id` `test-…`, `E2E_TEST_MODE`), no
   `SENDGRID_API_KEY` (then nothing is claimed). Logs carry ids and outcome counts only — no addresses, no titles.
   Analytics: `server.email_sent { kind: homework_assigned | homework_reminder, ok }`.
+
+## Code map & API (moved from CLAUDE.md, Nov 2026)
+
+The agent-facing detail that used to live in CLAUDE.md: where the code is, the endpoints, the rules each
+part follows. CLAUDE.md keeps only the cross-cutting rules and points here.
+
+### Homework assignments: one-off passes with due dates (`worker/src/routes/homework.ts`, design in docs/HOMEWORK.md)
+Anything a tutor sends is an **assignment** with a `mode`: `one_off` (a single pass by a due date — NOT spaced
+repetition), `fsrs` (long-term review, what sharing always did) or `both`. `services/homework.ts`
+`assignHomework` copies each item through the usual paths (`shareDeck` — now with `excludeNoteIds` so words the
+student already has are left out, matched on normalised hanzi — `createAssignedLesson`, `shareReader`) and writes
+the rows (`assignmentRowsFor`: a one-off deck split over N days = N rows with consecutive due dates). A one-off-only
+deck copy gets caps 0 + 0 so the FSRS budget never introduces it (the deck page says so and offers *Add to my daily
+review*); one-off-only lessons / readers are left out of the session mix / daily reader on the client
+(`oneOffOnlyTargetIds`). **Student**: `services/homework.ts` syncs `homeworkAssignments` / `homeworkEvents`
+(Dexie v19) in every sync; Home shows the **Homework** card (overdue first, labels "overdue" / "due today" /
+"due in N days", `dueLabel`); `/homework` lists all; `/homework/:id` is the pass (immersive): a word list shows each
+word once ON THE STUDY CARD — `StudyCard` with `pass` (web) / `StudyRoute` pass mode (Lab): the read card's 🎤 take +
+"You said", Show answer, the back; *Not yet* / *Got it* where the ratings are (a right answer / matching take
+suggests one, `passSuggestion` in `shared/homework/pass-card.ts`, parity-tested), "Add to my long-term review" and
+**⚡ Study it today** (a bump toggle, source `homework_pass`) on the answer side, NO review event and the take kept
+nowhere — *Not yet* words come back until *Got it* (`passProgress`), a lesson / reader plays once in the regular
+player — finishing a lesson / reader anywhere records the `done` event (`recordTargetDone`). **Tutor**: the Send
+homework sheet has One-off / Long-term / Both + due date + "spread over N days" + "leave out words they already
+have" (`HomeworkModePicker`); the student page's Homework section shows the **load gauge** (`LoadGauge`,
+`computeHomeworkLoad`: pending one-off items / words, overdue, next 7 days, FSRS words to go ~days at their budget,
+light / moderate / heavy) and the open one-off assignments with the student's progress (tap: move date / cancel).
+Lesson types and future kinds plug into this model — never a second queue (contract in docs/HOMEWORK.md §2).
+- `GET /api/me/homework` - The student's assignments + events of active ones (offline sync)
+- `POST /api/me/homework/events` - `{ events: [{ id, assignment_id, item_id, result, created_at, undoes? }] }` → `{ accepted, assignments }` (idempotent; progress recomputed). `result: 'undo'` + `undoes` takes an answer back — the pass's ↺ (docs/HOMEWORK.md §3b, migration 0126; every rule reads `livePassEvents`); `result: 'skip'` = "Skip this homework" (§3d, migration 0139 → `skipped_at`; an undo takes it back)
+- `PUT /api/profile/skip-handwriting` - `{ skip_handwriting: boolean }` → `{ skip_handwriting }` (`routes/skip-handwriting.ts`)
+- `GET /api/relationships/:relId/homework?today=` - tutor: `{ assignments, load }`
+- `POST /api/relationships/:relId/homework` - tutor: `{ items: [{ kind, source_id, mode, due_date?, split_days?, priority?, skip_known?, include_known? }], today? }` → 201 `{ assignments, skipped, errors, copies }` (`copies`: the student's copy + share id per item). Every tutor send path defaults to `both`, due at the next logged lesson else in two days (`DEFAULT_SEND_MODE`, `defaultHomeworkDueDate`; docs/HOMEWORK.md §4a): the Send homework sheet, the library Assign sheet, the MCP send tools (`mcp-server/src/tools/homework-send.ts`)
+- `PATCH /api/relationships/:relId/homework/:id` - tutor: `{ due_date?, status?: 'cancelled' | 'active' }`
+
+**Homework library, link homework, updating students' copies** (`routes/homework-library.ts`, `services/homework-library.ts`,
+pure rules `shared/homework/library.ts` + `link.ts`; docs/HOMEWORK.md §8–10). The **library** is one row per thing a tutor
+sent (deck copy / lesson / reader / link) built by `buildHomeworkLibrary` from the share rows + the assignments on the same
+copy: sent, due, kind, % (pass words / words met / lesson completed / reader read / link done) and status Completed (green) ·
+In progress (blue, amber when due today / tomorrow) · Overdue (red) · Not started (grey) (`libraryStatus`, `statusTone`).
+A deck sent for long-term review only is **In long-term review** (grey, no %; docs/HOMEWORK.md §11).
+Web: `/connections/:relId/homework` (one student) and `/homework-library` (all) — linked from NO menu since Oct 2026 (Minghui: "doesn't seem very useful"; deep links still work) —
+`pages/tutor/HomeworkLibraryPage.tsx`, `components/tutor/library/` (filters, row actions Open · Edit · Update their copy ·
+Change due date · Remove); **Most recent homework** (`mostRecentHomework`: newest + whatever was sent within 30 min, max 3)
+at the TOP of the student page (`RecentHomeworkCard`, "All homework ↓" scrolls to the page's Homework section) and one line on each dashboard card. The dashboard's homework pill / recent line open `/connections/:relId#homework` (web `hooks/useScrollToHash.ts`: scrolled into view + a short blue flash; Lab `?section=homework`, `ui/teaching/SectionFocus.kt`). Students see the same statuses on
+`/homework` (`itemStatus`) and their tutor page lists that tutor's items. **Link homework** (tutor-first: made in her account,
+nothing reaches a student until she sends it): Send homework → 🔗 A link (`LinkHomeworkForm`), the student's `/homework/:id`
+is `components/homework/LinkPass.tsx` (Open link ↗ in the browser — nothing embedded —, Mark as done + optional note,
+offline-first). **Update copies on save**: after saving a sent deck word (deck page), library lesson (lesson editor), reader
+(reader editor) or link, `UpdateCopiesPrompt` offers "Also update <student>'s copy" per student, default on.
+- `GET /api/relationships/:relId/homework-library?today=` → `{ items, counts, today }` · `GET /api/tutor/homework-library?today=` → `{ students, items, counts, today }`
+- `GET|POST /api/homework-links` (`{ title, url, instructions? }`, 400 + `problems`) · `PUT /api/homework-links/:id` (+ `update_student_copies?: true | relId[]` → `copies`) · `DELETE` (soft); send with `POST …/homework` `{ items: [{ kind: 'link', source_id, due_date? (null = none) }] }`
+- `GET /api/student-copies?kind=deck|lesson|reader|link&source_id=` → `{ copies: [{ relationship_id, student_name, target_id, share_id, behind }] }` · `POST /api/student-copies/update` `{ kind, source_id, relationship_ids? }` → `{ updated, results }` (deck = `updateSharedDeckCopy`; lesson = `pushLibraryLessonUpdate`, `services/lesson-push.ts`; reader = `updateSharedReaderCopy`, pages matched by position, the copy's page ids kept; link = the sent assignments' snapshot)
+
+**Lesson notes → draft → review → assign** (`routes/homework-drafts.ts`, `services/homework-drafts.ts`): the student
+page's **Lesson notes** section (`components/tutor/LessonNotesSection.tsx`, replaces Session notes) lists
+`tutor_lesson_log` entries (+ `title`, migration 0073) with their homework state (No homework yet · Drafting… ·
+Draft ready → Review · Assigned). *+ Add lesson notes* saves an entry and, by default, starts a DRAFT: a
+session-notes job with `review = 1` — the same agent/queue/checkpoints, but it never shares; the briefing carries
+the student's load and says DRAFT; extra tools `remove_cards`, `update_card`, `set_plan`; `finish` writes the
+reply into `chat` and a plan into `plan` (`DraftPlan`, `shared/homework/plan.ts`). The review page
+`/connections/:relId/homework/:jobId` (`pages/tutor/HomeworkDraftPage.tsx`; side-by-side at ≥1024px, Draft / Claude
+tabs on phones) shows the load gauge now → after, the words with the ones the student already has skipped
+(*Include anyway*), per item One-off / Long-term / Both + due date, "spread over N days", and a Claude chat: a
+message is appended to the job's transcript (`appendTutorRequest`) and the job is re-queued, so revisions reuse
+the whole agent. **Assign** (`assignDraft`) turns the plan into assignments through `assignHomework`
+(`batch_id` = the job), once. E2E seeds a finished draft with `POST /api/test/homework-draft`.
+- `GET|POST /api/relationships/:relId/lesson-notes` - entries with their draft job / `{ notes, title?, lesson_at?, draft? }` (draft default true → 201 `{ entry, job }`)
+- `POST /api/relationships/:relId/lesson-notes/:logId/draft` - draft homework from an existing entry → 202
+- `GET /api/relationships/:relId/homework-drafts/:jobId?today=` - the review view (`words` with `known` / `skipped`, `plan`, `load`, `load_after`, `job.chat`, `assignments`)
+- `PUT …/homework-drafts/:jobId/plan` `{ plan }` · `POST …/messages` `{ message }` → 202 (503 without a key; 409 while running / once assigned) · `POST …/assign` → 201 `{ assignments, skipped, errors }` (409 twice)

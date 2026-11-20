@@ -1017,7 +1017,7 @@ thread). This part is worker + shared types only; the screens come later.
   (`shared/claude/api.ts`; keep the highest `seq`; a dropped frame never matters). Poll fallback:
   `GET /api/claude/threads/:id?since=<server_time>` → the messages written since + every pending one
   (`streaming: true` = text so far). `server.claude_turn` gains `first_token_ms` and `inline`.
-- **API**: see CLAUDE.md "Claude threads". E2E_TEST_MODE streams a stand-in answer in three chunks
+- **API**: see "Claude threads" under "Code map & API" at the end of this file. E2E_TEST_MODE streams a stand-in answer in three chunks
   (`claude-agent/fake.ts`), checked before any key.
 - **Claude remembers what its tools did** (`claude-agent/tool-record.ts`; Nov 2026 — the app showed "✓ Added 1 card:
   这次机会很难得…" under a reply and Claude said one turn later "I didn't actually create anything yet"): a reply's
@@ -1397,3 +1397,173 @@ and `GET|PUT /api/messages/:id/discussion` stay for older builds. Analytics `cla
 (replaces `chat.discuss`). Tests: `components/claude/DiscussClaudeSheet.test.tsx`, the E2E spec above, Lab
 `PracticeDiscussTest`.
 
+## Code map & API (moved from CLAUDE.md, Nov 2026)
+
+The agent-facing detail that used to live in CLAUDE.md: where the code is, the endpoints, the rules each
+part follows. CLAUDE.md keeps only the cross-cutting rules and points here.
+
+### Claude threads (`worker/src/routes/claude-threads.ts`, `services/claude-agent/{store,thread-turn,live,backfill}.ts`, `shared/claude`; docs/CHAT.md "Claude threads")
+Every chat with Claude in one store and one API. Web screen: **the Claude thread view** `/chats/claude/:id` (`components/claude/ClaudeThreadView.tsx`, docs/CHAT.md "Claude thread view": context chip, chips, composer per context, streamed replies over `claude_turn` + the 400 ms → 1.5 s poll fallback, offline cache + outbox in Dexie v37 `claudeThreads` / `claudeMessages` / `claudeOutbox` via `services/claudeThreads.ts` + `hooks/useClaudeThread.ts`; `/coach/chat/:id` redirects there; Lab: `ui/claude/ClaudeThreadScreen.kt` + `data/claude/ClaudeThreads.kt` — JsonCache + Outbox kind `claude-message`, `ChatLive.claudeTurns`), listed in **the unified Chats tab** `/chats` beside the chats with people (`pages/ChatsPage.tsx`, the list kept on the device by `services/claudeInbox.ts` + `hooks/useClaudeInbox.ts`, docs/CHAT.md "Chats tab — one list for people and Claude"; Lab: `ui/chats/` + `data/claude/ClaudeThreadList.kt`, `/coach` → `CoachEntry` in `ui/coach/CoachNav.kt`). A reply starts INLINE
+in the request (waitUntil) with a lease on its row and a watchdog `{ kind: 'claude_turn', messageId }` on `coach-reply-queue` (45 s)
+that resumes it if the isolate dies; the model is streamed (the harness's `TurnOptions.stream`) and the whole text so far goes to the
+owner's sockets as ChatHub `claude_turn` events (≤ every 120 ms) and into the pending row (≤ every 400 ms) for the poll fallback.
+`/api/claude/` POSTs are in the cost guard's `ai` group; E2E_TEST_MODE streams a stand-in in three chunks (`claude-agent/fake.ts`).
+- `GET /api/claude/threads?since=&limit=&context_kind=&note_id=&archived=` → `{ threads, deleted_ids, server_time }` (inbox rows with `context`, `badge`, `first_intent`, `preview`, `unread`, `pending`, `read_only`…; the first call runs the backfill)
+- `POST /api/claude/threads` `{ client_id, context, intent?, text, message_client_id?, language?, title?, quick?, chat_message_id? }` → 202 `{ thread, messages: [mine, pending] }` (`chat_message_id` = "Open in Coach" from a chat message: a general check / explain / translate started from it — my message's stored auto-check is the analysis at once, 201, no Claude call; the same message + intent again → its thread, 200) (200 `existing` for a known client id; 404 / 403 context not mine; 400 intent not offered — check / explain / translate only START a general chat and run the Coach's structured reply on its queue). A role-play: `context: { kind: 'practice', scenario?, ai_role?, user_role?, level?, note_id? }` with `text: ''` → 202 `{ thread, messages: [pending opener] }` — Claude speaks first; the server keeps the persona's `voice_id` on the context (docs/CHAT.md "Practice with Claude"); an old copied chat's `conversation_id` → 400
+- `GET /api/claude/threads/:id?since=` → `{ thread, messages, server_time }` (a streaming reply: `status: 'pending'`, `streaming: true`, the text so far; clears `unread`)
+- `POST /api/claude/threads/:id/messages` `{ client_id?, text, language?, quick?, typed? }` → 202 (a card thread: `typed` = `{ answer, correct? }` | null — the answer typed on this showing of the card; my Chinese is checked in the background unless `quick`, the result on the message as `auto_check`) (409 while a reply is pending / read-only) · `POST …/messages/:mid/retry` → 202 · `PATCH /api/claude/threads/:id` `{ title?, archived?, read?, tutor_visible?, language? }` · `DELETE` (tombstone) · `POST /api/admin/claude-threads/backfill { user_id? }` (admin)
+- Old endpoints keep their shapes: the legacy `POST /api/notes/:id/ask` writes its Q&A ONLY into the card's thread (`appendCardQuestion`, 30-min rule; the returned id = the messages' `legacy_id`), `PUT /api/messages/:id/discussion` syncs its thread, `/api/coach/*` IS the store. `note_questions` is frozen: `/api/me/claude-chats`, the card hub's `questions`, `/notes/:id/questions` and `/note-questions/:id[/words|/translate]` read the card threads (`services/claude-agent/card-questions.ts`; a translation / check is written onto the thread's messages, word chips are made and not kept)
+- **What the tutor sees** (`routes/claude-tutor-view.ts`, `services/claude-agent/tutor-view.ts`, docs/CHAT.md "What your tutor sees"): `PUT /api/profile/claude-tutor-visibility { claude_tutor_visibility: card_only | all | none | null }`; `PATCH /api/claude/threads/:id { tutor_visible: true | false | null }` = one chat's own choice; tutor of an active relationship only (403 / 404): `GET /api/relationships/:relId/claude-threads?limit=&before=&note_id=` → `{ threads: TutorClaudeThread[], visibility, total, next_cursor }` (visible chats only, the student's older chats copied in first) and `GET /api/relationships/:relId/claude-threads/:id` → `{ thread, messages }` read-only + trimmed (404 = missing, deleted OR private). The older `/api/relationships/:relId/claude-chats` and the tutor's card hub `questions` are served from the VISIBLE card threads in the old row shape (`tutorCardQuestions`). The student overview carries `claude_today` ("✦ Asked Claude 3× today", his day). The tutor's private student profile is never in any of it (tested)
+- **Memory** (no new endpoint): every reply leads to the thread's background summary and, when due, the learner digest; every turn of every context reads the digest + recent-chats index and may call `search_my_chats` / `read_chat` (docs/CHAT.md "Memory"; the daily 03:17 cron catches up)
+
+### Sentence Coach conversations (`/coach` → the Chats tab's box or a Claude thread; there is no Coach page)
+**The Coach lives in the Chats tab now** (docs/CHAT.md "Chats tab — one list for people and Claude"): `/coach` → `/chats?compose=1`,
+`?c=` → `/chats/claude/:id`, `?text=&action=` → a new thread with that intent, Chinese `?text=` / `?draft=` → the box with the
+text (`pages/CoachEntry.tsx` `coachEntryTarget`). **The Coach page is gone (Nov 2026)**: "Open in Coach" from a chat message
+(`&from_message=`) is a thread started FROM that message — `POST /api/claude/threads { chat_message_id }`: my own message's stored
+auto-check IS the ✏️ Check analysis (201, no Claude call, `chatMessageCheckSeed` in `services/coach-replies.ts`), the same
+message opened the same way again reuses the thread (200), back returns to the chat; the study card's ⋯ → Sentence coach /
+✎ Check on "You said" open `/chats/claude/new?draft=|text=&intent=check&source=study_card` (web `pages/ClaudeThreadPage.tsx`
+"← Back to your card", Lab `ClaudeThreadRoute` `BackToCardButton`) and the card comes back as it was. More → "✦ Ask Claude /
+Coach" opens the box. The thread view's composer (a new general chat) offers buttons by what is in the box (`coachButtons` in `shared/coach/actions.ts`, Lab port
+`core/…/CoachActions.kt`, parity-tested): Chinese or mixed → **✏️ Check my sentence** (`coachSentence`: correction + 1–3
+sentence critique + up to 2 alternatives) and **🔍 Explain** (instead of Google Translate: `explainSentenceBriefly`, the
+SAME Haiku breakdown as the example sentences' "What's going on here?" — now with a one-line `translation` — rendered by
+the same component, `components/SentenceWordBreakdown.tsx` / Lab `SentenceBreakdown`: one word per row, each row opens
+that word in the language explorer); English → **Translate** (`translateSentence`: recommended translation + up to 2 alternatives +
+usage note); empty → the two Chinese buttons disabled. The widget's `?focus=1`, the study card's `?draft=` and a Chinese
+`?text=` land on the buttons without sending; an English `?text=` translates at once. `POST /api/coach/conversations`
+takes `action` (check | explain | translate; none = the old auto-detect, `resolveCoachAction`) and, for explain, the
+breakdown the device has cached (stored as is, no Claude call); the action is recorded in `coach_conversations.action`
+(migration 0084) and the analysis is `{ kind: 'explain', breakdown }`. Explain results are cached by text with the card
+clue's breakdowns (`sentenceTextExplanations` / Lab `study/explain-text/<hanzi>`) and shown from there offline. The
+first replies are deliberately LEAN so the answer comes back fast; nothing is added to a deck from the analysis itself.
+**The conversation has NO quick-action chips and NO "Cards go to" deck picker** (Jerome, Oct 2026: "I'm not going to add
+full sentences as flashcards anymore"; docs/CHAT.md "The Coach conversation"): every Chinese text of the answer — the big
+sentence, the alternatives, the notes, Claude's Markdown replies — is tappable by word into the language explorer
+(`components/coach/CoachText.tsx` `CoachZh` / `CoachMarkdown` over the device segmenter; Lab `ui/coach/CoachText.kt`,
+the kit's `MarkdownText(chinese = …)`), where a word is added as a card or bumped; beside each big sentence and each
+alternative **▶ + 🎤 Practise saying it** (`shared/coach/practise.ts` `practiseSentence` = `tidySpokenTranscript` +
+`checkSpokenAnswer` → the compact "You said" row; web `components/coach/PractiseSentence.tsx` on `useVoiceDictation`
+(surface `coach_practise`, autoSubmit), Lab `ui/coach/CoachPractise.kt` + core `CoachPractise.kt`, parity-tested; tap 🎤
+again / Enter / a tap on the card stops; nothing stored; `coach.practise_say { result }`); "🎯 Mini lesson on this
+mistake" is a button on the check's card; the follow-up composer's 🎤 says **"🎤 Respond"** (`COACH_RESPOND_LABEL`,
+`sayLabel`). Everything deeper is a question in the follow-up chat, a `coach` turn of the Claude agent harness
+(`services/claude-agent/contexts/coach.ts`: `SONNET_MODEL`, thinking off, prompt caching) with `CARD_STANDARD` in its prompt and the tools. Every `create_flashcards` tool (Ask Claude,
+coach chat, chat "Discuss with Claude") shares ONE item schema, `FLASHCARD_ITEM_SCHEMA` in `services/claude-agent/tools/registry.ts` (re-exported by `services/ai.ts`):
+hanzi / pinyin / english / fun_facts (required) + sentence_clue (+ pinyin, translation) for word cards — the same
+fields the content service validates, so a coach-made card is a full standard card, never the critique as fun_facts.
+Conversations persist (`coach_conversations` / `coach_messages` tables); the chat's tools are create_flashcards,
+create_custom_lesson, search_cards, get_note_cards, get_note_history, get_overall_stats. **Replies are written in the
+background** (`routes/coach.ts`, `services/coach-replies.ts`, `coach-reply-queue`; docs/CHAT.md "Chat ↔ Coach"): with
+`background: true` the POST returns 202 with a pending assistant message, the queue writes it (checkpointed: answer +
+tool actions applied, retried on a busy model, failed → Retry), the page polls while pending (every second for 15 s,
+then every 2.5 s — `coachReplyPollMs`, `shared/coach/poll.ts`, Lab `CoachActions.replyPollMs`) — leaving never cancels it;
+the list shows "Thinking…". **Open in Coach** from a chat message (menu item, the chip under an improvable bubble, the
+How-to-say-it-better sheet) → `/coach?text=&action=check|explain&from_message=` (an explicit action runs at once,
+`coachDeepLinkAction`); my message's stored auto-check becomes the analysis without a Claude call.
+(`shared/coach/newWords.ts` — "➕ Add new words" — is now used only by the Lab app's podcast episodes.)
+- `POST /api/coach/conversations` - Start a conversation from a sentence: `{ text, action?: check|explain|translate, explanation?, background?, chat_message_id? }` (no action = auto-detect; 400 for check / explain without Chinese; `background: true` → 202 with a pending analysis; 201 when ready at once; 200 `reused` for a chat message already opened)
+- `GET /api/coach/conversations` - List conversations
+- `GET /api/coach/conversations/:id` - Get conversation with messages
+- `POST /api/coach/conversations/:id/messages` - Follow-up message (agent loop with tools); `background: true` → 202 `[user, pending]` (409 while one is pending)
+- `POST /api/coach/conversations/:id/messages/:messageId/retry` - Re-queue a failed reply → 202
+- `DELETE /api/coach/conversations/:id` - Delete a conversation
+- `POST /api/coach/ask` - "💬 Ask Claude" (docs/CHAT.md "Ask Claude chat"): `{ message, language?: zh|en }` → 202 `{ conversation (kind 'ask'), messages: [user, pending] }` — a plain chat with Claude in simple Chinese (the Ask Claude immersion rules, a `general` turn of the Claude agent harness, `services/claude-agent/` via `services/claude-chat.ts`), replies written by coach-reply-queue with `answer_lang`; follow-ups through `…/messages` with `language` (older apps; the web now starts these chats through `/api/claude/threads` in the Claude thread view) — web `components/claude/ClaudeThreadView.tsx` on the context-agnostic `components/claudeChat/` (thread: chips → explorer, ▶, 拼 / EN, 🎧, 🎤 Read it back via `useReadAloud`; composer), Lab `ui/claudechat/`; words to recap kept on the device (`services/claudeChatRecap.ts`, `shared/coach/askChat.ts`)
+- `POST /api/coach/conversations/:id/messages/:messageId/translate` → `{ translation, cached }` (kept in `coach_messages.translation`, migration 0143) · `POST /api/coach/conversations/:id/flashcards/propose { words? }` → `{ cards }` ("Make flashcards from this chat": the tapped / said-wrong words first)
+- `POST /api/coach/conversations/:id/mistake-lesson` - "🎯 Mini lesson on this mistake" (only after a check that found a mistake, `coachMistakeLessonOffered` in `shared/coach/mistakeLesson.ts`): 202 a pending `content_type: 'mistake_lesson'` message written by coach-reply-queue (`services/mistake-lesson.ts`: forced tool, thinking off, validateLessonSpec + shape checks, 2 repair rounds, pinyin checker), 200 `existing` — one per conversation, never regenerated. Played at `/coach/:c/lesson/:m` in the lesson player as a preview (nothing recorded); docs/CHAT.md
+- `POST /api/coach/conversations/:id/messages/:messageId/save-lesson` - `{ completion? }` → `{ lesson_id, title, completed, message }`: the lesson into Mini Lessons once (source `coach`); `completion` (a rating at the end of the preview) is recorded like an offline completion so it is scheduled from that rating
+
+### Features
+- **Pairing**: Either party invites by email, specifying their role (tutor/student)
+- **Chat**: live over the per-user ChatHub socket (polling only while it is down — see "Live delivery" below).
+  Every per-message tool lives in the message menu (long-press, right-click or the hover ⋯), built by the role-aware
+  `messageMenu` in `shared/chats/messageMenu.ts` (Lab `MessageMenu.kt`, parity-tested; it replaced the old ⋯ tool list
+  `toolsForMessage` / `learningToolsForMessage`). Failures show as inline notices, never `alert()`.
+- **Voice-first composer** (docs/CHAT.md "Voice-first composer"): the composer opens on 🎤 **Say it** (dictate the
+  message as TEXT — live words, then 🔁 · ✏️ · ✓ Check my Chinese · ➤), ⌨️ types; the round **waveform** button is the
+  hold-to-record VOICE MESSAGE (unchanged gestures). Web `components/chat/DictationComposer.tsx` on
+  `hooks/useVoiceDictation.ts`; Lab `ChatComposer.kt` `DictationRow`. The same voice-first box is on Ask Claude, Discuss
+  with Claude, the Sentence Coach (sentence box — the review runs Check / Explain / Translate — and follow-up) and Flag
+  for tutor; Lab helpers `ui/kit/VoiceFirst.kt`.
+- **One chat per pair** (docs/CHAT.md "One chat per pair", migration 0102, `routes/one-chat.ts`): a tutor and a
+  student have exactly ONE conversation — `openRelationshipConversation` (`services/conversations.ts`) is the
+  get-or-create every path posts through (`POST /api/relationships/:relId/conversations/open`; creating another
+  returns it). Older extras were merged into the most recently active one (messages moved, read markers max'd,
+  rows kept with `merged_into`); any `/api/conversations/<old id>/…` is served as the one chat, and
+  `GET /api/conversations/:id` says `merged_from`. No new conversation / titles / rename for people (PATCH → 410);
+  `/connections/:relId/chat` opens the chat; the inbox has one row per person. Claude practice chats stay many.
+- **Live delivery & notifications** (docs/CHAT.md — the contract): a per-user **ChatHub** Durable Object
+  (`worker/src/durable/chat-hub.ts`, binding `CHAT_HUB`; `POST /api/live/ticket` → `GET /api/live/ws?ticket=`) pushes
+  `message` / `read` / `typing` events to every open client; `services/chat/notify.ts` sends each new message to the
+  recipient's ChatHub, **FCM** (`services/push/fcm.ts`, HTTP v1, secret `FCM_SERVICE_ACCOUNT_JSON` — optional, skipped when
+  unset; tokens in `device_push_tokens`, `POST|DELETE /api/push/devices`) and Web Push (`chat_message`, tag `chat-<convId>`,
+  skipped by `push-sw.js` when that chat is in front). Read markers per person in `conversation_reads`
+  (`POST /api/conversations/:id/read`, `read_state` on GET messages, `GET /api/me/chat-inbox?since=` for background checks);
+  sends are idempotent by `client_id` (`messages.client_id`). Lab: `data/chat/` — `ChatNotifier` (Messages channel,
+  MessagingStyle per conversation, Reply via the Outbox, Mark as read, tap → the chat even from a cold start), FCM gated on
+  `app/google-services.json` (CI secret `GOOGLE_SERVICES_JSON`, setup in `android-lab/PUSH.md`), the live socket while in
+  front, `ChatCheckWorker` every 15 min as the fallback.
+- **Live chat & rich messages** (docs/CHAT.md "PR 2", migration 0090): typing indicator + "Seen" receipts over the
+  ChatHub socket (polling only while it is down), optimistic sends through an outbox (web `services/chatOutbox.ts`, own
+  Dexie db `chat-outbox`; Lab Outbox) replaced by `client_id`, photos + voice messages (`POST /api/conversations/:id/media`,
+  R2 `chat-media/<conv>/<msg>.<ext>` — person-made, never collected; served only to the two participants by
+  `GET /api/chat-media/:messageId`; voice transcribed with `transcribeTake` + translated in the background), edit / delete
+  (soft) / pin (`PATCH|DELETE /api/messages/:id`, `POST …/pin`), `?since=` also returns changed messages
+  (`updated_at`) and every change is a `message_updated` event, search in the chat (`shared/chats/search.ts`
+  `searchMessages`, Lab `ChatSearch.kt` parity-tested), "New messages" divider + "↓ N new" pill, unread badges on the
+  conversation lists. Web: `services/chatLive.ts`, `hooks/useChatThread.ts`, `components/chat/*Bubble.tsx`; Lab: `ui/chat/ChatRich.kt`, `data/chat/ChatMedia.kt`.
+- **Learning tools in the chat** (docs/CHAT.md "PR 3", migration 0091): every Chinese message (and voice transcript)
+  gets reader-style word chips in the background (`messages.words`, `segmentReaderText`; lazily
+  `POST /api/messages/:id/words`; while they're missing or failed the device's deterministic segmenter makes the chips — `shared/chinese/segment.ts`, web `services/chineseSegmenter.ts`, Lab `data/text/DeviceWords.kt`) → the reader word sheet (+ Add as card); per-message 拼 / EN toggles (remembered per
+  conversation); **Make flashcards** (select messages / Today / Last 50 → `POST /api/conversations/:id/flashcards/propose`,
+  structuredCall + CARD_STANDARD + FLASHCARD_ITEM_SCHEMA, `already_have` per card → review sheet → one
+  `POST /api/decks/:id/notes/batch`) replaces the old single "+ Card"; **Correct this** (the relationship's tutor,
+  `PUT|DELETE /api/messages/:id/correction`, shown as a `diffHanzi` red-pen diff, push `chat_correction`, the student's
+  "Make a card from this" = propose with `focus: 'correction'`); **Check my Chinese** on the compose box (`/api/sentence/coach`).
+  Which tools show is the message menu's rule (`messageMenu`, `shared/chats/messageMenu.ts`; Lab `MessageMenu.kt`, parity-tested).
+  Web: `components/chat/ChatWords.tsx`, `MakeFlashcardsSheet.tsx`, `ChatCorrection.tsx`, `CheckDraftPanel.tsx`,
+  `services/chatLearning.ts`; Lab: `ui/chat/ChatLearningViews.kt`, `ChatCardsSheet.kt`, core `ChatLearning.kt`.
+- **Chat round 2 — a normal chat app** (docs/CHAT.md "Round 2"): Signal-like bubbles with NO buttons on them —
+  groups by sender within 3 min, time + ✓ / ✓✓ ticks inside the last bubble of a group, day pills, reactions pill, reply
+  quote inside the bubble (`layoutBubbles` / `tickFor` / `firstLink` in `shared/chats/bubbles.ts`, Lab `ChatBubbles.kt`
+  parity-tested). Every tool is in the **message menu** — long-press (touch), right-click or the hover 😊 / ⋯ (desktop):
+  a reaction bar + Reply · Copy · Translate · Pinyin · Explain · Save as flashcard · Make flashcards from selection ·
+  Check my Chinese · Correct · Read aloud · Discuss with Claude · Pin · Edit · Delete · Select (`messageMenu` in
+  `shared/chats/messageMenu.ts`, Lab `MessageMenu.kt` parity-tested; web `components/chat/MessageMenu.tsx`).
+  Explain / Save as flashcard = `components/chat/ExplainSheet.tsx` (`/api/sentences/explain-text` cached by text,
+  `SentenceWordBreakdown`, the whole message as one card via `breakdownSentenceCard` → `AddChunkModal`). Swipe right on
+  a bubble = reply. Composer: `[+] [😊 field ✓] [🎤|➤]`, hold the mic to record (slide left 100 px cancels, up 80 px
+  locks; `VoiceComposer` `mode` held / locked). Voice bubbles: real waveform (`services/voiceWaveform.ts`) + 1× / 1.5× / 2×.
+  Link previews: `GET /api/link-preview?url=` (`services/link-preview.ts`: public http(s) only, ≤ 512 KB, cached a day;
+  client `services/linkPreview.ts`). Styles: `components/chat/chat-signal.css`.
+- **Photo albums** (docs/CHAT.md "Photo albums", migration 0118 `messages.album_id` / `album_index` / `album_notified_at`):
+  photos picked together stay one message each (forward / delete / reactions / receipts per photo) but carry a client-chosen
+  `album_id` + index (`…/media?album_id=&album_index=&album_count=`; offline outbox keeps them in order) and render as ONE
+  bubble — `layoutBubbles` emits `kind: 'album'` items (old photos without an id group by the 10 s rule), `albumTiles`
+  collage (2 / 1 big + 2 / 2 × 2 / 2 × 2 + "+N"), tap → swipe viewer "3 / 5" (web `components/chat/AlbumBubble.tsx`, Lab
+  `ui/chat/ChatAlbumViews.kt` HorizontalPager), long-press → `albumMenu` (Forward all with one new album id, Delete all;
+  reactions go on the album's LAST photo). ONE notification per album: the first photo to arrive claims it
+  (`services/chat/albums.ts` `claimAlbumNotification`) and push / e-mail / bell say "📷 3 photos"; live events stay per
+  photo (+ `album_count`); the inbox row and `/api/me/chat-inbox` show the album once. Shared rules parity-tested
+  (`parity/fixtures/chat-albums.ts`); events `chat.album_sent`, `chat.album_viewer_open`
+- **Chat round 2 PR 3** (docs/CHAT.md "Round 2 — PR 3", migration 0095 `messages.forwarded_from`): files / PDFs
+  (`kind=file&name=`, ≤ 20 MB, extension whitelist `FILE_TYPES`, served with Content-Disposition + `sandbox` CSP) and video
+  clips (`kind=video`, ≤ 25 MB) on `POST /api/conversations/:id/media`; several photos at once (one message each); **Forward**
+  (`POST /api/messages/:id/forward { conversation_id, client_id }`, media copied to its own key, "↪ Forwarded"); **Info**
+  sheet; drafts per conversation (`services/chatDrafts.ts`, Lab `core/…/ChatDrafts.kt` parity-tested) and the header's
+  "🕓 N waiting for a connection" (`queueLabel`). Web: `FileBubble`, `VideoBubble`, `ForwardSheet`, `MessageInfoSheet`;
+  Lab: `ui/chat/ChatForward.kt`, `ChatRound3Views.kt`, `core/…/ChatFiles.kt`.
+- **Chat read-aloud voice** (`shared/chats/voice.ts`, Lab `core/…/ChatVoice.kt`, parity-tested): Read aloud goes
+  through the exercises' TTS path (`POST /api/practice/tts`, device cache by text + voice + speed, plays offline once
+  heard) in a voice from the LISTENER's conversation voices that matches the SENDER's `users.voice_gender` (male → first
+  enabled male voice, female → first enabled female, other / not set → the app voice Radio Host); Claude's lines in a
+  role-play keep that chat's persona voice. `conversations.voice_id` (column DEFAULT 'female-yujie') is ignored for human
+  chats — it was why every chat read in a sultry role-play voice. `voice_gender` rides on `/api/auth/me`, `/api/profile`
+  and the relationship's requester / recipient. Offline and never fetched → a zh-CN device voice of the sender's gender
+  (`pickChineseVoiceFrom`). `/api/practice/tts` and `/api/conversations/:id/tts` (`{ message_id }` → resolved server-side)
+  keep MiniMax clips in R2 `tts-cache/` (`services/tts-cache.ts`).
+- **Listening mode** (docs/CHAT.md "Listening mode", `shared/chats/listening.ts`, Lab `ChatListening.kt` parity-tested): chat ⋯ → 🎧 Listening mode (+ 🙈 Hide all), Settings → Chat default; the other person's new Chinese text messages show as a hidden bubble — **tap plays** (0.75× chip), **long-press reveals** (no menu until revealed; 👁 too; revealed ids per device). Inbox / push / e-mail say "🎧 New message" (`notificationPreviewFor`). The tap plays the Read-aloud clip (one TTS path, `shared/chats/voice.ts` + R2 `tts-cache/`), pre-generated for the listener on send / edit (`services/chat/message-audio.ts`, waitUntil) and prefetched on chat open, live updates and sync (`GET /api/me/chat-clips`); web `services/chatListening.ts`, `components/chat/ListeningBubble.tsx`.
+- **Flashcard Generation**: AI generates flashcards from chat context
+- **Deck Sharing**: Tutors can copy decks to students (auto-added)
+- **Student Progress**: Tutors can view student study statistics

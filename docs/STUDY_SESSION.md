@@ -2718,7 +2718,7 @@ easily-confused / similar-sounding word or near-synonym (`contrast`). Now:
 Jerome: the set row 这些破烂东西可以扔掉。 read "… kěyǐ zhuāngdiào" and its "What's going on here?" said 扔掉
 **zhuāngdiào** — 扔 is only ever rēng (he noticed because the explorer and his read-aloud disagreed with the card). The
 sentence sets and breakdowns are Claude's pinyin that never went through the deterministic pinyin check the lessons and
-readers use. Now (`worker/src/services/sentence-pinyin.ts`, CLAUDE.md "Pinyin check on lessons and readers"):
+readers use. Now (`worker/src/services/sentence-pinyin.ts`, docs/AI.md "Pinyin check on lessons and readers"):
 
 - **New sentences** (first set, "+ more", listening / round top-ups) are checked before they are stored: only an
   impossible syllable is corrected (zhuāngdiào → rēngdiào), a real reading never (大人 dàrén, 还 hái, 好好 hǎohāo), plus
@@ -3802,3 +3802,216 @@ sees "<tutor> replied to your flag: …" under the pinyin the next time ANY card
 comes up (matched on note_id, not card_id), once; rating the card marks it seen through the
 same `/seen` endpoint. The student's own flags (status, reply) are under **Cards you flagged**
 on their tutor page and on the card's hub page (`/cards/:noteId`), which can also send a flag.
+
+## Code map & API (moved from CLAUDE.md, Nov 2026)
+
+The agent-facing detail that used to live in CLAUDE.md: where the code is, the endpoints, the rules each
+part follows. CLAUDE.md keeps only the cross-cutting rules and points here.
+
+### Study Flow (Offline-First)
+**Study works 100% offline** - no loading spinners between cards, instant transitions.
+
+For detailed behavior, see [docs/STUDY_SESSION.md](./docs/STUDY_SESSION.md) — including the
+card-back layout (always-visible example sentences, one footer action row **Ask Claude · Edit card · ⋯**, everything else under ⋯ in
+`frontend/src/components/study/`), offline mode (automatic from NetworkContext + a forced
+override, `services/offlineMode.ts`), the 8s multiple-choice fallback (`services/multipleChoice.ts`),
+"today is the session" (no exit confirm: ✕ just leaves and the same card — revealed, answer,
+recording — comes back; ⋯ → Sentence coach and back; celebrate emptying today's queue once a
+day; active study time per day, `shared/study/`, `PUT /api/me/study-time`), and tutor notes on recordings. Study-only styles live in
+`frontend/src/pages/StudyPage.css`.
+
+**Card Priority:**
+0. A NEW word bumped ⚡ DURING the session (breakdown → explorer → + Add as card → ⚡, any ⚡, Ask Claude's bump_cards): its lead card is the very next card once the one on screen is rated, in the order bumped (`shared/decks/bump-next.ts` `sessionBumpPlan` / `pickNextUpCard`, Lab `BumpNext.kt`, parity-tested; docs/STUDY_SESSION.md "⚡ Study it today" → "During a session")
+1. Learning cards due NOW (highest priority - active timers; before ⚡ bumped cards too)
+2. ⚡ Bumped cards MIXED with the reviews: a pocket card with probability max(0.5, pocket ÷ (pocket + other new / review cards)), else step 3 without the pocket's cards (`mixBumpedCard` / `bumpPickChance`, `shared/decks/bumps.ts`, Lab `Bumps.kt`, parity-tested `parity/fixtures/bump-mix.ts`; Nov 2026 — the pocket used to come strictly first and starve the reviews)
+3. Mix of new + review cards (proportional selection)
+4. Learning cards on cooldown but due today (shown immediately when nothing else available)
+
+**New Card Daily Budget (global, filled from the deck queue):**
+- One budget per account (`users.new_cards_per_day` / `secondary_cards_per_day`, NULL = `DEFAULT_STUDY_BUDGET` 3 + 6; `PUT /api/profile/study-budget`, on `/api/auth/me` and `/api/sync/changes` as `study_budget` (`StudyBudgetInfo`: numbers + `is_default` + who set it), mirrored to localStorage by `services/studyBudget.ts` for offline study — refreshed on every sync, so a tutor's change applies the same day; Lab: `refreshProfile` each sync). **The tutor can set it**: student page → Homework → "Daily new cards" row → Edit (`components/tutor/DailyBudgetSection.tsx`: New words a day / Extra cards a day, Reset to default, live "At 5 a day, <deck> finishes in ~9 days"), `GET|PUT /api/relationships/:relId/student-study-budget` (`routes/student-study-budget.ts`, tutor of an active relationship; same `pickStudyBudgetUpdate` validation, `null` = default), MCP `set_student_study_budget`. It records `users.study_budget_set_by` / `_set_at` (migration 0097; the student's own change sets it back to themselves — last write wins), posts a system message in the chat on the tutor's behalf ("📚 Minghui set your new cards to 5 a day (+10 extra)" / "You set Jerome's new cards…", docs/CHAT.md "System messages"), and the student's Settings shows "Set by Minghui · 3 Oct"; the dashboard card shows "📚 5 + 10 a day" when not the default. Copy + the info shape: `shared/decks/tutor-budget.ts` (Lab `core/…/TutorBudget.kt`, parity-tested). The student's own decks / caps are never touched. Per-deck `new_cards_per_day` / `secondary_cards_per_day` are now **caps** on what one deck may take of it.
+- **Deck queue**: `decks.study_priority` (higher first, ties newest first; `sortDecksForQueue`). `POST /api/decks/:id/move {to: top|bottom}`, `PUT /api/decks/reorder {deck_ids}`; the Decks tab shows #N badges with a move menu and **press-and-hold to drag** (`services/dragReorder.ts`: `useLongPressReorder`, pointer events + a non-passive touchmove blocker, pure `indexUnderPointer` / `moveToIndex` unit-tested; commits through `reorderQueue`), Home has "↑ Top" and the *Next up* line (`components/home/NextUpLine.tsx`: deck, words to go, ~days at the current rate). A shared homework deck lands on top (`priority: 'core'`, the default) or at the bottom (`'non_urgent'`) — `POST /api/relationships/:relId/share-deck { deck_id, priority }`, the Send-homework sheet's Core / Non-urgent choice, the MCP `share_deck_with_student` / `create_deck_for_student` `priority` param. The tutor's student page shows per packet "N/M words met · X to go, ~D days" (`words_to_go` / `days_to_go` from the student's budget in `services/tutor-dashboard.ts`) and a **#N of M** queue badge (`queue_position` / `queue_total` from the student's whole deck queue) with the same Move to top / up / down / bottom menu as the Decks tab (`components/QueuePositionMenu.tsx`, shared by both) — `POST /api/relationships/:relId/shared-decks/:id/move { to }` moves the student's copy in THEIR queue (tutor only; the MCP `move_student_deck` tool). The pure order helper is `moveInOrder` in `shared/decks/queue.ts`.
+- **Primary (blue)** — cards of unseen notes, ONE lead card per note — **"Start new words by ear"** (Settings → New cards, the first switch under the order, ON by default; `new_words_by_ear` in the same `users.new_card_order` JSON, no migration; `shared/decks/lead-card.ts` `earLeadNotes` / `leadCardsFrom` / `secondaryTypeRank`, `study-queue.ts` `leadCardsInQueue` → `leadCards` / `earLeadNoteIds` / `newWordsByEar` on the result, Lab `LeadCard.kt` / `StudyQueue.kt`, parity-tested by the `ordered` + `leadCard` vectors; Jerome reads the words he knows but doesn't hear them): an unseen note with a NEW audio_to_hanzi card (not held) leads with it, winning over the rule below, and in the purple pool a started word's listening card comes first (the notes whose hanzi_to_meaning card is in Review first, then the rest; Up next's purple cards too, `earFirstWithinNotes`) — only card types change, never which notes, how many or the pool sizes; applies only with the notes' text (`QueueNoteText`); the session reads `leadCards` + `newWordsByEar` (`pickPrioritizedNewCard`, Lab `StudyQueue.selectNext`); E2E test users get it OFF unless `/api/test/auth { new_words_by_ear: true }` (`e2e/tests/by-ear.spec.ts`). Otherwise hanzi_to_meaning — except **"Words made of characters I know: start with English → Chinese"** (Settings → New cards, under the order, ON by default; `known_characters_english_first` in the same `users.new_card_order` JSON; `shared/decks/lead-card.ts`, Lab `core/…/LeadCard.kt`, parity-tested `leadCard` vectors): an unseen note whose Han characters are ALL known (in a note with a mature card — Review, stability > 21 d) leads with meaning_to_hanzi; only the card type changes, never which notes or how many. **"Order new cards by"** (Settings → New cards, per account; `shared/decks/new-card-order.ts`, Lab `core/…/NewCardOrder.kt`, parity-tested): five switches, all on by default, applied as tiers across ALL decks in scope before the deck queue decides — (1) **New characters first**: unseen notes that bring ≥ 1 never-seen Han character (seen = hanzi of notes with a reviewed card, any deck; with Most common first on, ranked by the character rank of the note's most common NEVER-SEEN character — the most useful new character first, unlisted characters last, re-ranked greedily after each pick — then by new characters up to 2, then word frequency; off: by new characters up to 2); (2) **New words first**: WORD notes (`noteKind`: 1–4 Han characters, no sentence punctuation) whose text appears in no studied note's hanzi, sentences included (银行 is new even when 银 and 行 are known; a word met inside a studied sentence is not; index = every 2–4 character piece inside a Han run, `StudiedIndex`); (3) **Everyday words before formal ones** (`everyday_first`; `shared/decks/formality.ts`, Lab `core/…/Formality.kt`, parity-tested over the shipped lexicon): inside each tier (and inside a deck in the fallback) everyday < neutral < formal BEFORE the frequency rank, never across tiers — the class from the word-tag lexicon's register (F / L formal; C / I / S everyday; R / D neutral), else the note's AI word tags (`notes.word_tags`: register formal / literary, ✨ Everyday speech at high spoken confidence, informal / slang; low confidence ignored; lexicon wins); word notes only (sentences neutral); web: the lexicon loaded with the frequency list + a per-note memo (`services/noteFormality.ts`), `QueueNoteText.formality`; Lab: `LabDao.noteFormality` → `StudyQueue.build(formality = …)`; (4) **Most common first**: inside each tier (and inside a deck in the fallback) by wordfreq rank (tier 1: first by the most common new character, `characterRank`), unknown words after listed ones by their rarest character (`frequency.ts`; the list `shared/data/frequency/word-freq.txt` — wordfreq `large_zh`, CC BY-SA 4.0, 30k words + 8k characters, built by `npm run build:word-freq`; web: a lazily imported precached chunk, `services/wordFrequency.ts`; Lab: a core classpath resource, `WordFrequency.shipped`); (5) **Sentences last**: words before sentences inside tier 1, and after the tiers every word note (all decks, queue order) before any sentence; (6) then deck priority, deck by deck as before. Greedy (each pick's characters / pieces count as studied for the next), ties: deck position, shorter, card id; a heap with lazy re-checks keeps it ~10 ms on top of the queue for 10k notes. Each deck gives at most min(unseen cards, cap left): one-off 0 + 0 decks, opted-out words, bumps (first, outside the budget), the purple pool and homework passes are unchanged. `pickNewCardsFirst` (`study-queue.ts`) → `pickNewCardsByOrder`, `respreadPrimary` keeps the total, `orderWithinDeck` for the per-deck rest; Home's per-deck rows via `DeckQueueRaw.noveltyPicks`. Stored as `users.new_card_order` (JSON, NULL = defaults; migration 0113), `PUT /api/profile/new-card-order` (`pickNewCardOrderUpdate`, 400 + `problems`, `{ reset: true }`), on `/api/auth/me` + `/api/sync/changes` as `new_card_order`, cached on the device (web `services/newCardOrder.ts` localStorage, Lab `Prefs.newCardOrder`) so study follows it offline; the debug report carries it (`new_card_order`, compared by `compareDebugReports`); analytics `settings.new_card_order`
+- **Long-term choice per word** (`notes.long_term`, `shared/decks/long-term.ts`; docs/HOMEWORK.md §3a): a homework pass's answer side has "Add to my long-term review". `0` = the word's NEW cards never enter a pool (only while no card of it was reviewed); `1` = introduced even from a one-off deck (caps 0 + 0), which then gives its opted-in words the default caps; `NULL` = follow the deck. `selectStudyQueue(..., longTerm)` / Lab `StudyQueue.build(longTerm = …)`, parity-tested; `PUT /api/notes/:id/long-term` (sets `long_term_at`, never `updated_at`).
+- **Secondary (purple)** — additive: NEW cards whose note already has a reviewed card, so other card types of started words keep flowing even when brand-new words would fill the primary limit. Leftover primary budget can also admit secondary cards.
+- The pure allocator is `allocateNewCards` in `shared/decks/budget.ts` (used by `allocateQueueCounts` in `frontend/src/db/database.ts` for the study queue, deck counts and the Study button). See docs/STUDY_SESSION.md.
+- **"⚡ Study it today" — the bump pocket** (`shared/decks/bumps.ts`, Lab `core/…/Bumps.kt`, parity-tested via `android-lab/parity/fixtures/study-queue.ts`). **What one ⚡ tap bumps is ONE rule from everywhere** (`shared/decks/study-today.ts` `studyTodayPlan`, Lab `core/…/StudyToday.kt`, parity-tested `parity/fixtures/study-today.ts`; first the homework pass's, `shared/homework/pass-bump.ts` = aliases; docs/STUDY_SESSION.md "⚡ Study it today", docs/HOMEWORK.md §3c): a card-level bump of the word's LISTENING card — an unstarted word: ONLY its listening card (with "Start new words by ear" even before its clip exists — a word just added from a breakdown has none for a few seconds; else its lead card when there's no clip), opted into long-term review, its other NEW cards wait (`pocketSiblingIds`: no blue card / Up next slot while the bump is open) and come later as purple cards; a started word: only its listening card — and the whole-note bump below only for a started word with no listening card / no clip. Device: web `services/studyBumps.ts` `bumpNotes`, Lab `BumpStore.bumpNotes` / `bumpHanzi` (every ⚡ except the ⋯ menu's other-card tiles), rows sent with `planned: true`; the server plans any bump without `card_types` and not `planned` (Claude / MCP `bump_cards`, the tutor's student bumps, older builds — `services/study-bumps.ts` `planServerBumps`, `kinds` in the reply); toast `studyTodayMessage` ("⚡ Listening card of 银行 added to today"). A word the learner already has comes EARLY in today's session (guaranteed today, mixed with the reviews — at least half the picks after learning cards due now) instead of being added again. Per whole-note bumped note, cards not reviewed since the bump: every NEW card (introduced today even when the budget is spent — outside the pools, never taking from or waiting for the budget; once reviewed it counts toward introduced-today like any new card), every card already due (moved to the front), plus ONE early review of the most important not-due card (hanzi_to_meaning first; ts-fsrs schedules it from the real elapsed time) unless a due card is already in or a card in circulation before the bump was reviewed since; ≤ 3 per note. Done = nothing left (each bumped card reviewed since the bump); unfinished bumps carry over; Remove from today by hand. `selectStudyQueue(…, bumps)` puts the pocket first (`bumped`, `bumpedNoteIds`), `selectNextItem` mixes bumped cards with the reviews after learning cards due now (`mixBumpedCard`: a pocket card with probability max(0.5, its share of the new / review cards on offer); recent-notes spacing kept), the card shows a ⚡ badge ("⚡ from Minghui" when the tutor bumped it), Home says "⚡ N bumped for today" (`bumpedLabel`; `DeckQueueCounts.bumped`). Web: `services/studyBumps.ts` (IndexedDB `studyBumps`, Dexie v27, pending add / clear uploaded at once or in sync, the server list replaces the rest), `components/bumps/BumpButton.tsx`. Entry points: every add-card sheet that finds the word (AddChunkModal — Coach Explain, chat Explain / Save as flashcard, sentence rows, picture hunt —, the reader / chat word sheet, Make flashcards' "Already in your decks", Paste a list's "Already in deck" rows) makes **⚡ Study it today** the primary action ("Add anyway" second — into the sheet's source deck; a NEW word is saved in one tap with no deck picker, "✓ Added to From readers · Change", docs/STUDY_SESSION.md "Source decks", web `services/sourceDecks.ts` + `components/sourceDecks/`, Lab `ui/kit/AddedToDeck.kt`); the Coach's words go through the explorer's Word view (its old ⚡ sentence chip + picker were removed in Oct 2026) — one tap never bumps a pile of words; `bump_cards` always takes an explicit list (never every word of a sentence); deck page rows / edit sheet and the card hub have ⚡; Claude's `bump_cards` tool in Ask Claude, the coach chat and chat Discuss (`BUMP_CARDS_TOOL`, run inline; their prompts say bump instead of duplicating); MCP `bump_cards` / `list_bumped_cards` / `clear_bumped_card` / `bump_student_cards`. **Card-level bumps** (`study_bumps.card_types`, migration 0134; Lab Room v10): the study card's ⋯ sheet's top row — one tile per OTHER card of the word (读 Read · 写 Write · 听 Listen) with its status from the replayed state (Not started · New · in today's queue · Learning · Due today · Review · next in 12d · Known · Suspended · Snoozed · Leech) and a 3-step strength bar (`shared/decks/sibling-status.ts`, `components/study/SiblingCards.tsx`, Lab core `SiblingStatus.kt` / `ui/study/SiblingCardsUi.kt`, parity-tested; replaced "Practise this word other ways…" in Nov 2026) → that card's sheet: ⚡ Study it today puts only that card type in the pocket (a NEW sibling over the budget, a started one's early review), Snooze / Suspend / Unsuspend / Wake, Forget, Open card details; the cards join the current session at once (`addBumpedCards`) but never within 3 cards of their sibling (`pickBumpedCard`); docs/STUDY_SESSION.md "The word's other cards in ⋯".
+- **"Up next" — chosen words first, within the budget** (`shared/decks/up-next.ts`, Lab `core/…/UpNext.kt`, parity-tested by the `upNext` vectors in `android-lab/parity/fixtures/study-queue.ts`; docs/STUDY_SESSION.md "Up next"): an ordered per-account list (`up_next`) the learner or the tutor fills; `selectStudyQueue(…, upNext)` gives it what is left of the ONE budget (`newBudgetLeft`) BEFORE the deck allocation and "Order new cards by": one blue card per unstarted note (best card type first; its siblings wait), a started note's NEW cards from the purple budget only; deck caps (incl. one-off 0 + 0) don't limit it but its picks count against them (`withUpNextPicks`); unstarted `long_term = 0` words skipped, ⚡ pocket notes left to the pocket; its notes never feed the regular pools. A note leaves the list when every card has a review; removing never deletes. Result: `upNext` cards + `upNextNoteIds`.
+- **"Pause new cards on heavy days"** (review-load cap; `shared/decks/review-load.ts`, Lab `core/…/ReviewLoad.kt`, parity-tested; docs/STUDY_SESSION.md "Pause new cards on heavy days"): optional `users.pause_new_when_reviews_over` (migration 0131, NULL = off, 10–1000) in `StudyBudgetInfo` (same routes / sync / device cache as the budget; tutor sheet + MCP `set_student_study_budget` too, no chat message for it alone). Today's review load = cards past NEW due by the cutoff + cards reviewed today (never a card first reviewed today), so it doesn't fall during the day; over the limit → today's budget is 0 + 0 (`budgetForToday`) — reviews, learning steps, ⚡ bumps, homework, lessons unaffected; Up next waits; Study 10 more still adds. Web: `loadStudyInputs` gives every queue today's budget (`RawQueueCounts.budget` / `.reviewLoad`); Lab: `data/TodaysBudget.kt` at every `StudyQueue.build`. Home: "⏸ New cards paused — 124 cards reviewed or due today (limit 100)"; tutor: overview `review_load` (`services/review-load.ts`, SQL) → "⏸ New cards paused today · 124 cards reviewed or due"; debug report `review_load`.
+- **"Due today" is one shared definition**: `shared/decks/study-queue.ts` (`selectStudyQueue`, `introducedToday`, `countQueue`) — learning / review cards due by the cutoff (the end of the STUDY day, `shared/study/studyDay.ts`) plus the budget's new cards; Home shows the counts of exactly that queue (a learning card due tomorrow is not counted). Introduced-today is derived from review events (first-ever review at/after the study day's start — the account's "New day starts at", 4 am by default), never from a counter. The Lab app's `StudyQueue.kt` is parity-tested against it (`android-lab/parity/fixtures/study-queue.ts`). **The server runs the same queue** (`worker/src/services/study-queue.ts`: `loadStudyQueueInputs` — decks, cards, budget, today's first reviews, long-term, bumps, Up next, holds, bury, heavy-day pause — → `selectStudyQueue` / `countQueue`; no "Study 10 more" bonus, no "Order new cards by", which changes which cards, never how many): every server number says which one it is — `due_today` (reviews due + the budget's new cards = Home's Study button) or `reviews_due` (learning + review cards due, no new cards). `/api/stats/overview`, `/api/stats/deck/:id` (the deck's own session), `/api/cards/due`, the tutor's `/student-progress`, the Claude agents' stats / due-card tools and the MCP `list_decks` / `get_deck_progress` / `get_due_cards` / `get_overall_stats` / `study` all read it; `GET /api/me/study-queue?deck_id=&per_deck=1&limit=N`. Before (Nov 2026) the server counted every NEW card as due (Jerome: 8,571 "due today"). Tested against real SQLite (`study-queue-server.test.ts`); the guard test fails on SQL that counts every NEW card as due.
+
+**Session Flow:**
+1. User selects a deck (or "All Decks") and starts a study session
+2. Three card types test different skills:
+   - **Hanzi → Meaning**: See characters, speak aloud, reveal answer
+   - **Meaning → Hanzi**: See English, type characters, check answer
+   - **Audio → Hanzi**: Hear audio, type characters, check answer
+3. On answer reveal:
+   - Play TTS audio (if cached)
+   - **Ask Claude** about the word (requires internet, fails gracefully)
+   - Rate difficulty (Again/Hard/Good/Easy)
+4. Reviews are saved locally and synced to server in background
+5. Today is the session: leaving Study ends nothing and the card on screen comes back as it was
+   (`shared/study/resume.ts`); "All done" appears when all learning cards graduate (due tomorrow+)
+   and no new/review cards remain, celebrated once a day (`shared/study/celebration.ts`) with
+   "Today: 23 min · 142 reviews" (active time, `shared/study/activeTime.ts`)
+6. "Study More" button appears to add 10 bonus new cards beyond daily limit
+
+### "⚡ Study it today" (`worker/src/routes/study-bumps.ts`, `services/study-bumps.ts`)
+- `GET /api/me/bumps` → `{ bumps }` — the active pocket (note text + deck; `bumped_by_name` when the tutor bumped it); finished bumps get `done_at` and drop out
+- `POST /api/me/bumps` `{ items?: [{ id, note_id, created_at?, source? }], note_ids?, hanzi?, source? }` → `{ bumps, added, already, not_found }` (idempotent by note + client id; hanzi matched among my notes with `normalizeHanzi`; a finished / cleared bump is re-opened with a fresh created_at; 404 when nothing matched)
+- `DELETE /api/me/bumps/:noteId` → `{ cleared, bumps }` (idempotent)
+- `POST /api/relationships/:relId/student-bumps` `{ note_ids?, hanzi? }` — the tutor bumps the STUDENT's own cards (tutor of an active relationship only)
+- `/api/sync/changes` carries `bumps` (the whole active list)
+
+### Suspend & snooze (`worker/src/routes/card-holds.ts`, `services/card-holds.ts`; docs/STUDY_SESSION.md)
+- `GET /api/me/card-holds` → `{ holds }` — active holds with the card's note / deck (snoozes over by > 2 days left out)
+- `POST /api/me/card-holds` `{ items?: [{ id, card_id, kind: suspend|snooze, until?, created_at?, source? }], card_ids?, note_ids?, hanzi?, card_types?, kind?, until? }` → `{ holds, added, already, not_found, invalid }` (idempotent by client id; a new hold clears the card's older ones; 400 / 404)
+- `POST /api/me/card-holds/clear` `{ card_ids?, note_ids?, hanzi?, kind?, cleared_at? }` → `{ cleared, holds }` (clears holds made at or before `cleared_at`)
+- `PUT /api/profile/bury-siblings` `{ bury_siblings: boolean | null }`; on `/api/auth/me` and `/api/sync/changes`
+- The server's due list (`getDueCards`, MCP `get_due_cards` / study app) leaves held cards out
+
+### Leeches + "Forget this card" (`worker/src/routes/card-forgets.ts`, `services/card-forgets.ts`, `shared/cards/leech.ts`; docs/STUDY_SESSION.md "Leeches" / "Forget")
+- A leech = 8+ lapses (Anki's: Again on a card in Review = FSRS `lapses`): "⚠️ Missed 8×" on the answer side → the leech sheet (misses, recent ratings, Edit · memory hook · Snooze · Suspend · Forget); never auto-suspended
+- Forget = an EVENT `{ id, card_id, forgotten_at }` in `card_forgets` (migration 0136), never a review: the replay (`computeCardState` / Lab `CardScheduler`) restarts from NEW at a `kind: 'forget'` event (`withForgetEvents` / Lab `Forgets.merge`, parity-tested); "first review" / introduced-today read the reviews after the last forget. Every replay site merges them (server reviews / undo / recompute-states; web `getCardReplayEvents`, repair, session; Lab `Repository.replayEvents`)
+- `GET /api/me/card-forgets` → `{ forgets }` · `POST /api/me/card-forgets` `{ items?: [{ id, card_id, forgotten_at?, source? }], card_ids?, note_ids?, card_types? }` → `{ forgets, added, already, not_found }` (idempotent; cards recomputed) · `POST /api/me/card-forgets/undo { ids }` → `{ undone, forgets }` (Undo — `undone_at`)
+- `/api/sync/changes` carries the live list as `card_forgets`; the card hub (`/api/notes/:id/hub`) carries `forgets` (shown as "↺ Forgotten — back to New" among the recent reviews)
+
+### "Up next" (`worker/src/routes/up-next.ts`, `services/up-next.ts`)
+- `GET /api/me/up-next` → `{ up_next }` — the active list in order: note text + deck, `status` new | started, `new_cards` / `total_cards`, `added_by_name` when the tutor added it; entries whose every card has a review get `done_at` and drop out
+- `POST /api/me/up-next` `{ items?: [{ id, note_id, created_at? }], note_ids?, hanzi?, position?: 'top' | 'bottom' | index, source? }` → `{ up_next, added, already, moved, no_new_cards, not_found, over_limit }` (≤ 100 a request, ≤ 500 on the list; idempotent by note + client id; a note already on the list moves when a position is given; notes with no NEW card are refused; 404 when nothing matched)
+- `PUT /api/me/up-next/order` `{ note_ids }` → `{ up_next }` (those first in that order, the rest after; unknown ids ignored) · `DELETE /api/me/up-next/:noteId` → `{ removed, up_next }` (idempotent; the note is kept)
+- `GET|POST /api/relationships/:relId/student-up-next`, `PUT …/order`, `DELETE …/:noteId` — the tutor of an active relationship on the STUDENT's list (`added_by` = her; no chat message)
+- `GET /api/relationships/:relId/student-notes/search?q=&limit=` — the tutor's search of the student's notes (`searchUserNotes`, shared with `/api/notes/search`) with `new_cards` / `total_cards` / `on_up_next`, to pick words for their list
+- `/api/sync/changes` carries `up_next` (the whole active list)
+
+### Sentence sets (graded example sentences per note)
+Each note can have a **set** of example sentences (separate from the single `sentence_clue`
+shown inline on the card): ordered easiest → hardest, every one a sentence a native speaker would
+naturally say — the word in its common meanings, everyday situations, at least one showing its usual
+collocation (focus `core` / `collocation` / `complex`). **Natural sentences only** (Nov 2026, Jerome:
+"used to build a sentence with some related or similar sounding word … contrived"): the generator no
+longer writes a sentence around a word sharing a character or an easily-confused / similar-sounding word;
+older rows with focus `shared_character` / `contrast` stay stored but are listed LAST on the card and
+"Listen in context", are never a Sentence round / listening round exercise, and never count toward
+"enough sentences" for any top-up (`shared/study/sentenceFocus.ts`, Lab `core/…/SentenceFocus.kt`,
+parity-tested; docs/STUDY_SESSION.md "Natural sentences"). **Example sentence style** (Settings → Study, per account:
+Standard · Everyday (default) · Casual; `shared/study/sentenceStyle.ts`, Lab `core/…/SentenceStyle.kt`, parity-tested;
+docs/STUDY_SESSION.md "Example sentence style"): the generator reads the note owner's `users.sentence_style` and adds its
+register instruction to the per-learner user message — Everyday = mostly natural spoken Chinese with the occasional
+common colloquial word / particle / saying where it fits, Casual = chatty most of the time; new sentences only (rows
+record `style`). Each sentence gets its own TTS clip and is cached in
+IndexedDB, so the whole set works offline. Generated with Sonnet for speed.
+On the study card there is ONE sentence list: the note's rows — the card's own sentence row
+`<note>-card` first (badged "From the card" from `is_card`; migration 0154, docs/STUDY_SESSION.md "Example
+sentences — one model"; until a device has the row it is made from the note, `withCardSentence`), then the
+generated set. The list is always visible under the
+meaning and scrolls under the card's footer. Rows start blank (listen first): **▶** on the right
+plays the clip, and each tap on the row uncovers one more line — hanzi, then pinyin, then the
+English — with a tap on a fully open row hiding it again (steps a row hasn't got are skipped;
+"Show all" opens every row for the current card). **EN** on the left flips a row into
+English-first mode for the reverse exercise: the translation goes up alone as the prompt and the
+reveal chain drops the translation step (hanzi, then pinyin) so you translate back into Chinese
+before checking. A fully open row carries a tools line: "What's going on here?" (an on-demand
+breakdown — word glosses + the construction — generated with Haiku; each word in it is tappable
+to add as a card) and **+ Add as card** for the whole sentence.
+Every row (the card's own one too) caches its breakdown on the row (`/api/sentences/:id/explain`).
+**A row reveals like every row even with no pinyin / translation** (~⅓ of card sentences — MCP-added / older
+ones): missing pinyin is made on the device (`devicePinyinLine`, Lab `devicePinyinLine` in `ui/study/Sentences.kt`),
+and the English step is always there — the line is fetched once as the row starts opening
+(`getSentenceTranslation` → `POST /api/sentences/:id/translate`, which keeps only the line on the row — and on the
+card row's note's empty `sentence_clue_translation`, never bumping `updated_at`; Lab `CardTools.rowTranslation`);
+offline and never fetched → "Translation needs a connection". "From the card" is a small badge in the row's line.
+**🎤 on a row** (docs/STUDY_SESSION.md "Practise a sentence aloud"; `shared/study/sentencePractise.ts`, Lab
+`SentencePractise.kt`, parity-tested): left of ▶ once something is open — read it aloud (judged like the Coach's
+"Practise saying it") or, English-first with the Chinese hidden, say it in Chinese (the sentence / a homophone is
+right on the device, anything else goes to `POST /api/lessons/answer-check` translate + spoken); practice only. Settings
+→ Study → **"Get two sentences right before Good / Easy"** (per device, off by default) locks Good / Easy on the
+reading and meaning cards of the regular session until two rows were said right on this showing.
+
+Sets are pre-generated in the background so study never waits on an AI call: notes are
+enqueued on `sentence-set-queue` when created, and the client's sync tops up the backlog
+(`topUpSentenceSets`, throttled to hourly) passing the upcoming study queue as priority.
+Rating a card **Again** also calls `ensureSentenceSetForNote` (fire-and-forget, once per note
+per session), so a word you just got wrong has sentences waiting when it comes back a minute
+later.
+`note_sentence_jobs` stops a note being queued twice or retried forever.
+- `GET /api/notes/:id/sentences` - List a note's sentence set
+- `POST /api/notes/:id/sentences/generate` - Generate a set (`{ count?: 3-10, customPrompt?, keepExisting? }`)
+- `DELETE /api/notes/:id/sentences` - Delete a note's set
+- `GET /api/sentences/changes?since=` - Offline sync: `{ sentences, note_ids, server_time }` — every row of every note one of whose rows (or the note) changed since a timestamp, the card row included (reconciled with the note first); replace each listed note's rows whole
+- `POST /api/sentences/prefetch` - Queue background generation (`{ note_ids?, limit? }`, default 20/call)
+- `POST /api/sentences/top-up` - `{ note_ids, reason?: fresh | few, counts? }` → `{ queued, note_ids }`: with a reason = the Sentence round's fresh buffer (3–8 more ADDED to any set up to 80, one job in flight per note, no daily limit, clips at interactive priority; docs/STUDY_SESSION.md "The fresh buffer"); without one = listening cards ("Listen in context", docs/STUDY_SESSION.md) — notes with fewer than five sentences (card sentence + set) get a `top_up` job on sentence-set-queue that ADDS sentences after the set (`appendNoteSentences`, rows kept); one job per note a day, never one given up on
+- `POST /api/sentences/:id/ensure-audio` - One set row's clip for a ▶ on a row with none: `{ status: ready|queued|failed, audio_url }` (made now, else queued at interactive priority; both apps show "Audio coming…" and ask again)
+- `POST /api/sentences/:id/explain` - Brief breakdown of one sentence (cached on the row)
+- `POST /api/sentences/:id/translate` - `{ translation, cached }`: the English line of a row written without one (the breakdown's line; only the line is stored, on the row — and the card row's note mirror). 503 retryable / 502
+- `POST /api/sentences/explain-text` - Same breakdown for a sentence with no row (the Coach's Explain, chat messages; older builds' card sentence); breakdowns carry a one-line `translation` (Haiku via `structuredCall`; 503 retryable / 502 declined)
+- `GET /api/sentences/stats` - Coverage + background-job state, for the settings overview
+- `POST /api/sentences/clue-audio` - Backfill TTS for card sentences that have none (`{ limit? }`, default 50, max 250; queued one per message)
+
+**Card-sentence audio** (the card row `<note>-card`'s clip — made through its note's `clue` clip kind until the
+deprecated columns go: `ensureClip` redirects a card row to it and `writeClip` mirrors the clip onto the row, one R2
+key for both): `sentence_clue` is written by several paths that don't generate TTS
+(MCP `add_note`/`batch_add_notes`, `PUT /api/notes/:id`, Claude's `edit_current_card`), which left
+those sentences with a ▶ that had nothing to play. `ensureSentenceClueAudio` now fills it in from
+`POST /api/notes/:id/generate-audio` (the endpoint both MCP paths call), on a note update whose clue
+changed, after Claude edits a card, and as part of each background sentence-set job. The Sentence
+Coverage page has a button to backfill the rest.
+
+**Sentence Coverage page** (`/settings/sentences`, linked from Settings): what fraction of notes
+have a card sentence vs a generated set, how many sentences are missing audio, the
+`note_sentence_jobs` breakdown (queued / done / failed / stuck / given-up) with the failing words
+and their errors, per-deck coverage, and buttons to queue a batch (20 or 100) or pull new sets down
+to the device. It polls `/api/sentences/stats` every 5s while jobs are in flight (capped at ~10
+minutes so a wedged job can't poll forever).
+
+### Pronunciation transcription ("You said: …" on read cards)
+A take is transcribed **as soon as the learner stops**, not when the card flips. When `SONIOX_API_KEY` is set, the
+take **streams to Soniox real-time while they speak** (`stt-rt-v5`, zh + en hints, no context, so the answer never
+biases the recogniser), and the transcript is final a few hundred ms after Stop. The permanent key never leaves the worker:
+`POST /api/transcribe/live` mints a **temporary Soniox key** (`usage_type: transcribe_websocket`, 30 min, tagged with the
+user id; `services/live-transcription.ts`, `routes/transcription.ts`) that the client caches and reuses until a minute
+before expiry, fetched ahead of time when a read card shows. The protocol (config frame, token folding, end-of-audio) is
+`shared/transcription/soniox.ts`. Web: `services/liveTranscription.ts` (`LiveTranscriber`: MediaRecorder webm chunks
+every 250 ms, `audio_format: auto`) + `useTranscription(…, live)`. Lab: `ui/study/LiveTranscription.kt` (a port of the
+protocol + `SonioxStream` on OkHttp) with `VoiceRecorder.startLive` (AudioRecord 16 kHz PCM → `pcm_s16le`, the take kept as
+WAV). **Fallback**: no key, the mint fails, the socket errors, empty text or a 4 s timeout → the take is uploaded to
+`POST /api/transcribe` with `live_error` (why live gave nothing — logged as `[transcribe] live stream failed on <client>: …`,
+the only place a device's live failure reaches the server logs); the server tries **Whisper → Soniox async
+(stt-async-v5) → Gemini** (`services/take-transcription.ts`, each provider's own error logged); offline shows "will
+transcribe when online". **Never silent**: when live and the upload both fail the card shows **"Couldn't transcribe — tap
+to retry"** (web `services/takeTranscription.ts` `transcribeTakeOutcome` + `useTranscription().retry`; Lab
+`TakeTranscription.outcome` + `StudyViewModel.retryTranscription`), which re-sends the SAME saved take; the recording is
+kept either way. A take Soniox refuses for its key (401 / 403, `liveFailureInvalidatesKey`) drops the cached key.
+**End of audio is an EMPTY TEXT frame** (`SONIOX_END_OF_AUDIO` / Lab `SonioxProtocol.END_OF_AUDIO`): an empty
+*binary* frame is just an empty audio chunk to Soniox — the Lab app sent that until Oct 2026, so every take timed out
+after 4 s and went the upload way. **The key goes WITH THE CONNECTION, never in the config frame** (Soniox, Oct 2026:
+the key in the first message is deprecated and refused with 401 from 15 Jan 2027; soniox.com/docs/guides/websocket-authentication):
+the web opens `new WebSocket(url, ['soniox-api-key', key])` (`sonioxBrowserAuth`, `SONIOX_API_KEY_PROTOCOL`; browsers
+can't set headers, Soniox echoes the protocol), the Lab sends `Authorization: Bearer <key>` on the OkHttp request
+(`SonioxProtocol.authorizationHeader`); never both (400). `buildSonioxConfig` carries no `api_key` — only a legacy
+`temp:` key (a colon is not a valid subprotocol) still rides in the web's frame until the deadline; current temporary keys
+are `snx_temp_…`. The worker has no Soniox WebSocket of its own (calls and the upload use the REST async API). Every take emits `study.take_transcribed { via, live_error, ms }` (analytics), so a
+broken live path shows in `event_counts` without reading logs.
+**Say the answer** on the typing cards (meaning → hanzi, audio → hanzi; docs/STUDY_SESSION.md "Say the answer"): a 🎤
+beside the answer box runs the SAME take (recorder + live stream, upload fallback, "tap to retry") with the transcript shown
+in the box as it is spoken (`LiveTranscriber` / `SonioxStream` `onUpdate`); ⏹ puts the final text on the **review step**
+(the transcript big in the card's hanzi style + device pinyin `devicePinyinLine`, read-only; 🔁 Retry = a new take replacing
+it · ✏️ Edit = into the box, focused, checked as typed once changed · ✓ Submit = checked with the spoken rule; a take that
+gave nothing → "Couldn't transcribe — tap to retry" + ✏️ Type / 🔁 Retry, no Submit). Settings → Study → "Skip the review —
+submit spoken answers as soon as I stop" (OFF by default, per device: web `spokenAnswerPrefs.ts`, Lab
+`StudyPrefs.spokenSkipReview`; the old auto-submit key, only ever written when flipped, so untouched devices get the
+review) checks it at once instead. The take rides with the
+review (`recording_url`, offline queue) and the review's answer is the transcript — no schema change. Homophones count by
+sound: `checkSpokenAnswer` in `shared/cards/answer.ts` (also `checkTypedAnswer`, the typed AnswerDiff decision; Lab
+`AnswerKey.checkSpoken`, parity-tested) accepts other hanzi whose toned pinyin (automatic pinyin + 一 / 不, or the note's
+pinyin) is the answer's — "Sounded right ✓ — written 由"; other tones = `close` (wrong). Web `hooks/useSpokenAnswer.ts` +
+`services/spokenAnswer.ts` (pure controller, unit-tested); Lab `StudyViewModel` "say the answer". Analytics
+`study.answer_spoken` (+ `reviewed`, `edited`; result `retaken` = Retry on the review), `study.spoken_answer_checked`
+(+ `reviewed`; both with `retry`). The question is **voice first**: one bottom row like the read card's — ✏️ Type · 👁 Show answer · a wide 🎤 Say it —,
+no box / keyboard until ✏️ Type (this card only; offline the box comes first). On the answer side **🎤 Say it again** (only
+for a spoken answer) is Record again for the spoken answer: the question with the live transcript, then the same review
+step there (✏️ Edit = a box on the question side), the submitted answer checked anew, the take replacing the previous one,
+the card's clip once; ✕ / back keeps the previous answer + take (`start({ again: true })` / Lab `sayAgain`).
+- `POST /api/transcribe/live` - `{ provider: 'soniox', api_key, expires_at, websocket_url, model, language_hints }` or `{ provider: 'upload' }`; 502 when Soniox refuses (client falls back)
+- `POST /api/transcribe` - multipart `file` (+ `live_error`, `client`) → `{ text, language, provider }`; 502 `{ error, providers }` when every provider failed (`routes/transcription.ts`)
+- `GET /api/admin/transcription` - admin: which providers are configured (booleans only, never a key)

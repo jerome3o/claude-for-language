@@ -137,3 +137,21 @@ page open in another tab — and the student couldn't hear their own recording. 
 
 Recordings are only listed for the student's tutor (`requireTutor`); the check data never reaches
 the student. The upload route refuses a `review_id` that belongs to another account.
+
+## Code map & API (moved from CLAUDE.md, Nov 2026)
+
+The agent-facing detail that used to live in CLAUDE.md: where the code is, the endpoints, the rules each
+part follows. CLAUDE.md keeps only the cross-cutting rules and points here.
+
+### "Needs your ear" — recording review queue (docs/RECORDING_REVIEW.md)
+Every uploaded pronunciation take gets a background check on **`recording-check-queue`**
+(`services/recording-checks.ts`, table `recording_checks`, migration 0109): a transcript (`transcribeTake`) compared
+with the card like the study card's ✅ (`shared/recordings/transcript.ts`, pinyin with tones) and an **Azure
+Pronunciation Assessment** score per character (`services/pronunciation/azure.ts`, zh-CN scripted, REST short
+audio; `pronunciation/audio-convert.ts` remuxes WebM/Opus → Ogg/Opus and resamples WAV; F0 limits kept:
+18 req/min, 4.5 audio h/month). Queue rule `shared/recordings/queue.ts` (`reviewQueueReasons`: transcript
+mismatch, Again / Hard, score < 85, a character < 80, an open flag; a mark takes it out; thresholds conservative).
+`GET /api/relationships/:relId/recordings/queue?view=queue|all` → items with `labels` ("Sounded off: 银 (tone)");
+the recordings page has **Needs your ear** / **All recordings** tabs (web + Lab), `pills.recordings_need_ear` on the
+dashboard, MCP `list_student_recordings` `queue: true`. **Mix-ups** (`shared/recordings/mixups.ts`): confused
+character pairs from wrong typed characters + multiple-choice picks → insights `mix_ups`.

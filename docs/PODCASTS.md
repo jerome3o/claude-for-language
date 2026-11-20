@@ -150,3 +150,24 @@ the asker's link (the first real Transcribe, 13 Oct 2026, failed on that foreign
   plays while it is on screen.
 - Homework from an episode for a tutor (send a mini lesson / the episode as link homework).
 - MCP tools.
+
+## Code map & API (moved from CLAUDE.md, Nov 2026)
+
+The agent-facing detail that used to live in CLAUDE.md: where the code is, the endpoints, the rules each
+part follows. CLAUDE.md keeps only the cross-cutting rules and points here.
+
+### 🎙 Podcasts (`worker/src/routes/podcasts.ts`, `services/podcasts/`; Lab app only for now — read docs/PODCASTS.md)
+Subscribe to real Chinese podcasts by RSS (or an Apple Podcasts link / the show's page), browse episodes, **✨ Transcribe** one: the
+worker streams the enclosure into R2 `podcast-episodes/` (multipart, ≤ 200 MB, every redirect hop SSRF-checked like link previews —
+`services/podcasts/rss.ts` `safeFetch`), has Soniox async (stt-async-v5, diarization) transcribe a SIGNED link to that copy
+(`GET /api/podcast-source/:id?exp=&sig=`, before auth; HMAC from `SESSION_SECRET`, 6 h — the Soniox key never leaves the worker),
+cuts the timed tokens into ≈ 3–15 s segments (`segments.ts`) with automatic pinyin (pinyin-pro + `applyYiBuToneChanges`) and
+translates them 40 a call (`translate.ts`, `structuredCall`), checkpointed per batch, on **audio-lesson-queue** (`{ kind:
+'podcast_episode' }`, resumable stages, 3 attempts per stage, stale jobs nudged). ONE transcription per episode for everyone.
+E2E_TEST_MODE: inline fake (silence + canned lines); no `SONIOX_API_KEY` → `transcription_available: false`. "Make a mini lesson"
+reuses the companion-lesson writer on a 60-segment stretch (`lesson.ts`, `{ kind: 'podcast_lesson' }`), created in the learner's
+own account, never sent. Lab: `ui/podcasts/` (list, feed, the segment player: ▶ one segment, tap to uncover Chinese → pinyin →
+English, word chips → explorer, ➕ Words = the Coach's new-words picker, 0.75×, Keep playing, 👁 reveal mode), `data/podcasts/`
+(`PodcastStore`, `SegmentPlayer`, `PodcastsSync`), core `podcasts/Podcasts.kt`.
+- `GET /api/podcasts` · `POST /api/podcasts/subscriptions { url }` · `DELETE /api/podcasts/subscriptions/:id` · `GET /api/podcasts/feed?url=&refresh=1`
+- `POST /api/podcasts/episodes { feed_url, guid }` → 202 · `GET|DELETE /api/podcasts/episodes/:id` · `GET …/:id/audio` (Range) · `POST …/:id/retry` · `POST …/:id/lesson { from? }`
