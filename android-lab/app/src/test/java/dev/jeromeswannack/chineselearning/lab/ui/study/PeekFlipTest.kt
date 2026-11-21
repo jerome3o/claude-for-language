@@ -8,6 +8,8 @@ import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onRoot
+import com.github.takahirom.roborazzi.captureRoboImage
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
@@ -90,6 +92,41 @@ class PeekFlipTest : LabScreenshotTest() {
         compose.onNodeWithText("Good").performClick()
         assertEquals(1, rated.size)
         assertEquals(2, rated.single().first)
+    }
+
+    /** Jerome: "I end up accidentally submitting my answer" — peeking, the ratings are there but don't rate. */
+    @Test fun ratingsDontRateWhilePeekingATapTurnsBackToTheAnswer() {
+        studyScreen(CardTypes.HANZI_TO_MEANING)
+        compose.onNodeWithText("Show answer").performClick()
+        compose.onNodeWithTag(PEEK_RATINGS_SHIELD_TAG).assertDoesNotExist()
+
+        tapEmptyBack()
+        assertQuestionSide()
+        // The four ratings stay in place with their intervals, under the shield.
+        compose.onNodeWithTag(PEEK_RATINGS_SHIELD_TAG).assertIsDisplayed()
+        for (label in listOf("Again", "Hard", "Good", "Easy")) compose.onNodeWithText(label).assertIsDisplayed()
+        compose.mainClock.advanceTimeBy(1_000)
+        compose.onRoot().captureRoboImage("screenshots/study-peek-01-ratings-dimmed.png")
+
+        compose.onNodeWithText("Good").performClick()
+        assertTrue("a rating tapped while peeking rates nothing", rated.isEmpty())
+        assertAnswerSide()
+        compose.onNodeWithTag(PEEK_RATINGS_SHIELD_TAG).assertDoesNotExist()
+        assertEquals("the tap turned the card back to the answer", 2, peeks)
+        compose.mainClock.advanceTimeBy(1_000)
+        compose.onRoot().captureRoboImage("screenshots/study-peek-02-answer-side.png")
+
+        // Peek again: Again (the far end) is held too.
+        tapEmptyBack()
+        assertQuestionSide()
+        compose.onNodeWithText("Again").performClick()
+        assertTrue(rated.isEmpty())
+        assertAnswerSide()
+
+        // On the answer side the same tile rates at once.
+        compose.onNodeWithText("Easy").performClick()
+        assertEquals(1, rated.size)
+        assertEquals(3, rated.single().first)
     }
 
     @Test fun typedAnswerIsKeptThroughAPeek() {

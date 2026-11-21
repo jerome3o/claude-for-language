@@ -524,6 +524,32 @@
   text-align: center;
 }
 
+/* Peeking at the question: the ratings stay in place but are dimmed and don't rate — a tap turns the
+   card back to the answer (StudyCardFooter `peek`). The intervals stay readable; Hard mode's own
+   greying isn't stacked on top, so all four read as one inactive row. */
+.study-ratings.is-peeking {
+  opacity: 0.45;
+  filter: grayscale(0.6);
+  transition: opacity 0.15s ease;
+}
+.study-ratings.is-peeking .rating-btn,
+.study-ratings.is-peeking .hw-pass-rate .btn {
+  cursor: default;
+}
+.study-ratings.is-peeking .rating-btn:hover,
+.study-ratings.is-peeking .hw-pass-rate .btn:hover {
+  transform: none;
+  box-shadow: none;
+}
+.study-ratings.is-peeking .rating-btn.is-greyed,
+.study-ratings.is-peeking .rating-btn.is-armed,
+.study-ratings.is-peeking .hw-btn--locked {
+  opacity: 1;
+  filter: none;
+  animation: none;
+  outline: none;
+}
+
 /* Record again, on the question side: the take records while the word is read from the
    hanzi alone. A tap anywhere on the card stops it (handleCardClick). */
 .study-rerecord {

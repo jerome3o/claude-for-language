@@ -2898,14 +2898,23 @@ only once revealed, `PassFront` in `ui/homework/HomeworkScreens.kt` has no tap
 to the question side (with a quiet "Tap to see the answer"), and a tap on the question turns
 it to the answer again. It is view only: nothing is re-checked, re-played, re-transcribed or
 recorded, the typed / multiple-choice answer and the recording are kept, the timer keeps
-running, and the action row and ratings stay up (you can rate from either side). Anything
+running, and the action row stays up. **You can only rate from the answer side** (Nov 2026,
+Jerome: "I end up accidentally submitting my answer"): while the question is showing, Again /
+Hard / Good / Easy — and the homework pass's Not yet / Got it — stay in place with their
+intervals, dimmed, and don't rate; a tap on one (or Enter / Space on a focused one) turns the
+card back to the answer instead, where they work again at once (nothing armed either: Hard
+mode's "tap twice" starts over on the answer side). `study.rating_blocked_peek { card_type,
+where }`. Record again / Say it again keep their own footer (the ratings aren't there at all).
+Anything
 with its own tap never peeks — buttons, links, tappable characters, the answer diff, the
 explanation, tutor notes, sentence rows, popups — and neither does a drag / scroll, a long
 press or finishing a text selection. The answer side keeps its scroll position and opened
 sentence rows through the round trip. An unrevealed card's front never peeks or reveals
 (see above). Web:
-`components/study/peekFlip.ts` (`isPeekTap`, unit-tested) + `peeking` in `StudyPage.tsx`;
-Lab: `peek` / `keepTaps` in `ui/study/CardStage.kt` (`PeekFlipTest`).
+`components/study/peekFlip.ts` (`isPeekTap`, unit-tested) + `peeking` in `StudyPage.tsx`, the
+ratings held by `StudyCardFooter`'s `peek` (`ReRecordBar.test.tsx`, e2e `study-peek.spec.ts`);
+Lab: `peek` / `keepTaps` in `ui/study/CardStage.kt`, the ratings held by `PeekRatingsGuard`
+(`PeekFlipTest`).
 
 **Record again reads from the question.** On the answer side of a read card, **🎤 Record again**
 turns the card back to the question as the new take starts, so the word is said from the hanzi

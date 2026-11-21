@@ -27,7 +27,9 @@ import dev.jeromeswannack.chineselearning.lab.data.api.ExplainedWord
 import dev.jeromeswannack.chineselearning.lab.data.api.SentenceExplanation
 import dev.jeromeswannack.chineselearning.lab.data.homework.HomeworkKeys
 import dev.jeromeswannack.chineselearning.lab.ui.study.BREAKDOWN_HANZI_TAG
+import dev.jeromeswannack.chineselearning.lab.ui.study.CARD_BACK_TAG
 import dev.jeromeswannack.chineselearning.lab.ui.study.CARD_FRONT_TAG
+import dev.jeromeswannack.chineselearning.lab.ui.study.PEEK_RATINGS_SHIELD_TAG
 import dev.jeromeswannack.chineselearning.lab.ui.study.CardTools
 import dev.jeromeswannack.chineselearning.lab.ui.study.SENTENCE_ROW_TAG
 import dev.jeromeswannack.chineselearning.lab.ui.theme.LabTheme
@@ -131,6 +133,31 @@ class PassSentencesTest {
         compose.onNodeWithText("Again").assertDoesNotExist()
         compose.onNodeWithText("Good").assertDoesNotExist()
         runBlocking { assertEquals(0, app.repo.dao.allEvents().size) }
+    }
+
+    /** Peeking back at the question: Not yet / Got it stay, dimmed, and answer nothing — a tap turns back to the answer. */
+    @Test
+    fun peekingHoldsNotYetAndGotIt() {
+        val vm = HomeworkPassViewModel(app, "a1")
+        compose.setContent { LabTheme { HomeworkPassContent(app, vm, PassActions()) } }
+        showAnswer()
+        // Each tap on a held choice turns the card back to the answer, so peek before each one.
+        for (tag in listOf("hw-gotit", "hw-notyet")) {
+            compose.onNodeWithTag(CARD_BACK_TAG).performTouchInput { click(Offset(centerX, 12f)) }
+            compose.onNodeWithTag(PEEK_RATINGS_SHIELD_TAG).assertExists()
+            compose.onNodeWithTag(tag).performClick()
+            compose.waitForIdle()
+            compose.onNodeWithTag(PEEK_RATINGS_SHIELD_TAG).assertDoesNotExist()
+        }
+        compose.waitForIdle()
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+        runBlocking { assertEquals(emptyList<HomeworkEvent>(), app.cache.get<List<HomeworkEvent>>(HomeworkKeys.EVENTS)) }
+        assertEquals("n1", (vm.ui.value as PassUi.Deck).note?.id)
+        // The tap turned it back to the answer: the choices work again.
+        compose.onNodeWithTag(PEEK_RATINGS_SHIELD_TAG).assertDoesNotExist()
+        compose.onNodeWithTag("hw-gotit").performClick()
+        settle("the next word after Got it", { vm.ui.value }) { (vm.ui.value as? PassUi.Deck)?.note?.id == "n2" }
+        runBlocking { assertEquals(listOf("right"), app.cache.get<List<HomeworkEvent>>(HomeworkKeys.EVENTS).orEmpty().map { it.result }) }
     }
 
     @Test
