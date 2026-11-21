@@ -7,7 +7,8 @@ test.beforeEach(async ({ context }) => skipFirstCardExplainer(context));
 /**
  * Peek: on the answer side, a tap on the card's empty space turns it back to the
  * question; a tap on the question returns to the answer. View only — nothing is
- * recorded, the ratings stay up, and buttons on the answer side keep their taps.
+ * recorded, the ratings stay up but dimmed and don't rate (a tap on one turns the
+ * card back to the answer), and buttons on the answer side keep their taps.
  * An unrevealed card's face is inert: only its buttons reveal it.
  *
  * Self-contained: seeds a user, a deck and one note through the E2E test-auth
@@ -91,7 +92,19 @@ test('peek: tap empty space on the answer to see the question, tap again to come
   await expect(back).toBeHidden();
   await expect(page.getByRole('button', { name: /^Good/ }).first()).toBeVisible();
 
-  // Tap the question → the answer again.
+  // …but dimmed, and they don't rate: a tap on Good turns the card back to the answer instead.
+  const ratingsGroup = page.getByTestId('study-ratings');
+  await expect(ratingsGroup).toHaveAttribute('data-peeking', 'true');
+  await page.getByRole('button', { name: /^Good/ }).first().click();
+  await expect(back).toBeVisible();
+  await expect(peek).toHaveCount(0);
+  await expect(ratingsGroup).not.toHaveAttribute('data-peeking', 'true');
+  await page.waitForTimeout(300);
+  expect(await localReviewCount(page)).toBe(0);
+
+  // Peek again, then tap the question → the answer again.
+  await back.click({ position: { x: 4, y: 4 } });
+  await expect(peek).toBeVisible();
   await peek.click();
   await expect(back).toBeVisible();
   await expect(peek).toHaveCount(0);

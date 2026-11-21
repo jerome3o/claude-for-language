@@ -727,6 +727,16 @@ fun CardStage(
         }
     }
     BackHandler(enabled = sayingAgain) { actions.onCancelSpoken() }
+    // Peeking at the question (revealed, the face showing, no take being made again): the ratings / the pass's
+    // Not yet · Got it don't rate — a tap turns back to the answer (PeekRatingsGuard; docs/STUDY_SESSION.md).
+    val peekingRatings = revealed && !flipped && !reRecording && !sayingAgain
+    fun ratingBlockedByPeek() {
+        dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track(
+            "study.rating_blocked_peek",
+            mapOf("card_type" to view.card.cardType, "where" to if (pass != null) "homework" else "session"),
+        )
+        peek(true)
+    }
     // The take lock (docs/STUDY_SESSION.md "While a take is recording"): the card's own recorder — the read
     // card's take, Say the answer, Record again / Say it again. While it records, ✕ / ↺ / back stop it instead
     // of leaving (Record again / Say it again keep their own back above: it cancels the new take).
@@ -1052,6 +1062,10 @@ fun CardStage(
                     onMore = { sheet = CardSheet.More },
                 )
                 Spacer(Modifier.height(4.dp))
+                // Peeking at the question (revealed, the face showing): the ratings stay put, dimmed, and DON'T
+                // rate — a tap turns the card back to the answer (web StudyCardFooter `peek`). Jerome: "I end up
+                // accidentally submitting my answer."
+                PeekRatingsGuard(peeking = peekingRatings, onFlipBack = { ratingBlockedByPeek() }) {
                 if (pass != null) {
                     // The pass: what the card saw before the reveal may suggest one (core Homework.passSuggestion).
                     val partialMc = mcSlots != null && !MultipleChoice.allRight(mcSlots!!)
@@ -1075,6 +1089,8 @@ fun CardStage(
                         why = if (passGotItLocked) dev.jeromeswannack.chineselearning.lab.core.PassAngles.GAVE_UP_LINE else null,
                         armedLabel = dev.jeromeswannack.chineselearning.lab.core.PassAngles.GOT_IT_OVERRIDE,
                     ) { right ->
+                        // A click that skipped the shield (TalkBack, a hardware key): still never answered while peeking.
+                        if (peekingRatings) { ratingBlockedByPeek(); return@PassAnswerBar }
                         // Greyed, never locked: the first tap on Got it arms it, the second says Got it anyway.
                         if (right) {
                             val tap = HardMode.overrideTap(passGotItLocked, 2, arm, System.currentTimeMillis())
@@ -1096,6 +1112,8 @@ fun CardStage(
                         why = goodEasy.label,
                         armedLabel = arm?.rating?.let { HardMode.overridePrompt(it) },
                     ) { rating ->
+                        // A click that skipped the shield (TalkBack, a hardware key): still never rated while peeking.
+                        if (peekingRatings) { ratingBlockedByPeek(); return@RatingBar }
                         // Good / Easy greyed while the sentences wait / after giving up (every way of rating comes
                         // through here): the first tap arms it ("Tap again to rate Good anyway"), the second rates.
                         val tap = HardMode.overrideTap(HardMode.needsOverride(rating, goodEasy), rating, arm, System.currentTimeMillis())
@@ -1115,6 +1133,7 @@ fun CardStage(
                         // Rated during a "Say it again": the ViewModel drops it; [answer] is still the one before it.
                         actions.onRate(rating, System.currentTimeMillis() - startedAt, answer.takeIf { typing && it.isNotEmpty() })
                     }
+                }
                 }
             } }
         }
@@ -1878,6 +1897,41 @@ fun PassAnswerBar(
 
 /** Test tag of the pass's answer bar. */
 const val PASS_RATE_TAG = "hw-pass-rate"
+
+/**
+ * The ratings (or the pass's Not yet / Got it) while a revealed card is turned back to its question — a peek
+ * (web `StudyCardFooter` `peek`, docs/STUDY_SESSION.md "Peek at the question"): they stay exactly where they are
+ * with their intervals, dimmed, and a shield over them takes every tap and turns the card back to the answer
+ * ([onFlipBack]) — nothing rated, nothing armed. On the answer side ([peeking] false) the same tiles work at once.
+ * The callers also refuse a rating while peeking, for clicks that never pass the shield (TalkBack, a keyboard).
+ */
+@Composable
+fun PeekRatingsGuard(peeking: Boolean, onFlipBack: () -> Unit, content: @Composable () -> Unit) {
+    val flipBack by rememberUpdatedState(onFlipBack)
+    Box(
+        Modifier.fillMaxWidth()
+            .testTag(PEEK_RATINGS_TAG)
+            .semantics { if (peeking) stateDescription = PEEK_RATINGS_LABEL },
+    ) {
+        Box(Modifier.fillMaxWidth().alpha(if (peeking) 0.38f else 1f)) { content() }
+        if (peeking) {
+            Box(
+                Modifier.matchParentSize()
+                    .testTag(PEEK_RATINGS_SHIELD_TAG)
+                    .pointerInput(Unit) { detectTapGestures { flipBack() } },
+            )
+        }
+    }
+}
+
+/** Test tag of the ratings' wrapper (always there, peeking or not). */
+const val PEEK_RATINGS_TAG = "study-ratings"
+
+/** Test tag of the shield over the dimmed ratings while peeking. */
+const val PEEK_RATINGS_SHIELD_TAG = "study-ratings-peek"
+
+/** The dimmed ratings' TalkBack words while the card shows its question (web `PEEK_RATINGS_LABEL`). */
+const val PEEK_RATINGS_LABEL = "Ratings — turn back to the answer to rate"
 
 
 /** The pass's two choices on the answer side: "Add to my long-term review" and ⚡ Study it today. */

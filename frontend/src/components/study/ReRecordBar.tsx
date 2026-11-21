@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { MouseEvent, ReactNode } from 'react';
 import { TakeLockedActions } from '../voice/TakeStop';
 
 /**
@@ -138,7 +138,27 @@ export function ReRecordBar({ step, practice, canCheck, onBack, onStop, onRetry,
  * from inside it. Any other take under way on the card (a sentence row's 🎤, …) holds it too: the action
  * row + ratings give way to ONE red "■ Stop recording" (the take lock, shared/voice/takeLock.ts).
  */
-export function StudyCardFooter({ rerecord, actions, ratings }: { rerecord: ReRecordBarProps | null; actions: ReactNode; ratings: ReactNode }) {
+export function StudyCardFooter({ rerecord, actions, ratings, peek = null }: {
+  rerecord: ReRecordBarProps | null;
+  actions: ReactNode;
+  ratings: ReactNode;
+  /**
+   * The revealed card is turned back to its question (a peek, docs/STUDY_SESSION.md "Peek at the question"):
+   * the ratings stay where they are, dimmed, and DON'T rate — a tap on one (mouse, touch, Enter / Space on a
+   * focused button) turns the card back to the answer instead (`onFlipBack`). Jerome: "I end up accidentally
+   * submitting my answer." null = the answer side: the ratings work as usual.
+   */
+  peek?: { onFlipBack: () => void } | null;
+}) {
+  // Every click inside the ratings is caught on its way down, before a button's own onClick (Hard mode's arm,
+  // the pass's Not yet / Got it): nothing is rated, nothing armed.
+  const blockWhilePeeking = peek
+    ? (e: MouseEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        e.stopPropagation();
+        peek.onFlipBack();
+      }
+    : undefined;
   return (
     <div className="study-rating-sticky">
       {rerecord ? (
@@ -146,9 +166,22 @@ export function StudyCardFooter({ rerecord, actions, ratings }: { rerecord: ReRe
       ) : (
         <TakeLockedActions testId="study-footer-stop">
           <div className="study-card-actions study-card-actions--footer">{actions}</div>
-          {ratings}
+          {/* Always this wrapper (peeking or not), so a peek never remounts the ratings or moves them. */}
+          <div
+            className={`study-ratings${peek ? ' is-peeking' : ''}`}
+            data-testid="study-ratings"
+            data-peeking={peek ? 'true' : undefined}
+            role={peek ? 'group' : undefined}
+            aria-label={peek ? PEEK_RATINGS_LABEL : undefined}
+            onClickCapture={blockWhilePeeking}
+          >
+            {ratings}
+          </div>
         </TakeLockedActions>
       )}
     </div>
   );
 }
+
+/** The dimmed ratings' accessible label while the card shows its question (a peek). */
+export const PEEK_RATINGS_LABEL = 'Ratings — turn back to the answer to rate';

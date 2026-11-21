@@ -1276,6 +1276,14 @@ export function StudyCard({
     setPeekFlips((n) => n + 1);
   };
 
+  // A tap on the dimmed ratings while peeking (StudyCardFooter `peek`): nothing is rated — the card turns
+  // back to the answer, where the ratings work again (docs/STUDY_SESSION.md "Peek at the question").
+  const peekBackToAnswer = () => {
+    track('study.rating_blocked_peek', { card_type: card.card_type, where: pass ? 'homework' : 'session' });
+    setPeeking(false);
+    setPeekFlips((n) => n + 1);
+  };
+
   // The answer side comes back where it was scrolled to; the question starts at the top.
   useLayoutEffect(() => {
     const el = cardContentRef.current;
@@ -3554,6 +3562,7 @@ export function StudyCard({
         {flipped && (
           <StudyCardFooter
             rerecord={reRecordBar}
+            peek={peeking && !reRecordBar ? { onFlipBack: peekBackToAnswer } : null}
             actions={renderBackActions()}
             ratings={pass ? (
               <PassAnswerButtons
