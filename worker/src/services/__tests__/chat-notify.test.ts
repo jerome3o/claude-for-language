@@ -1,7 +1,7 @@
 /**
  * Delivering a chat message / a read (docs/CHAT.md §3) with real SQLite, a fake
  * Google (token exchange + FCM), a fake ChatHub namespace and mocked Web Push /
- * e-mail / ntfy.
+ * e-mail.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createSqliteD1, type SqliteD1 } from './sqlite-d1';
@@ -82,9 +82,8 @@ describe('chat notifications', () => {
     const google = fakeGoogle({ 'student-old-phone': UNREGISTERED });
     const webPush = vi.fn(async () => ({ sent: 1, failed: 0, removed: 0 }));
     const email = vi.fn(async () => true);
-    const ntfy = vi.fn(async () => {});
     const msg = message();
-    await notifyNewChatMessage(env(hubs), msg, { id: 'conv-1', relationship_id: 'rel-1' }, { fetcher: google.fetcher, webPush, email, ntfy });
+    await notifyNewChatMessage(env(hubs), msg, { id: 'conv-1', relationship_id: 'rel-1' }, { fetcher: google.fetcher, webPush, email });
 
     // 1. Live.
     expect(hubs.events.map((e) => e.user).sort()).toEqual([STUDENT, TUTOR]);
@@ -129,23 +128,40 @@ describe('chat notifications', () => {
     });
     expect(opts).toMatchObject({ ttl: 86400, urgency: 'high' });
 
-    // 4. Unchanged: e-mail to the student, the bell row, ntfy.
+    // 4. Unchanged: e-mail to the student, the bell row.
     expect(email).toHaveBeenCalledWith('sg', expect.objectContaining({ recipientEmail: `${STUDENT}@x.test`, senderName: 'Minghui', conversationId: 'conv-1', relationshipId: 'rel-1' }));
     expect(db.rows("SELECT user_id, title, message FROM notifications WHERE type = 'new_chat_message'")).toEqual([
       { user_id: STUDENT, title: 'New message from Minghui', message: '明天上课吗？' },
     ]);
-    expect(ntfy).toHaveBeenCalledWith('topic', 'Minghui', '明天上课吗？');
 
     // A second message folds into the same bell row.
-    await notifyNewChatMessage(env(), message({ id: 'msg-2' }), { id: 'conv-1', relationship_id: 'rel-1' }, { fetcher: google.fetcher, webPush, email, ntfy });
+    await notifyNewChatMessage(env(), message({ id: 'msg-2' }), { id: 'conv-1', relationship_id: 'rel-1' }, { fetcher: google.fetcher, webPush, email });
     expect(db.rows("SELECT title FROM notifications WHERE type = 'new_chat_message'")).toEqual([{ title: '2 new messages from Minghui' }]);
+  });
+
+  it('sends no ntfy ping for a chat message (removed Nov 2026: it fired on every send)', async () => {
+    const seen: string[] = [];
+    const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      seen.push(String(input instanceof Request ? input.url : input));
+      return new Response('{}');
+    });
+    try {
+      await notifyNewChatMessage(env(), message({ id: 'msg-ntfy' }), { id: 'conv-1', relationship_id: 'rel-1' }, {
+        fetcher: fakeGoogle().fetcher,
+        webPush: vi.fn(async () => ({ sent: 0, failed: 0, removed: 0 })),
+        email: vi.fn(async () => true),
+      });
+    } finally {
+      spy.mockRestore();
+    }
+    expect(seen.filter((u) => u.includes('ntfy.sh'))).toEqual([]);
   });
 
   it('one channel failing never stops the others', async () => {
     const hubs = fakeHubs();
     const google = fakeGoogle();
     const webPush = vi.fn(async () => { throw new Error('push down'); });
-    await notifyNewChatMessage(env(hubs), message(), { id: 'conv-1', relationship_id: 'rel-1' }, { fetcher: google.fetcher, webPush, email: vi.fn(async () => { throw new Error('mail down'); }), ntfy: vi.fn(async () => {}) });
+    await notifyNewChatMessage(env(hubs), message(), { id: 'conv-1', relationship_id: 'rel-1' }, { fetcher: google.fetcher, webPush, email: vi.fn(async () => { throw new Error('mail down'); }) });
     expect(hubs.events).toHaveLength(2);
     expect(google.sends()).toHaveLength(2);
     expect(db.rows("SELECT COUNT(*) AS n FROM notifications")).toEqual([{ n: 1 }]);
@@ -161,7 +177,7 @@ describe('chat notifications', () => {
     const google = fakeGoogle();
     const webPush = vi.fn(async () => ({ sent: 0, failed: 0, removed: 0 }));
     const msg = message({ conversation_id: 'conv-ai', sender_id: STUDENT, sender: { id: STUDENT, name: 'Jerome', picture_url: null } });
-    await notifyNewChatMessage(env(hubs), msg, { id: 'conv-ai', relationship_id: 'rel-ai' }, { fetcher: google.fetcher, webPush, email: vi.fn(async () => true), ntfy: vi.fn(async () => {}) });
+    await notifyNewChatMessage(env(hubs), msg, { id: 'conv-ai', relationship_id: 'rel-ai' }, { fetcher: google.fetcher, webPush, email: vi.fn(async () => true) });
     expect(hubs.events.map((e) => e.user)).toEqual([STUDENT]);
     expect(google.sends()).toHaveLength(0);
     expect(webPush).not.toHaveBeenCalled();

@@ -217,7 +217,7 @@ describe('chat e-mail respects the preference', () => {
       DB: db, SENDGRID_API_KEY: 'sg', ...SECRET_ENV,
       CHAT_HUB: { idFromName: (n: string) => n, get: () => ({ broadcast: async () => 1 }) },
     } as unknown as Env;
-    await notifyNewChatMessage(env, message, { id: 'conv-1', relationship_id: 'rel-1' }, { webPush: vi.fn(async () => ({ sent: 0, failed: 0, removed: 0 })) as never, email, ntfy: vi.fn(async () => {}) });
+    await notifyNewChatMessage(env, message, { id: 'conv-1', relationship_id: 'rel-1' }, { webPush: vi.fn(async () => ({ sent: 0, failed: 0, removed: 0 })) as never, email });
     return email;
   }
 

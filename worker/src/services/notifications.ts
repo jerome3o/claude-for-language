@@ -61,15 +61,6 @@ export async function notifyFeedback(topic: string, info: { name: string; kind: 
   );
 }
 
-export async function notifyNewChatMessage(topic: string, _senderName: string, _messagePreview: string): Promise<void> {
-  await sendNtfy(
-    topic,
-    'New Chat Message',
-    'A new chat message — open the app to read it',
-    'speech_balloon',
-  );
-}
-
 /** MiniMax stopped speaking for an account reason (no credit, bad key) — sent once when it starts. */
 export async function notifyTtsAccountProblem(topic: string, problem: { code: number | string; message: string; provider?: string }): Promise<void> {
   const name = problem.provider ?? 'MiniMax';

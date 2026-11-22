@@ -4,8 +4,8 @@
  * New message, in order of speed: the live socket (both people's ChatHubs —
  * the recipient's devices and the sender's other devices), FCM data messages
  * to the recipient's native apps, Web Push to the recipient's browsers, then
- * what was there before: the in-app notification row, the e-mail and the
- * admin's ntfy ping. Each channel runs on its own: one failing never stops
+ * what was there before: the in-app notification row and the e-mail (the
+ * admin's ntfy ping per message went in Nov 2026). Each channel runs on its own: one failing never stops
  * the others.
  *
  * Read: a `chat_read` FCM message to MY native devices (they drop the
@@ -17,7 +17,6 @@ import { CLAUDE_AI_USER_ID } from '../../types';
 import * as db from '../../db/queries';
 import { sendNewMessageNotification } from '../email';
 import { createUnsubscribeToken, listUnsubscribeHeaders, unsubscribeUrl } from '../email-unsubscribe';
-import { notifyNewChatMessage as ntfyNewChatMessage } from '../notifications';
 import { pushToUsers } from '../push';
 import { pushToDevices } from '../push/devices';
 import { broadcastToUsers, broadcastToUser } from './hub';
@@ -37,8 +36,6 @@ export interface ChatNotifyDeps {
   webPush?: typeof pushToUsers;
   /** E-mail sender (tests). */
   email?: typeof sendNewMessageNotification;
-  /** ntfy sender (tests). */
-  ntfy?: typeof ntfyNewChatMessage;
 }
 
 export function chatUrl(relationshipId: string, conversationId: string): string {
@@ -103,7 +100,7 @@ async function step(label: string, fn: () => Promise<unknown>): Promise<void> {
  *
  * A photo of an album (`opts.album`, docs/CHAT.md "Photo albums"): the live
  * event goes out for every photo, everything else (FCM, Web Push, e-mail, the
- * bell, ntfy) ONCE per album — on the first photo to arrive, which claims it —
+ * bell) ONCE per album — on the first photo to arrive, which claims it —
  * saying "📷 <album_count> photos".
  */
 export async function notifyNewChatMessage(
@@ -190,7 +187,7 @@ export async function notifyNewChatMessage(
           }),
         )
       : Promise.resolve(),
-    // 4. As before: e-mail, the in-app notification row, ntfy.
+    // 4. As before: e-mail and the in-app notification row.
     step('email', async () => {
       if (!env.SENDGRID_API_KEY || !recipientId) return;
       const recipient = await env.DB
@@ -228,7 +225,6 @@ export async function notifyNewChatMessage(
         });
       }
     }),
-    step('ntfy', () => (deps.ntfy ?? ntfyNewChatMessage)(env.NTFY_TOPIC, senderName, truncated)),
   ]);
 }
 
