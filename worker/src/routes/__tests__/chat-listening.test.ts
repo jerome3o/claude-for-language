@@ -94,12 +94,10 @@ describe('listening mode', () => {
 
     // Every channel of the recipient follows it.
     const webPush = vi.fn(async () => ({ sent: 1, failed: 0, removed: 0 }));
-    const ntfy = vi.fn(async () => {});
     const hubs = { idFromName: (n: string) => n, get: () => ({ broadcast: async () => 1 }) };
-    await notifyNewChatMessage({ DB: db, CHAT_HUB: hubs } as unknown as Env, msg, { id: 'conv-1', relationship_id: 'rel-1' }, { webPush, ntfy });
+    await notifyNewChatMessage({ DB: db, CHAT_HUB: hubs } as unknown as Env, msg, { id: 'conv-1', relationship_id: 'rel-1' }, { webPush });
     const [, , payload] = webPush.mock.calls[0] as unknown as [Env, string[], { body: string }];
     expect(payload.body).toBe(LISTENING_PREVIEW);
-    expect(ntfy).toHaveBeenCalledWith(undefined, 'Minghui', LISTENING_PREVIEW);
     expect(db.rows("SELECT message FROM notifications WHERE type = 'new_chat_message'")).toEqual([{ message: LISTENING_PREVIEW }]);
   });
 });

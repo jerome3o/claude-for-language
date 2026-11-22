@@ -101,7 +101,8 @@ All behind the normal auth middleware unless noted.
 3. **Web Push** (existing `pushToUsers`) with
    `{ type: 'chat_message', title: sender name, body: preview, url, tag: 'chat-<convId>', conversation_id, relationship_id }`.
    The service worker skips the notification when a focused, visible tab is already on that chat.
-4. The existing in-app notification row, e-mail and ntfy stay as they were.
+4. The existing in-app notification row and e-mail stay as they were. (The admin's ntfy ping for every chat
+   message was removed in Nov 2026 — it fired on Jerome's own sends.)
 
 ## 4. ChatHub Durable Object (one per user, `CHAT_HUB` binding, SQLite class, Hibernation API)
 
@@ -459,7 +460,7 @@ ALTER TABLE messages ADD COLUMN album_notified_at TEXT;   -- set on the ONE phot
   photo's reactions).
 - **Notifications** — one per album, not one per photo: the first photo of an album to reach the worker claims it
   (`claimAlbumNotification`: one atomic `UPDATE … album_notified_at WHERE NOT EXISTS (a claimed photo of this album)`) and
-  FCM / Web Push / e-mail / the bell / ntfy say **"📷 3 photos[: caption]"** with the declared `album_count`; FCM data
+  FCM / Web Push / e-mail / the bell say **"📷 3 photos[: caption]"** with the declared `album_count`; FCM data
   carries `album_id` + `album_count`. The other photos only go out live (the ChatHub `message` event stays per message,
   now with `album_count`). A re-sent photo (same client_id) returns 200 and notifies nothing. The inbox row
   (`GET /api/me/chats`) counts the album's photos and shows its caption; `GET /api/me/chat-inbox` lists an album once
@@ -501,7 +502,7 @@ agent's draft messages are typed by / for the tutor and stay ordinary too. There
   shows the stored text as a plain system row; malformed data falls back the same way.
 - **`content` is the readable fallback**: the RECIPIENT's view in the third person (`systemFallbackContent`, worker
   `services/chat/system.ts` `postSystemMessage`), plus what an older app needs — the call / group-class "— join here:
-  <url>" (old Lab builds still find the Join link) and the install steps. So e-mails, Web Push, FCM, the bell, ntfy
+  <url>" (old Lab builds still find the Join link) and the install steps. So e-mails, Web Push, FCM, the bell
   and old app versions all read "Minghui set your new cards to …" — nobody says "I" any more.
 - **Rendering** (web `components/chat/SystemMessageRow.tsx`, Lab `ui/chat/ChatSystemViews.kt`): a centred, compact,
   muted row like the day pills — never a bubble: no ticks, reactions, swipe-to-reply, listening-mode hiding, read-aloud,
@@ -709,7 +710,7 @@ ALTER TABLE users ADD COLUMN chat_listening_default INTEGER NOT NULL DEFAULT 0; 
   `chat-listening-revealed-v1:<conv>`, Lab JsonCache `chat/listening/revealed/<conv>`). Never synced.
 - The inbox and notifications never spoil a hidden message: `LISTENING_PREVIEW` = "🎧 New message".
   Inbox: `listeningPreview(row.last_message, { setting, readMarker: row.my_read_at, revealed })` (rows now carry
-  `last_message.attachment_kind` and `my_read_at`). Push / FCM / e-mail / the bell row / ntfy: the worker's
+  `last_message.attachment_kind` and `my_read_at`). Push / FCM / e-mail / the bell row: the worker's
   `notificationPreviewFor` (the recipient's setting; a new message is always after `since`).
 
 **API** (`routes/chat-listening.ts`):
