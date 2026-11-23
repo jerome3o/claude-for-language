@@ -324,6 +324,9 @@ export const ANALYTICS_EVENTS = {
   'audio_lesson.download': e('lessons', 'Saved an audio lesson on the device for offline listening.', ['format']),
   'audio_lesson.podcast_feed': e('lessons', 'Settings → Audio lessons → Podcast feed (action: copy, open, open_apple, reset, off).', ['action']),
   'audio_lesson.music': e('lessons', 'Turned the soft music under an audio lesson on / off or changed its volume (docs/AUDIO_LESSONS.md "Music").', ['on', 'format', 'volume_pct']),
+  'audio_lesson.too_hard': e('lessons', '"Too hard" while listening to an audio lesson (docs/AUDIO_LESSONS.md "Feedback while listening"; where = lock_screen / notification / player / headset).', ['format', 'where']),
+  'audio_lesson.back_section': e('lessons', 'Back a section in an audio lesson (kind again = the row playing from its start, back_section = the row before; docs/AUDIO_LESSONS.md "Feedback while listening").', ['format', 'where', 'kind']),
+  'audio_lesson.next_section': e('lessons', 'Next section in an audio lesson from the lock screen / notification / headset / player (docs/AUDIO_LESSONS.md "Feedback while listening").', ['format', 'where']),
   'podcast.subscribe': e('lessons', 'Subscribed to a Chinese podcast (docs/PODCASTS.md; suggested = from the Suggested list, episodes = how many the feed has).', ['suggested', 'episodes'], { server: true }),
   'podcast.unsubscribe': e('lessons', 'Unsubscribed from a podcast (docs/PODCASTS.md).', []),
   'podcast.transcribe': e('lessons', 'Asked for an episode to be transcribed (docs/PODCASTS.md; shared = someone had already asked, status = its status then).', ['shared', 'status'], { server: true }),
@@ -477,6 +480,7 @@ export const ANALYTICS_EVENTS = {
 
   // ── server (written by the worker) ─────────────────────────────────────
   'server.sentence_practice_events': e('server', 'Example-sentence practice events stored (🎤 attempts, hide / show again; docs/STUDY_SESSION.md "Sentence practice history").', ['count'], { server: true }),
+  'server.audio_lesson_feedback': e('server', 'Audio-lesson feedback events stored ("Too hard", back / next a section; docs/AUDIO_LESSONS.md "Feedback while listening").', ['count'], { server: true }),
   'server.sentence_topup': e('server', 'A sentence top-up job added example sentences to a word\'s set: reason (fresh | few | known | listen), added = sentences stored, structured = how many use one of the learner\'s lesson structures.', ['reason', 'added', 'structured'], { server: true }),
   'server.content_created': e('server', 'A deck / notes / lesson / reader was created through the API.', ['kind', 'count', 'via'], { server: true }),
   'server.audio_lesson_built': e('server', 'An audio lesson finished rendering.', ['format', 'minutes', 'clips'], { server: true }),

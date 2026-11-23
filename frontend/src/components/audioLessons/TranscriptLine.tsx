@@ -22,8 +22,10 @@ export const TranscriptLine = forwardRef<
     showEnglish: boolean;
     known: Set<string>;
     onSeek: (ms: number) => void;
+    /** Flagged "Too hard" on this device (docs/AUDIO_LESSONS.md "Feedback while listening"). */
+    flagged?: boolean;
   }
->(function TranscriptLine({ row, current, showPinyin, showEnglish, known, onSeek }, ref) {
+>(function TranscriptLine({ row, current, showPinyin, showEnglish, known, onSeek, flagged }, ref) {
   const explorer = useExplorer();
   const zh = row.lang === 'zh';
   // "×3", or line by line's "×3 +1" (three times, the English, once more).
@@ -43,6 +45,11 @@ export const TranscriptLine = forwardRef<
         {repeat.text && (
           <span className="al-line-repeat" aria-label={repeat.aria} title={repeat.aria}>
             {repeat.text}
+          </span>
+        )}
+        {flagged && (
+          <span className="al-line-flag" role="img" aria-label="You marked this too hard" title="You marked this too hard">
+            😵
           </span>
         )}
       </span>

@@ -34,6 +34,9 @@ import { db } from '../db/database';
 import { requestCompanionLesson } from '../api/audioLessons';
 import { listenedHere, markAudioLessonListened, unlockLesson } from '../services/lessonUnlock';
 import { syncCustomLessons } from '../services/custom-lesson-study';
+import { FeedbackBar } from '../components/audioLessons/FeedbackBar';
+import { backSection, feedbackMediaHandlers, listFeedbackEvents, tooHard, type FeedbackPlayer } from '../services/audioLessonFeedback';
+import { flaggedRowIndex } from '@shared/audio-lesson/feedback';
 import './AudioLessonsPage.css';
 import '../components/lesson/ReadyToUnlock.css';
 
@@ -215,6 +218,45 @@ export function AudioLessonPlayerPage() {
   const prevChapter = useCallback(() => seekTo(previousChapterTarget(chapters, (audioRef.current?.currentTime ?? 0) * 1000)), [chapters, seekTo]);
   const skip = useCallback((deltaMs: number) => seekTo((audioRef.current?.currentTime ?? 0) * 1000 + deltaMs), [seekTo]);
 
+  // Feedback while listening (docs/AUDIO_LESSONS.md): back / next a section, "Too hard" — each one an event for Claude.
+  const feedbackPlayer = useCallback((): FeedbackPlayer | null => (lesson && src ? {
+    lessonId: id,
+    format: lesson.format,
+    audioVersion: lesson.audio_version,
+    rows,
+    chapters,
+    position: () => (audioRef.current?.currentTime ?? 0) * 1000,
+    speed: () => audioRef.current?.playbackRate || speed,
+    seekTo,
+  } : null), [lesson, src, id, rows, chapters, speed, seekTo]);
+  const feedbackLive = useLiveQuery(() => listFeedbackEvents(id), [id]);
+  const flaggedRows = useMemo(() => {
+    const set = new Set<number>();
+    for (const e of feedbackLive ?? []) {
+      if (e.kind !== 'too_hard') continue;
+      const i = flaggedRowIndex(e);
+      if (i !== null) set.add(i);
+    }
+    return set;
+  }, [feedbackLive]);
+  const [noted, setNoted] = useState({ at: 0, text: '' });
+  const pressTooHard = () => {
+    const p = feedbackPlayer();
+    if (!p) return;
+    const e = tooHard(p, 'player');
+    try {
+      navigator.vibrate?.(40);
+    } catch {
+      /* no vibration */
+    }
+    const row = rows[flaggedRowIndex(e) ?? -1];
+    setNoted({ at: Date.now(), text: row ? `Noted — too hard: ${row.text.length > 24 ? `${row.text.slice(0, 23)}…` : row.text}` : 'Noted — too hard' });
+  };
+  const pressBackSection = () => {
+    const p = feedbackPlayer();
+    if (p) backSection(p, 'player');
+  };
+
   // ---- Audio element wiring ----
   useEffect(() => {
     const a = audioRef.current;
@@ -309,15 +351,15 @@ export function AudioLessonPlayerPage() {
         ['pause', () => audioRef.current?.pause()],
         ['seekbackward', () => skip(-10_000)],
         ['seekforward', () => skip(10_000)],
-        ['previoustrack', prevChapter],
-        ['nexttrack', nextChapter],
+        // ⏮ / ⏭ on the lock screen and headphones step a SECTION (a line with its repeats); the page keeps chapter buttons.
+        ...feedbackMediaHandlers(feedbackPlayer),
         ['seekto', (d) => d.seekTime != null && seekTo(d.seekTime * 1000)],
       ];
       for (const [action, h] of handlers) ms.setActionHandler(action, h);
     } catch {
       /* an action this browser doesn't know */
     }
-  }, [lesson, src, chapters, chapterIdx, skip, prevChapter, nextChapter, seekTo]);
+  }, [lesson, src, chapters, chapterIdx, skip, feedbackPlayer, seekTo]);
 
   useEffect(() => {
     if (!('mediaSession' in navigator) || !durationMs) return;
@@ -506,6 +548,8 @@ export function AudioLessonPlayerPage() {
             <button className="al-ctl" onClick={nextChapter} disabled={!src} aria-label="Next chapter">⏭</button>
           </div>
 
+          <FeedbackBar disabled={!src} notedAt={noted.at} notedText={noted.text} onBack={pressBackSection} onTooHard={pressTooHard} />
+
           <div className="al-chips al-tools">
             <button className="al-chip" onClick={changeSpeed} aria-label="Playback speed">{speed}×</button>
             <button className={`al-chip ${timer.minutes ? 'on' : ''}`} onClick={() => setShowTimer((v) => !v)} aria-label="Sleep timer">
@@ -589,7 +633,7 @@ export function AudioLessonPlayerPage() {
 
           {transcriptOn && (
             <ol className="al-transcript" aria-label="Transcript">
-              {rows.map((row) => {
+              {rows.map((row, rowIndex) => {
                 const current = lineIdx >= row.first && lineIdx <= row.last;
                 return (
                   <TranscriptLine
@@ -601,6 +645,7 @@ export function AudioLessonPlayerPage() {
                     showEnglish={showEnglish}
                     known={known}
                     onSeek={seekTo}
+                    flagged={flaggedRows.has(rowIndex)}
                   />
                 );
               })}

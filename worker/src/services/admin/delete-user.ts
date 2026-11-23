@@ -146,6 +146,7 @@ export const DELETE_STEPS: Array<{ label: string; sql: string }> = [
   { label: 'cards', sql: `DELETE FROM cards WHERE id IN ${CARDS}` },
   { label: 'notes', sql: `DELETE FROM notes WHERE id IN ${NOTES}` },
   { label: 'student_shared_decks', sql: `DELETE FROM student_shared_decks WHERE deck_id IN ${DECKS} OR relationship_id IN ${REL}` },
+  { label: 'audio_lesson_feedback', sql: `DELETE FROM audio_lesson_feedback WHERE user_id = ?1 OR audio_lesson_id IN (SELECT id FROM audio_lessons WHERE user_id = ?1)` },
   { label: 'audio_lessons', sql: `DELETE FROM audio_lessons WHERE user_id = ?1` },
   { label: 'meme_review_lessons', sql: `DELETE FROM meme_review_lessons WHERE user_id = ?1` },
   { label: 'lesson_requests', sql: `DELETE FROM lesson_requests WHERE user_id = ?1` },

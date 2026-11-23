@@ -49,6 +49,7 @@ import { syncTutorNotes } from './tutorNotes';
 import { prefetchModelRecordings } from './modelRecordings';
 import { syncHomework } from './homework';
 import { uploadPendingCardFlags } from './cardFlags';
+import { flushAudioLessonFeedback } from './audioLessonFeedback';
 import { flushRecapAdds } from './wordRecap';
 import { flushFeedback } from './feedback';
 import { flushClaudeOutbox } from './claudeThreads';
@@ -619,6 +620,13 @@ class SyncService {
       if (recap.sent > 0) console.log('[Sync] Reader recap words added:', recap.sent);
     } catch (err) {
       console.error('[Sync] Reader recap words failed:', err);
+    }
+    try {
+      // "Too hard" / back a section presses in the audio-lesson player made offline (docs/AUDIO_LESSONS.md).
+      const fb = await flushAudioLessonFeedback();
+      if (fb.sent > 0) console.log('[Sync] Audio lesson feedback sent:', fb.sent);
+    } catch (err) {
+      console.error('[Sync] Audio lesson feedback upload failed:', err);
     }
     try {
       // Messages to Claude written offline (docs/CHAT.md "Claude thread view"); idempotent by client id.

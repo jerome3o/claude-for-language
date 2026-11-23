@@ -1,0 +1,57 @@
+/* Feedback while listening (FeedbackBar.tsx): two big buttons under the player's controls. */
+.al-feedback {
+  margin: 0 0 0.75rem;
+}
+
+.al-feedback-row {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: center;
+}
+
+.al-feedback-btn {
+  flex: 1 1 0;
+  max-width: 220px;
+  min-height: 48px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.06);
+  color: inherit;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.12s ease, background 0.2s ease;
+}
+
+.al-feedback-btn:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
+.al-feedback-btn:disabled {
+  opacity: 0.4;
+}
+
+.al-feedback-hard {
+  border-color: rgba(252, 165, 165, 0.55);
+  background: rgba(252, 165, 165, 0.12);
+}
+
+.al-feedback-noted {
+  min-height: 1.4rem;
+  margin-top: 0.4rem;
+  text-align: center;
+  font-size: 0.85rem;
+  color: #c7d2fe;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.al-feedback-noted.shown {
+  opacity: 1;
+}
+
+/* A transcript line flagged "Too hard" on this device. */
+.al-line-flag {
+  margin-left: 0.35rem;
+  font-size: 0.8rem;
+}
