@@ -128,6 +128,9 @@ fun NavGraphBuilder.audioLessonsGraph(nav: LabNav) {
                 onMakeCompanion = vm::makeCompanion,
                 onUnlockCompanion = vm::unlockCompanion,
                 onStartCompanion = { nav.open(Routes.lessonPlay(it, "player")) },
+                // Feedback while listening: the engine gives the haptic (as it does for the lock screen).
+                onBackSection = vm::backSection,
+                onTooHard = vm::tooHard,
             ),
         )
     }
@@ -285,8 +288,26 @@ class AudioLessonPlayerViewModel(private val app: LabApp, private val id: String
         }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, AudioLessonPlayerUi())
 
+    // ---- Feedback while listening (docs/AUDIO_LESSONS.md): the same as the lock screen's ⏮ and flag. ----
+
+    fun backSection() { engine()?.backSection(dev.jeromeswannack.chineselearning.lab.core.AudioLessonFeedback.PLAYER) }
+
+    fun tooHard() {
+        val e = engine()?.tooHard(dev.jeromeswannack.chineselearning.lab.core.AudioLessonFeedback.PLAYER) ?: return
+        val rows = AudioLessonTimeline.transcriptRows(screen.value.lesson?.transcript.orEmpty())
+        val row = dev.jeromeswannack.chineselearning.lab.core.AudioLessonFeedback.flaggedRowIndex(e)?.let { rows.getOrNull(it) }
+        val text = row?.text?.let { if (it.length > 24) it.take(23) + "…" else it }
+        screen.update { it.copy(notedAt = android.os.SystemClock.elapsedRealtime(), notedText = if (text != null) "Noted — too hard: $text" else "Noted — too hard") }
+    }
+
     init {
         viewModelScope.launch { load() }
+        // The rows marked "Too hard" on this phone (lock screen or player): the transcript's 😵.
+        viewModelScope.launch {
+            app.cache.observe<dev.jeromeswannack.chineselearning.lab.data.audiolessons.AudioLessonFeedbackStore.Flagged>(
+                dev.jeromeswannack.chineselearning.lab.data.audiolessons.AudioLessonFeedbackStore.cacheKey(id),
+            ).collect { f -> screen.update { it.copy(flaggedRows = f?.rows.orEmpty().toSet()) } }
+        }
         // Its companion mini lesson: this phone's copy first (an unlock here shows at once, offline too).
         viewModelScope.launch {
             val lessons = dev.jeromeswannack.chineselearning.lab.data.lessons.LessonRuntime.of(app).store

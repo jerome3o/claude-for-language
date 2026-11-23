@@ -27,9 +27,16 @@ import androidx.media3.session.MediaSessionService
 import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
-import dev.jeromeswannack.chineselearning.lab.core.AudioLessonChapter
+import android.app.KeyguardManager
+import android.os.Bundle
+import androidx.media3.session.CommandButton
+import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionResult
+import dev.jeromeswannack.chineselearning.lab.core.AudioLessonFeedback
+import dev.jeromeswannack.chineselearning.lab.core.AudioLessonFeedbackEvent
 import dev.jeromeswannack.chineselearning.lab.core.AudioLessonMusic
 import dev.jeromeswannack.chineselearning.lab.core.AudioLessonTimeline
+import dev.jeromeswannack.chineselearning.lab.core.AudioLessonTranscriptRow
 import dev.jeromeswannack.chineselearning.lab.core.LessonUnlocks
 import kotlinx.coroutines.launch
 import dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics
@@ -43,8 +50,9 @@ import java.io.File
 /*
  * Audio lessons in the background (docs/AUDIO_LESSONS.md "The player"): the Lab app's player keeps
  * going with the screen off and the app closed. ExoPlayer inside a Media3 MediaSessionService — a
- * foreground media service with the notification / lock-screen controls (play / pause, ±10 s,
- * previous / next = chapters), headphone buttons, audio focus, "becoming noisy" (unplugged → pause)
+ * foreground media service with the notification / lock-screen controls (play / pause, previous / next
+ * = a SECTION — the line with its repeats — and "Too hard"; docs/AUDIO_LESSONS.md "Feedback while
+ * listening"), headphone buttons, audio focus, "becoming noisy" (unplugged → pause)
  * and a partial wake lock. The sleep timer (fade the last 30 s, then pause; or the end of this
  * chapter) and the remembered position live HERE, in [AudioLessonEngine], not in the Compose screen,
  * so they keep working with the screen off.
@@ -73,6 +81,9 @@ data class AudioLessonPlaybackState(
     val musicVolume: Double = AudioLessonMusic.DEFAULT_VOLUME,
     /** A listen reached the end in this load (≥ 85 % or the last chapter): its companion lesson unlocks. */
     val listened: Boolean = false,
+    /** "Too hard" presses in this load (the screen's "Noted" shows on each) and the row the last one was about. */
+    val tooHardCount: Int = 0,
+    val tooHardRow: Int? = null,
 ) {
     fun timerLeftMs(now: Long = SystemClock.elapsedRealtime()): Long = timerEndsAt?.let { (it - now).coerceAtLeast(0) } ?: 0
 }
@@ -94,12 +105,13 @@ object AudioLessonPlayback {
 }
 
 /**
- * The player's previous / next are CHAPTERS (lock screen, notification, headphones): a lesson is one
- * media item, so the forwarding player advertises next / previous and turns them into chapter seeks
- * (previous within 3 s of a chapter's start → the chapter before, `previousChapterTarget`).
+ * The player's previous / next on the lock screen, notification and headphones are SECTIONS
+ * (docs/AUDIO_LESSONS.md "Feedback while listening"): a lesson is one media item, so the forwarding player
+ * advertises next / previous and hands them to the engine — back a section (the line playing from its
+ * start, or the one before within 2 s of a new line) and next section, each recorded as feedback.
  */
 @OptIn(UnstableApi::class)
-class ChapterPlayer(private val exo: Player, private val chapters: () -> List<AudioLessonChapter>) : ForwardingSimpleBasePlayer(exo) {
+class SectionPlayer(private val exo: Player, private val onPrevious: () -> Unit, private val onNext: () -> Unit) : ForwardingSimpleBasePlayer(exo) {
     override fun getState(): State {
         val state = super.getState()
         if (state.playlist.isEmpty()) return state
@@ -110,13 +122,11 @@ class ChapterPlayer(private val exo: Player, private val chapters: () -> List<Au
     }
 
     override fun handleSeek(mediaItemIndex: Int, positionMs: Long, seekCommand: Int): ListenableFuture<*> {
-        val at = exo.currentPosition.toDouble()
-        val target = when (seekCommand) {
-            Player.COMMAND_SEEK_TO_NEXT, Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM -> AudioLessonTimeline.nextChapterTarget(chapters(), at) ?: return Futures.immediateVoidFuture()
-            Player.COMMAND_SEEK_TO_PREVIOUS, Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM -> AudioLessonTimeline.previousChapterTarget(chapters(), at)
+        when (seekCommand) {
+            Player.COMMAND_SEEK_TO_NEXT, Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM -> onNext()
+            Player.COMMAND_SEEK_TO_PREVIOUS, Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM -> onPrevious()
             else -> return super.handleSeek(mediaItemIndex, positionMs, seekCommand)
         }
-        exo.seekTo(target)
         return Futures.immediateVoidFuture()
     }
 }
@@ -158,7 +168,27 @@ class AudioLessonEngine(private val context: Context, musicTrack: MusicTrack = E
         }
     }
 
-    val sessionPlayer = ChapterPlayer(exo) { lesson?.chapters.orEmpty() }
+    /** The transcript rows of the loaded lesson: a SECTION each (back / next a section, "Too hard"). */
+    private var rows: List<AudioLessonTranscriptRow> = emptyList()
+
+    /** Where a press through the media session came from (set by the service: lock screen, notification, headset). */
+    var sessionWhere: () -> String = { AudioLessonFeedback.LOCK_SCREEN }
+
+    /**
+     * A feedback press, recorded: queued in the Outbox for the server (AudioLessonFeedbackStore) with a
+     * haptic, since on the lock screen nothing else confirms it. Tests replace it.
+     */
+    var onFeedback: (AudioLessonFeedbackEvent) -> Unit = { e ->
+        (context.applicationContext as? dev.jeromeswannack.chineselearning.lab.LabApp)?.let { app ->
+            if (e.kind == AudioLessonFeedback.TOO_HARD) app.haptics.flip() else app.haptics.tick()
+            app.scope.launch { app.safely("audio lesson feedback") { AudioLessonFeedbackStore.record(app, e) } }
+        }
+    }
+
+    /** Set by the service: "Too hard" was noted (the lock-screen button shows it for a moment). */
+    var onTooHardNoted: () -> Unit = {}
+
+    val sessionPlayer = SectionPlayer(exo, onPrevious = { backSection(sessionWhere()) }, onNext = { nextSection(sessionWhere()) })
 
     /** The soft music under the lesson: plays while the lesson plays, fades with the sleep timer. */
     val music = LessonMusic(musicTrack).also { it.setVolume(prefs.musicVolume) }
@@ -225,10 +255,12 @@ class AudioLessonEngine(private val context: Context, musicTrack: MusicTrack = E
     fun load(l: AudioLessonDto, f: File) {
         if (lesson?.id == l.id && file == f) {
             lesson = l
+            rows = AudioLessonTimeline.transcriptRows(l.transcript)
             return
         }
         if (lesson != null) savePosition()
         lesson = l
+        rows = AudioLessonTimeline.transcriptRows(l.transcript)
         file = f
         chapterShown = -1
         startedTracked = false
@@ -293,6 +325,65 @@ class AudioLessonEngine(private val context: Context, musicTrack: MusicTrack = E
     }
 
     fun previousChapter() = seekTo(AudioLessonTimeline.previousChapterTarget(lesson?.chapters.orEmpty(), exo.currentPosition.toDouble()))
+
+    // ---- Feedback while listening (docs/AUDIO_LESSONS.md): each press is an event Claude reads later. ----
+
+    private fun feedbackEvent(l: AudioLessonDto, kind: String, where: String, atMs: Long): AudioLessonFeedbackEvent =
+        AudioLessonFeedback.buildEvent(
+            id = java.util.UUID.randomUUID().toString(),
+            lessonId = l.id,
+            kind = kind,
+            where = where,
+            positionMs = atMs.toDouble(),
+            speed = _state.value.speed,
+            audioVersion = l.audio_version,
+            createdAt = java.time.Instant.now().toString(),
+            rows = rows,
+            chapters = l.chapters,
+        )
+
+    /** "Too hard": noted where the audio is (the row it is about, with reaction lag); playing carries on. */
+    fun tooHard(where: String): AudioLessonFeedbackEvent? {
+        val l = lesson ?: return null
+        val e = feedbackEvent(l, AudioLessonFeedback.TOO_HARD, where, exo.currentPosition)
+        onFeedback(e)
+        _state.update { it.copy(tooHardCount = it.tooHardCount + 1, tooHardRow = AudioLessonFeedback.flaggedRowIndex(e)) }
+        onTooHardNoted()
+        Analytics.track("audio_lesson.too_hard", mapOf("format" to l.format, "where" to where))
+        return e
+    }
+
+    /** Back a section: the line playing from its start, or the one before within 2 s of listening; no transcript → previous chapter. */
+    fun backSection(where: String): AudioLessonFeedbackEvent? {
+        val l = lesson ?: return null
+        val at = exo.currentPosition
+        val jump = AudioLessonFeedback.backSectionTarget(rows, at.toDouble(), _state.value.speed)
+        if (jump == null) {
+            previousChapter()
+            return null
+        }
+        val e = feedbackEvent(l, jump.kind, where, at)
+        onFeedback(e)
+        seekTo(jump.targetMs)
+        Analytics.track("audio_lesson.back_section", mapOf("format" to l.format, "where" to where, "kind" to jump.kind))
+        return e
+    }
+
+    /** Next section: the start of the next line; no transcript → next chapter. */
+    fun nextSection(where: String): AudioLessonFeedbackEvent? {
+        val l = lesson ?: return null
+        val at = exo.currentPosition
+        if (rows.isEmpty()) {
+            nextChapter()
+            return null
+        }
+        val jump = AudioLessonFeedback.nextSectionTarget(rows, at.toDouble()) ?: return null
+        val e = feedbackEvent(l, AudioLessonFeedback.SKIP, where, at)
+        onFeedback(e)
+        seekTo(jump.targetMs)
+        Analytics.track("audio_lesson.next_section", mapOf("format" to l.format, "where" to where))
+        return e
+    }
 
     /** The speed chip: pitch kept (PlaybackParameters' pitch 1), remembered on the phone. */
     fun setSpeed(speed: Double) {
@@ -413,16 +504,78 @@ class AudioLessonEngine(private val context: Context, musicTrack: MusicTrack = E
 class AudioLessonService : MediaSessionService() {
     private var session: MediaSession? = null
     private var engine: AudioLessonEngine? = null
+    private val handler = Handler(Looper.getMainLooper())
+
+    /** A headset button was pressed just now: the seek it causes comes from the headset. */
+    private var headsetUntil = 0L
+
+    /** Who sent the last player command (lock screen / notification / headset). */
+    private var lastWhere: String = AudioLessonFeedback.LOCK_SCREEN
 
     override fun onCreate() {
         super.onCreate()
         val e = AudioLessonEngine(this)
-        val s = MediaSession.Builder(this, e.sessionPlayer).setId("audio-lessons").build()
+        val s = MediaSession.Builder(this, e.sessionPlayer)
+            .setId("audio-lessons")
+            .setCallback(callback)
+            .setCustomLayout(listOf(tooHardButton(noted = false)))
+            .build()
         e.onLessonChanged = { l -> s.setSessionActivity(openLesson(l.id)) }
+        e.sessionWhere = { lastWhere }
+        e.onTooHardNoted = {
+            // The lock screen can't show a toast: the flag fills in for a moment instead (with the haptic).
+            s.setCustomLayout(listOf(tooHardButton(noted = true)))
+            handler.removeCallbacksAndMessages(NOTED_TOKEN)
+            handler.postAtTime({ session?.setCustomLayout(listOf(tooHardButton(noted = false))) }, NOTED_TOKEN, SystemClock.uptimeMillis() + NOTED_MS)
+        }
         engine = e
         session = s
         AudioLessonPlayback.attach(e)
     }
+
+    /** Where a press from [controller] came from (Android doesn't tell the lock screen from the shade: the keyguard does). */
+    private fun whereFor(controller: MediaSession.ControllerInfo): String = when {
+        SystemClock.elapsedRealtime() < headsetUntil -> AudioLessonFeedback.HEADSET
+        controller.packageName == packageName && session?.isMediaNotificationController(controller) != true -> AudioLessonFeedback.PLAYER
+        (getSystemService(KEYGUARD_SERVICE) as? KeyguardManager)?.isKeyguardLocked == true -> AudioLessonFeedback.LOCK_SCREEN
+        else -> AudioLessonFeedback.NOTIFICATION
+    }
+
+    private val callback = object : MediaSession.Callback {
+        override fun onConnect(session: MediaSession, controller: MediaSession.ControllerInfo): MediaSession.ConnectionResult =
+            MediaSession.ConnectionResult.AcceptedResultBuilder(session)
+                .setAvailableSessionCommands(MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon().add(TOO_HARD_COMMAND).build())
+                .build()
+
+        override fun onCustomCommand(session: MediaSession, controller: MediaSession.ControllerInfo, customCommand: SessionCommand, args: Bundle): ListenableFuture<SessionResult> {
+            if (customCommand.customAction == TOO_HARD_ACTION) {
+                engine?.tooHard(whereFor(controller))
+                return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+            }
+            return super.onCustomCommand(session, controller, customCommand, args)
+        }
+
+        override fun onPlayerCommandRequest(session: MediaSession, controller: MediaSession.ControllerInfo, playerCommand: Int): Int {
+            lastWhere = whereFor(controller)
+            return super.onPlayerCommandRequest(session, controller, playerCommand)
+        }
+
+        override fun onMediaButtonEvent(session: MediaSession, controllerInfo: MediaSession.ControllerInfo, intent: Intent): Boolean {
+            // Media3's own notification buttons arrive as media-button intents from the notification
+            // controller; anything else (a Bluetooth / wired headset's ⏮ ⏯ ⏭) is the headset. Best effort.
+            if (!session.isMediaNotificationController(controllerInfo)) {
+                headsetUntil = SystemClock.elapsedRealtime() + HEADSET_WINDOW_MS
+                lastWhere = AudioLessonFeedback.HEADSET
+            }
+            return super.onMediaButtonEvent(session, controllerInfo, intent)
+        }
+    }
+
+    private fun tooHardButton(noted: Boolean): CommandButton =
+        CommandButton.Builder(if (noted) CommandButton.ICON_FLAG_FILLED else CommandButton.ICON_FLAG_UNFILLED)
+            .setDisplayName(if (noted) "Noted — too hard" else "Too hard")
+            .setSessionCommand(TOO_HARD_COMMAND)
+            .build()
 
     /** A tap on the notification / lock screen opens the lesson's player. */
     private fun openLesson(id: String): PendingIntent = PendingIntent.getActivity(
@@ -436,10 +589,20 @@ class AudioLessonService : MediaSessionService() {
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = session
 
     override fun onDestroy() {
+        handler.removeCallbacksAndMessages(null)
         engine?.let { AudioLessonPlayback.detach(it); it.release() }
         session?.release()
         session = null
         engine = null
         super.onDestroy()
+    }
+
+    companion object {
+        /** The lock screen / notification's "Too hard" (a custom session command). */
+        const val TOO_HARD_ACTION = "dev.jeromeswannack.chineselearning.lab.audiolesson.TOO_HARD"
+        val TOO_HARD_COMMAND = SessionCommand(TOO_HARD_ACTION, Bundle.EMPTY)
+        private const val NOTED_MS = 2500L
+        private const val HEADSET_WINDOW_MS = 1500L
+        private val NOTED_TOKEN = Any()
     }
 }

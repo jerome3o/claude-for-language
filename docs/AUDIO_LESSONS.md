@@ -576,7 +576,8 @@ over the chat's `ChatWordsText`, Lab `TranscriptRowView` over `ChineseWords` + `
 explorer's Word view (source `audio_lesson`), a word already in a deck has the quieter underline; a tap anywhere else on the row
 still seeks, a word tap never does; layout unchanged — no per-word pinyin, the row's own pinyin line follows 拼; until the word
 lists load the row is its plain text), the word list,
-Media Session (lock screen / headphones: play, pause, ±10 s, chapter back / next, seek). The page must
+Media Session (lock screen / headphones: play, pause, ±10 s, back / next a section, seek — see "Feedback while
+listening"), ⏪ Back a section / 😵 Too hard under the controls. The page must
 stay open: the web player stops when you navigate away.
 
 ## The player (Lab app)
@@ -584,8 +585,9 @@ stay open: the web player stops when you navigate away.
 `android-lab/…/ui/audiolessons/` + `data/audiolessons/`: the same list, form and player, built for
 the train and for bed. The lesson plays in `AudioLessonService`, a Media3 `MediaSessionService`
 around ExoPlayer, so it carries on with the screen off and the app closed: a media notification
-and lock-screen controls (play / pause, ±10 s, previous / next = chapters via `ChapterPlayer`,
-"previous" within 3 s of a chapter's start goes one further back), headphone buttons, audio focus,
+and lock-screen controls (play / pause, previous / next = a SECTION via `SectionPlayer` and 🚩 Too hard —
+see "Feedback while listening"; the in-app ⏮ ⏭ are chapters, "previous" within 3 s of a chapter's start
+goes one further back), headphone buttons, audio focus,
 pause when headphones are unplugged. The sleep timer (fade over the last 30 s, then pause; or the
 end of the chapter) and the remembered position run in the service's `AudioLessonEngine`, not the
 screen. Speed uses `PlaybackParameters(speed, pitch = 1)`. MP3s are kept under
@@ -672,6 +674,64 @@ It joined MiniMax clips (32 kHz MPEG-1) and Google clips (24 kHz MPEG-2) byte fo
 sample rate changes mid-stream, which players mis-time or cut — with no pauses at all, built lessons
 from a deck's word list with Haiku, fired 8 TTS calls at once with no rate limiter, and had no
 chapters, no offline player and no notion of what the learner already knew.
+
+## Feedback while listening
+
+Jerome listens walking or on the train with the phone locked, and Claude tunes the next lesson to his
+level, so every lesson takes one-tap feedback that never needs the screen:
+
+- **A section** is one transcript row as the player shows it (`transcriptRows`): a sentence with its
+  repeats ("×3 +2"), a sleep word with its repeats, an English narration with the Chinese inside it — the
+  unit "say that again" means. Shorter (a single clip) would make back land mid-repeat; longer (a chapter)
+  would throw away minutes.
+- **Back a section** (`backSectionTarget`, shared/audio-lesson/feedback.ts): the row playing from its start
+  (`again`); when that row started less than **2 s of listening** ago (`BACK_SECTION_GRACE_MS`, scaled by the
+  playback speed — 1.5 s of audio at 0.75×), the row before (`back_section`) — you pressed because of what
+  you just heard. Before the first row: the start; no transcript: the previous chapter, nothing recorded.
+- **Next section** (`nextSectionTarget`): the next row (`skip` — many skips read as "too easy").
+- **Too hard**: noted where the audio is; playing carries on. The same 2 s decide which row it is about
+  (`flaggedRowIndex`: within 2 s of a row's start → the row before).
+
+**Lab app (the main target).** The media notification and the lock screen (`AudioLessonService`, Media3):
+⏮ = back a section, ⏯, ⏭ = next section, and a custom **🚩 Too hard** button (a session command; the flag
+fills in — "Noted — too hard" — for 2.5 s, with a haptic, since the lock screen can't show a toast).
+Previous / next USED to be chapters; on the lock screen they step sections now (the in-app ⏮ ⏭ stay chapters).
+A headset's previous / next buttons do the same (Android routes them to the session). One custom action only,
+so the compact view stays clear — "again" needs no button: ⏮ more than 2 s into a line replays it. The player
+screen has the same two under its controls (⏪ Back a section · 😵 Too hard, "Noted — too hard: 他很累。").
+Where a press came from (`where`): `headset` (a media-button event outside the notification), `lock_screen` /
+`notification` (system media controls, told apart by the keyguard), `player`. Best effort: Android doesn't
+say which surface sent a command.
+
+**Web.** The browser has no custom lock-screen actions: Media Session `previoustrack` / `nexttrack` step
+sections (recorded as `lock_screen` while the page is hidden, else `notification`), `seekbackward` /
+`seekforward` stay ±10 s, and **😵 Too hard** + **⏪ Back a section** are buttons under the player's controls
+(`components/audioLessons/FeedbackBar.tsx`). The page must stay open (see Known limitations).
+
+**Events** (offline-first): `{ id (client), audio_lesson_id, kind: too_hard | again | back_section | skip,
+where, position_ms, chapter_index, row_index, row, previous_row ({ index, start_ms, text, pinyin?, english? }
+of the row playing and the one before — reaction lag), speed, audio_version, created_at }` (`buildFeedbackEvent`).
+Web: own IndexedDB `audio-lesson-feedback` (`services/audioLessonFeedback.ts`), posted at once when online and by
+every sync (`flushAudioLessonFeedback`; kept, marked uploaded, for the transcript's 😵). Lab: the Outbox (kind
+`audio-lesson-feedback`, one event per item, id = the event id) + JsonCache `audio-lessons/feedback/<id>` (rows
+marked too hard → 😵 on the transcript). Rules ported to `core/…/AudioLessonFeedback.kt`, parity-tested
+(`parity/fixtures/audio-lesson-feedback.ts`).
+
+**Server** (`routes/audio-lesson-feedback.ts`, `services/audio-lesson-feedback.ts`, table `audio_lesson_feedback`,
+migration 0157; no model call, so no cost guard):
+- `POST /api/audio-lessons/:id/feedback { events }` (≤ 100) → `{ accepted, stored, rejected }` — the caller's own
+  lesson (404 otherwise), idempotent by event id, checked by `pickFeedbackEvent`; deleting the lesson deletes them.
+- `GET /api/me/audio-lesson-feedback?lesson_id=&since=&limit=` → `{ lessons: [{ lesson, events, summary }], cursor, more }`
+  — per lesson (newest press first), events oldest first, `summary` = `summarizeLessonFeedback` (counts, the rows
+  he reacted to ranked — too hard counts double —, the furthest press, one line "Too hard ×2 · went back ×1 —
+  hardest: 他很累。 (too hard ×2, replayed ×1)").
+
+**MCP** `get_audio_lesson_feedback { lesson_id?, since?, events?: none | recent | all, max_lessons? }`
+(`mcp-server/src/tools/audio-lesson-feedback.ts`): per lesson the title, format, minutes, `listened_to_the_end`,
+`furthest_press_at`, the summary line, counts, `hardest_lines` (time, text, pinyin, English, too_hard / replayed /
+skipped) and the presses (when, at, what, from, the line playing and the one before). Analytics:
+`audio_lesson.too_hard { format, where }`, `audio_lesson.back_section { format, where, kind }`,
+`audio_lesson.next_section { format, where }`, `server.audio_lesson_feedback`.
 
 ## Known limitations
 
