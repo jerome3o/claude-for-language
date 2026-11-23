@@ -127,7 +127,7 @@ Read the doc before changing a feature; it has the code map, the endpoints and t
 | MCP server: architecture, OAuth, every tool, tutor MCP Apps, debugging | [docs/MCP.md](./docs/MCP.md) | `mcp-server/src/` |
 | Video calls, board, materials, in-call activities, lessons | [docs/VIDEO_CALLS.md](./docs/VIDEO_CALLS.md) | `worker/src/durable/call-room.ts`, `shared/calls/` |
 | Group classes (experimental) | [docs/GROUP_CLASSES.md](./docs/GROUP_CLASSES.md) | `shared/group/` |
-| Audio lessons + private podcast feed | [docs/AUDIO_LESSONS.md](./docs/AUDIO_LESSONS.md) | `worker/src/services/audio-lessons/`, `shared/audio-lesson/` |
+| Audio lessons (incl. composed lessons / video-lesson recaps from MCP blocks) + private podcast feed | [docs/AUDIO_LESSONS.md](./docs/AUDIO_LESSONS.md) | `worker/src/services/audio-lessons/`, `shared/audio-lesson/` |
 | Podcasts (Lab only) | [docs/PODCASTS.md](./docs/PODCASTS.md) | `worker/src/services/podcasts/` |
 | Clips · Idioms · Phone practice · Meme review · VR | [docs/CLIPS.md](./docs/CLIPS.md) · [docs/IDIOMS.md](./docs/IDIOMS.md) · [docs/PHONE_PRACTICE.md](./docs/PHONE_PRACTICE.md) · [docs/MEME_REVIEW.md](./docs/MEME_REVIEW.md) · [docs/VR.md](./docs/VR.md) | `shared/clips/`, `shared/idioms/`, `shared/phone/`, `shared/meme-review/`, `shared/vr/` |
 | Handwriting / stroke order | [docs/STROKE_ORDER.md](./docs/STROKE_ORDER.md) | `shared/strokes/` |

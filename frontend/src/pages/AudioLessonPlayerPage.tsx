@@ -422,7 +422,10 @@ export function AudioLessonPlayerPage() {
       <header className="al-player-head">
         <button className="al-back" onClick={() => navigate('/audio-lessons')} aria-label="Back to audio lessons">←</button>
         <div className="al-player-titles">
-          <div className="al-player-kind">{audioLessonFormatInfo(lesson.format).icon} {audioLessonFormatInfo(lesson.format).kind}</div>
+          <div className="al-player-kind">
+            {audioLessonFormatInfo(lesson.format).icon} {audioLessonFormatInfo(lesson.format).kind}
+            {lesson.source_label ? ` · ${lesson.source_label}` : ''}
+          </div>
           <h1 className="al-player-title">{lesson.title}</h1>
         </div>
       </header>

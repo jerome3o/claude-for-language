@@ -11,3 +11,6 @@ export * from './characters';
 export * from './phrases';
 export * from './story';
 export * from './chapter-pinyin';
+export * from './composed';
+export * from './composed-doc';
+export * from './composed-sample';
