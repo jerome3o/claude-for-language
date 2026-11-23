@@ -169,7 +169,7 @@ writeFileSync(
     fadeMs: SLEEP_FADE_MS,
     formats: {
       all: AUDIO_LESSON_FORMATS,
-      info: [...AUDIO_LESSON_FORMATS, 'podcast', null, 'toString'].map((format) => ({ format, info: audioLessonFormatInfo(format) })),
+      info: [...AUDIO_LESSON_FORMATS, 'composed', 'podcast', null, 'toString'].map((format) => ({ format, info: audioLessonFormatInfo(format) })),
       defaultMinutes: AUDIO_LESSON_FORMATS.map((format) => ({ format, minutes: AUDIO_LESSON_INPUT_LIMITS.defaultMinutes[format] })),
       storyText: AUDIO_LESSON_INPUT_LIMITS.storyText,
       msPerHan: STORY_MS_PER_HAN,

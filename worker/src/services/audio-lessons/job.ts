@@ -172,6 +172,8 @@ export async function runAudioLessonJob(env: Env, lessonId: string, deps: JobDep
     }
 
     // ---------- 1. writing ----------
+    // A composed lesson arrives with its script (compiled at POST); one without is broken.
+    if (!row.script_json && row.format === 'composed') return fail('This composed lesson has no script — make it again');
     if (!row.script_json) {
       const index = buildVocabIndex(await q.learnerVocabulary(env.DB, row.user_id));
       // Dialogue: the learner's own part speaks in their voice gender (Profile; null = as the plan says).
@@ -352,8 +354,10 @@ export function usageFor(
 ): AudioLessonUsage {
   const chars = script ? speechChars(script) : { zh: 0, en: 0, clips: 0 };
   const story = format === 'story';
+  // Composed: the agent's plan is the lesson — no Claude call on the server.
+  const composed = format === 'composed';
   return {
-    model: story ? STORY_TRANSLATE_MODEL : AUDIO_LESSON_MODEL,
+    model: composed ? 'none' : story ? STORY_TRANSLATE_MODEL : AUDIO_LESSON_MODEL,
     input_tokens: author.input_tokens + author.cache_creation_input_tokens,
     output_tokens: author.output_tokens,
     cache_read_input_tokens: author.cache_read_input_tokens,
@@ -363,7 +367,7 @@ export function usageFor(
     tts_clips: chars.clips,
     zh_provider: zh,
     en_provider: en,
-    claude_usd: story ? storyCostUsd(author) : claudeCostUsd(author),
+    claude_usd: composed ? 0 : story ? storyCostUsd(author) : claudeCostUsd(author),
   };
 }
 

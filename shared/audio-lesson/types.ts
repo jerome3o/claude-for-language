@@ -17,8 +17,11 @@
  * - sleep: slow all-Chinese immersion teaching the new words of a text;
  * - story: "Listen & repeat" — a pasted story or conversation, chunk by chunk, each chunk said
  *   three times slowly and then its English (story.ts). No words are taught; Claude only translates.
+ * - composed: built from BLOCKS by an agent through the MCP (composed.ts) — the plan IS the lesson,
+ *   no model runs on the server. Not one of the forms' formats (`AUDIO_LESSON_FORMATS`).
  */
-export type AudioLessonFormat = 'dialogue' | 'sleep' | 'story';
+export type AudioLessonFormat = 'dialogue' | 'sleep' | 'story' | 'composed';
+/** The formats the apps' "New audio lesson" form (and POST without a plan) make. */
 export const AUDIO_LESSON_FORMATS: readonly AudioLessonFormat[] = ['dialogue', 'sleep', 'story'];
 
 /** How each format is named and shown (both apps: the picker, the list's icon, the player's header). */
@@ -36,6 +39,7 @@ export const AUDIO_LESSON_FORMAT_INFO: Record<AudioLessonFormat, AudioLessonForm
   dialogue: { icon: '🎙️', label: 'Dialogue', short: 'Practise a situation', kind: 'Dialogue lesson' },
   sleep: { icon: '🌙', label: 'Sleep', short: 'New words, slowly', kind: 'Sleep lesson' },
   story: { icon: '📖', label: 'Story', short: 'Listen & repeat', kind: 'Listen & repeat a story' },
+  composed: { icon: '🧩', label: 'Composed', short: 'Built from blocks', kind: 'Composed lesson' },
 };
 
 /** The format's info; an unknown format is shown as a dialogue lesson. */
@@ -259,7 +263,8 @@ export interface StoryPlan {
 export type AudioLessonPlan =
   | { format: 'dialogue'; plan: DialoguePlan }
   | { format: 'sleep'; plan: SleepPlan }
-  | { format: 'story'; plan: StoryPlan };
+  | { format: 'story'; plan: StoryPlan }
+  | { format: 'composed'; plan: import('./composed').ComposedPlan };
 
 // ---------- What the player shows ----------
 
@@ -299,6 +304,16 @@ export interface AudioLessonInput {
   target_minutes?: number;
   /** A title the learner chose (else Claude names the lesson). */
   title?: string;
+  /** Composed: what it was made from — a video lesson (a label; `label` = "Recap of the 21 Nov lesson"). */
+  source?: AudioLessonSource;
+}
+
+/** A composed lesson's source: a video lesson of the learner's (checked: a call they were in). */
+export interface AudioLessonSource {
+  call_id?: string;
+  lesson_id?: string;
+  /** What the apps show under the title ("Recap of the 21 Nov lesson"). */
+  label?: string;
 }
 
 export const AUDIO_LESSON_INPUT_LIMITS = {
@@ -311,7 +326,7 @@ export const AUDIO_LESSON_INPUT_LIMITS = {
   minMinutes: 5,
   maxMinutes: 40,
   /** Story: not a target — the lesson is as long as the text (STORY_LIMITS.maxMinutes at most). */
-  defaultMinutes: { dialogue: 12, sleep: 20, story: 0 } as Record<AudioLessonFormat, number>,
+  defaultMinutes: { dialogue: 12, sleep: 20, story: 0, composed: 0 } as Record<AudioLessonFormat, number>,
 } as const;
 
 export interface AudioLessonUsage {
@@ -350,6 +365,8 @@ export interface AudioLessonSummary {
   listened_at?: string | null;
   /** Its companion mini lesson (shared/lesson/unlock.ts), if one was asked for. */
   companion?: AudioLessonCompanion | null;
+  /** Composed: what it was made from, shown under the title ("Recap of the 21 Nov lesson"); null = nothing. */
+  source_label?: string | null;
 }
 
 /** An audio lesson's companion mini lesson: being written / failed, or made (locked or unlocked). */

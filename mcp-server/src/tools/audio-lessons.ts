@@ -8,6 +8,8 @@
  */
 import { z } from 'zod';
 import type { AudioLessonCompanion, AudioLessonDetail, AudioLessonSummary, PodcastFeedInfo } from '../../../shared/audio-lesson/types';
+import { COMPOSED_SPEC_DOC } from '../../../shared/audio-lesson/composed-doc';
+import { COMPOSED_LIMITS } from '../../../shared/audio-lesson/composed-limits';
 import type { ToolContext } from './context.js';
 import { guard, jsonResult } from './context.js';
 
@@ -22,6 +24,7 @@ export function trimLesson(l: AudioLessonSummary) {
     ...(l.duration_ms ? { minutes: Math.round((l.duration_ms / 60000) * 10) / 10 } : {}),
     word_count: l.word_count,
     created_at: l.created_at,
+    ...(l.source_label ? { source: l.source_label } : {}),
     listen_path: `/audio-lessons/${l.id}`,
     ...(l.listened_at ? { listened_at: l.listened_at } : {}),
     ...(l.companion ? { companion: companionForChat(l.companion) } : {}),
@@ -103,6 +106,55 @@ export function registerAudioLessonTools(ctx: ToolContext): void {
           ...(res.notice ? { notice: res.notice } : {}),
           sent: false,
           note: 'Being made in the background — check get_audio_lesson in a few minutes. It is in the signed-in account only.',
+        });
+      }),
+  );
+
+  server.tool(
+    'compose_audio_lesson',
+    'Make a COMPOSED audio lesson for the signed-in user from your own plan of blocks — no model rewrites it: what you write is what the voices say. Use it to experiment with formats (e.g. a recap of a video lesson from get_lesson_for_recap: the conversation at a high level, then its words and structures, mostly Chinese with short English anchors and lots of repetition). ALWAYS dry-run first (dry_run defaults to true; nothing is stored): fix the problems, check the estimated length / chapters / transcript_preview, then call again with dry_run: false. Pass `source: { lesson_id }` (or call_id) when it recaps a video lesson — the app then shows "Recap of the 21 Nov lesson" under the title. Recorded in the background (a few minutes): poll get_audio_lesson. Stays in the signed-in account; nothing is sent to anyone.\n\n' +
+      COMPOSED_SPEC_DOC,
+    {
+      plan: z
+        .object({
+          version: z.number().int().optional(),
+          title: z.string().min(1).max(COMPOSED_LIMITS.maxTitleChars),
+          speakers: z.record(z.string(), z.unknown()).optional(),
+          english_voice: z.enum(['narrator', 'recap']).optional(),
+          blocks: z.array(z.record(z.string(), z.unknown())).min(1).max(COMPOSED_LIMITS.maxBlocks),
+        })
+        .passthrough()
+        .describe('The composed plan: { version: 1, title, speakers?, english_voice?, blocks: [...] } — see the block reference above.'),
+      title: z.string().max(COMPOSED_LIMITS.maxTitleChars).optional().describe("Overrides the plan's title."),
+      dry_run: z.boolean().optional().describe('Default true: only check and preview (nothing is stored or recorded). false = make it.'),
+      source: z
+        .object({ lesson_id: z.string().optional(), call_id: z.string().optional(), label: z.string().max(80).optional() })
+        .optional()
+        .describe("What it recaps: a video lesson of the user's (lesson_id / call_id from list_my_lessons or get_lesson_for_recap); label overrides \"Recap of the 21 Nov lesson\"."),
+    },
+    async ({ plan, title, dry_run, source }) =>
+      guard(async () => {
+        const body = { plan, ...(title ? { title } : {}), ...(source ? { source } : {}) };
+        if (dry_run !== false) {
+          const preview = await api.post<Record<string, unknown> & { problems: string[] }>('/api/audio-lessons/composed/preview', body);
+          return jsonResult({
+            ...preview,
+            next: preview.problems.length ? 'Fix the problems and dry-run again.' : 'Looks makeable. Call compose_audio_lesson again with dry_run: false to record it.',
+            sent: false,
+          });
+        }
+        const res = await api.post<{ lesson: AudioLessonSummary; estimate_minutes: number; chapters: unknown[]; clips: number; pinyin_fixes?: unknown[] }>(
+          '/api/audio-lessons',
+          { format: 'composed', ...body },
+        );
+        return jsonResult({
+          lesson: trimLesson(res.lesson),
+          estimate_minutes: res.estimate_minutes,
+          chapters: res.chapters,
+          clips: res.clips,
+          ...(res.pinyin_fixes ? { pinyin_fixes: res.pinyin_fixes } : {}),
+          sent: false,
+          note: 'Being recorded in the background — check get_audio_lesson in a few minutes. It is in the signed-in account only.',
         });
       }),
   );

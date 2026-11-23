@@ -305,6 +305,8 @@ export function AudioLessonsPage() {
                 <span className="al-row-icon" aria-hidden>{audioLessonFormatInfo(l.format).icon}</span>
                 <span className="al-row-text">
                   <span className="al-row-title">{l.title}</span>
+                  {/* A composed lesson's source: "Recap of the 21 Nov lesson" (docs/AUDIO_LESSONS.md "Composed lessons"). */}
+                  {l.source_label && <span className="al-row-source" data-testid={`al-source-${l.id}`}>{l.source_label}</span>}
                   <span className="al-row-sub">
                     {statusLine(l)}
                     {l.status === 'ready' && saved.has(l.id) && <span className="al-saved"> · ✓ On this phone</span>}

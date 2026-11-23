@@ -80,6 +80,8 @@ describe('which requests count', () => {
     expect(costGroupFor('GET', '/api/claude/threads/t1')).toBeNull();
     expect(costGroupFor('POST', '/api/picture-hunts/plays')).toBeNull();
     expect(costGroupFor('POST', '/api/audio-lessons/listened')).toBeNull();
+    // A composed lesson's dry run makes nothing (pure compute): iterating on a plan is never rate-limited as a job.
+    expect(costGroupFor('POST', '/api/audio-lessons/composed/preview')).toBeNull();
     expect(costGroupFor('POST', '/api/sentences/s1/ensure-audio')).toBeNull();
     expect(costGroupFor('POST', '/api/relationships/r1/session-notes/j1/send')).toBeNull();
     expect(costGroupFor('POST', '/api/decks')).toBeNull();

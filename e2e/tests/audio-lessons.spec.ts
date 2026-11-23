@@ -180,6 +180,44 @@ test('a story lesson: paste a conversation → each line three times, its Englis
   await expect(page.getByRole('button', { name: 'Music' })).toHaveAttribute('aria-pressed', 'true');
 });
 
+test('a composed lesson (made through the API like the MCP does): dry run, then the list label and the player', async ({ authenticatedPage: page, testUser, request }) => {
+  test.setTimeout(120_000);
+  const API_URL = process.env.E2E_API_URL || 'http://localhost:8787';
+  const headers = { Authorization: `Bearer ${testUser.sessionToken}` };
+  const plan = {
+    version: 1,
+    title: 'Recap: weekend plans',
+    blocks: [
+      { type: 'chapter', title: 'What we talked about' },
+      { type: 'en', text: 'You talked about your plan to go hiking, 爬山, at the weekend.' },
+      { type: 'word_focus', hanzi: '打算', pinyin: 'dǎsuàn', english: 'to plan to', examples: [{ hanzi: '我打算去爬山。', english: "I'm planning to go hiking." }] },
+      { type: 'recall', english: 'How would you say: I am planning to go hiking?', hanzi: '我打算去爬山。' },
+    ],
+  };
+  // The dry run stores nothing and previews the transcript.
+  const dry = await request.post(`${API_URL}/api/audio-lessons/composed/preview`, { headers, data: { plan } });
+  expect(dry.ok()).toBe(true);
+  const preview = await dry.json();
+  expect(preview.problems).toEqual([]);
+  expect(preview.transcript_preview.some((r: { text: string; repeat?: string }) => r.text === '我打算去爬山。' && r.repeat === '×3 +2')).toBe(true);
+  // Made: recorded with the fake voices in the background, labelled with its source.
+  const made = await request.post(`${API_URL}/api/audio-lessons`, { headers, data: { format: 'composed', plan, source: { label: 'Recap of the 21 Nov lesson' } } });
+  expect(made.status()).toBe(202);
+
+  await page.gotoAuthenticated('/audio-lessons');
+  const row = page.getByRole('button', { name: 'Play Recap: weekend plans' });
+  await expect(row).toBeVisible({ timeout: 60000 });
+  await expect(row.locator('.al-row-icon')).toHaveText('🧩');
+  await expect(row.locator('.al-row-source')).toHaveText('Recap of the 21 Nov lesson');
+  await row.click();
+  await expect(page.getByText('🧩 Composed lesson · Recap of the 21 Nov lesson')).toBeVisible();
+  await expect(page.getByText('✓ Saved on this phone · plays offline')).toBeVisible({ timeout: 30000 });
+  await page.getByRole('button', { name: '☰ Chapters' }).click();
+  await expect(page.locator('.al-chapters .al-chapter-label', { hasText: '打算' })).toBeVisible();
+  // Music off by default (English anchors, like a dialogue lesson).
+  await expect(page.getByRole('button', { name: 'Music' })).toHaveAttribute('aria-pressed', 'false');
+});
+
 test('the private podcast feed: copy, fetch like a podcast app, Range, reset', async ({ authenticatedPage: page }) => {
   test.setTimeout(120_000);
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);

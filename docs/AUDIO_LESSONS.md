@@ -3,8 +3,9 @@
 Agent-written listening lessons, rendered to ONE audio file per lesson, for the train and for falling
 asleep. A prototype (Oct 2026). Web: More → 🎧 Audio lessons (`/audio-lessons`, player at
 `/audio-lessons/:id`). MCP: `create_audio_lesson`, `get_audio_lesson`, `list_audio_lessons`,
-`get_audio_lesson_feed`. Every ready lesson is also an episode of the user's private podcast feed
-(see "Podcast feed").
+`get_audio_lesson_feed`, and for lessons an agent builds from blocks `compose_audio_lesson` (+ `list_my_lessons` /
+`get_lesson_for_recap` for a video lesson's recap — see "Composed lessons"). Every ready lesson is also an episode of the
+user's private podcast feed (see "Podcast feed").
 
 ## The three formats
 
@@ -323,6 +324,102 @@ in Nov 2026 — 8-word lessons then ran ~27 min and gain ~40 s a word; 2.7 befor
 asks for `round((minutes − 0.5) / 3.75)` words (2–12; 20 min → 5, 25 min → 7) and a plan estimated over `1.3 × target + 2`
 minutes is sent back ("teach fewer words"). The distinct-clip limit is 260 (each word ≈ 20 clips).
 
+## Composed lessons (Nov 2026)
+
+**Format D — built from blocks by an agent.** Jerome's homework is anchored in his video lessons (free conversation with
+his tutor); he wanted an optional audio-only RECAP to listen to before doing it — the conversation at a high level, then the
+words and structures, mostly Chinese with short English anchors and lots of repetition (he needs to hear new material 2–3
+times) — and to EXPERIMENT with the format before writing it down as a skill for his level. So the app has no recap format:
+it has a block engine, and the agent (Claude through the MCP) composes lessons from blocks, takes his feedback and tries again.
+
+- **The plan IS the lesson.** `format: 'composed'` + a JSON plan of blocks (`shared/audio-lesson/composed.ts`, spec v1;
+  the reference text `COMPOSED_SPEC_DOC` in `composed-doc.ts`, numbers in the dependency-free `composed-limits.ts`) compiles
+  DETERMINISTICALLY (`compileComposedLesson`) into the same speech / pause script every other format makes, so the worker
+  records and joins it exactly like them (`synth.ts` → `mp3.ts`), with chapters, the transcript (hanzi · pinyin · English,
+  repeats as "×3 +2" rows), the podcast feed, the music bed (off by default, like dialogue) and both apps' players
+  unchanged. No model runs on the server (usage `model: 'none'`, $0 of Claude); no new migration (`format` is TEXT).
+- **Low-level blocks**: `chapter` (title), `zh` (hanzi, pinyin?, english? — transcript only —, voice teacher | speaker_a |
+  speaker_b | sleep, rate, repeat 1–6, gap_ms), `en` (English; Chinese inside in Han characters is spoken by the teacher
+  voice; voice narrator | recap), `pause` (ms), `sequence` (one line + its English in a pattern such as
+  `["zh","zh","en",2000,"zh"]` — numbers are pauses; gap_ms between plays, en_gap_ms next to the English).
+- **High-level blocks** (macros; every default overridable):
+  | Block | Default pattern |
+  |---|---|
+  | `drill` (hanzi, english) | zh ×3 (slow, 0.9 s gaps) → en ×1 (1.3 s around it) → zh ×2; one transcript row "×3 +2" |
+  | `word_focus` (word, english, meaning_zh?, examples?) | chapter "周末 — weekend"; word ×3; each character's tone by the host (`dialogueToneLines`: "周, first tone."); the meaning_zh sentences; "周末 means weekend." once; each example as a drill; the word once more |
+  | `structure` (pattern, explanation_en, examples) | chapter = the pattern (shown, never spoken: "要是…就…"); the English one-liner; each example as a drill |
+  | `exchange` (lines with speaker A / B) | slow ×2 in two voices (A female, B male unless `speakers` says otherwise); the English gist (`gist_en`, else each line's English); natural speed ×1 |
+  | `retell` (sentences or text) | the paragraph sentence by sentence, slowly, NO English; the whole of it ×2 |
+  | `recall` (english prompt, hanzi) | the prompt → 3 s of silence → the answer ×2 |
+  `clip` is RESERVED (real audio from the lesson recording, below) and refused with a clear problem.
+- **Speeds**: `sleep` 0.5 (each provider's slowest natural rate), `slow` 0.6 (default), `normal` 0.7, `natural` 0.85, or a
+  number 0.5–1.2. **Pinyin**: given → checked by the pinyin check (`fixSpecPinyin`, impossible syllables corrected,
+  `pinyin_fixes` in the answer); missing → made automatically (`autoLinePinyin`: pinyin-pro + the 一 / 不 rule), shown,
+  never spoken. A line said again keeps its pinyin in the transcript (`again()`), so it never reads as narration.
+- **Validation** (`composedPlanShapeProblems`, then `validateScript` + the length cap — `previewComposedLesson`): unknown
+  block types (the list of known ones in the message), empty / Latin / slashed Chinese, tone numbers, pinyin in English,
+  bad voices / rates / pauses / patterns, an "en" step with no english, ≤ 300 blocks, ≈ 45 minutes estimated, and the
+  shared script limits (260 DIFFERENT clips — a line said again reuses its clip —, 1,500 segments, 40 chapters).
+- **The dry run**: `POST /api/audio-lessons { format: 'composed', plan, title?, source?, dry_run: true }` or
+  `POST /api/audio-lessons/composed/preview` (no `dry_run` needed; NOT in the cost guard's job group — nothing is made, so
+  iterating on a plan is never rate-limited) → `{ dry_run: true, problems, estimate_minutes, chapters: [{ title, at }],
+  transcript_preview: [{ at, text, pinyin?, english?, repeat? }], clips, segments, tts_chars, pinyin_fixes? }`, timed with
+  the estimate (`estimateScriptMs`) through the real `buildTimeline` + `transcriptRows`; nothing stored.
+- **Making it**: the same POST without `dry_run` → 202 `{ lesson, estimate_minutes, chapters, clips, pinyin_fixes? }`: the
+  plan (pinyin-checked) and its compiled script are stored at once, the row queued on audio-lesson-queue (`{ lessonId }`),
+  the job skips "writing" and records; 400 + `problems` for a plan that can't be made; 409 at 3 lessons being made; no Claude
+  key needed. Retry works like any lesson (the script is kept).
+- **Source**: `source: { lesson_id | call_id, label? }` must be a video lesson the caller was in (`resolveRecapSource`,
+  `services/calls/recap.ts`; else 400 "source.call_id is not one of your lessons"); stored in `input_json.source` with its
+  label — "Recap of the 21 Nov lesson" in the learner's time zone (`recapSourceLabel`) — which `AudioLessonSummary.source_label`
+  carries and both apps show under the title in the list (web `.al-row-source`, Lab `LessonRow`) and after the kind in the
+  player ("🧩 Composed lesson · Recap of the 21 Nov lesson").
+- **The material — `GET /api/calls/:id/recap?max_segments=`** (`services/calls/recap.ts`, call members only — 404 for
+  anyone else): the whole lesson (all its calls), the merged transcript speaker by speaker ("Laoshi (tutor)") with each
+  line's offset from the start ("4:05") and its stored pinyin / translation, the board text, the in-call chat, the lesson
+  report (summary, topics, vocabulary, corrections, follow-ups), and for the LEARNER: their own `lesson_notes` written around
+  the lesson (a logged lesson's notes reach the learner there as "[From tutor …]") and the homework sent from it (assignments
+  whose batch is a session-notes job of this lesson's calls, `from_this_lesson: true`) or around it (same relationship, an
+  hour before the lesson → the next lesson / 7 days), a deck's words read from the learner's own copy (≤ 80). Never the
+  tutor's private student profile, her session-notes jobs or anyone's e-mail (tested).
+- **MCP** (`mcp-server/src/tools/lesson-recap.ts`, `tools/audio-lessons.ts`): `list_my_lessons` (GET /api/calls grouped into
+  lessons), `get_lesson_for_recap { lesson_id? | call_id?, max_lines?, pinyin? }` (default: the newest lesson with a
+  transcript; one line per segment "1:05 Learner (student), me: 我打算去爬山。 | wǒ dǎsuàn qù páshān. | I'm planning…"),
+  `compose_audio_lesson { plan, title?, dry_run (default true), source? }` (its description is `COMPOSED_SPEC_DOC`), and
+  `get_audio_lesson` / `list_audio_lessons` as for any lesson (`source` on each row).
+- **Example**: `SAMPLE_COMPOSED_RECAP_PLAN` (`shared/audio-lesson/composed-sample.ts`) — the recap of an invented lesson
+  about weekend plans: "What we talked about" (one English line), "The conversation" (an exchange: slow ×2, the gist,
+  natural ×1), 打算 and 爬山 (word_focus with a lesson line as the example), 要是…就… (structure, two drills), "Your turn"
+  (two recalls), 复述 (a retell) — about 6 minutes, 46 clips:
+  ```json
+  { "version": 1, "title": "Recap: weekend plans", "blocks": [
+    { "type": "chapter", "title": "What we talked about" },
+    { "type": "en", "text": "In this lesson you talked about the weekend and your plan to go hiking, 爬山, with friends." },
+    { "type": "exchange", "title": "The conversation", "gist_en": "…", "lines": [
+      { "speaker": "A", "hanzi": "你周末打算做什么？", "english": "What are you planning to do at the weekend?" },
+      { "speaker": "B", "hanzi": "我打算跟朋友一起去爬山。", "english": "I'm planning to go hiking with friends." } ] },
+    { "type": "word_focus", "hanzi": "打算", "pinyin": "dǎsuàn", "english": "to plan to",
+      "meaning_zh": ["打算就是你想做的事。"], "examples": [{ "hanzi": "我打算跟朋友一起去爬山。", "english": "I'm planning to go hiking with friends." }] },
+    { "type": "structure", "pattern": "要是…就…", "explanation_en": "要是 means if; the result comes after 就.",
+      "examples": [{ "hanzi": "要是下雨，我们就在家看电影。", "english": "If it rains, we'll watch a film at home." }] },
+    { "type": "recall", "english": "How would you say: what are you planning to do at the weekend?", "hanzi": "你周末打算做什么？" },
+    { "type": "retell", "text": "这个周末我打算去爬山。我跟朋友一起去。要是下雨，我们就在家看电影。" } ] }
+  ```
+- **Companion mini lesson**: works for a composed lesson too (the brief lists every Chinese line, `composedPlanLines`; no
+  conversation exercise required). Podcast show notes: "Composed lesson — built from blocks …".
+- **Lesson audio clips — not yet** (the reserved `clip` block). Call recordings are each person's own mic in pieces of
+  5 minutes — WebM / Opus from Chrome, `audio/mp4` (AAC) from Safari, Ogg / Opus from the Lab app — in R2 `calls/`, with
+  transcript segments timed on the server's clock. The lesson renderer only joins 24 kHz mono MPEG-2 Layer III frames, so a
+  clip needs demux → decode → resample → MP3 encode. Options: (a) in the Worker with WASM (an EBML / Ogg demuxer, an Opus
+  decoder, lamejs at 24 kHz) on audio-lesson-queue — no new infrastructure, a few hundred ms of CPU per clip, but Safari's AAC
+  pieces need another decoder and the bundle grows; (b) a Cloudflare Container with ffmpeg — handles every container /
+  codec robustly, cents per lesson, but new infrastructure (the app has avoided Containers so far, PPTX included); (c) the
+  players splice the clip in at play time (silence of its length in the MP3, the call audio from a signed link) — no
+  transcoding, but not in the podcast feed and the clips must be cached for offline; (d) Workers AI / Media Transformations
+  don't transcode audio to MP3. Recommended next step: (a) for Opus pieces (most calls), measured first, with clips ≤ 15 s
+  padded ±300 ms around a transcript segment; the block shape is already reserved: `{ "type": "clip", "call_id", "start_ms",
+  "end_ms" }` (offsets as `get_lesson_for_recap` gives them).
+
 ## Music
 
 A very soft, slow ambient bed under the lesson — mixed in the PLAYERS, not the file (the Worker can't decode / mix MP3
@@ -430,7 +527,9 @@ from the same clip lengths, so the chapter list lines up with the audio.
 
 - `GET /api/audio-lessons` → `{ lessons }` · `GET /api/audio-lessons/:id` → `{ lesson }` (chapters, transcript, words, speakers, usage)
 - `POST /api/audio-lessons` `{ format: dialogue|sleep|story, description?, dialogue?, text?, title?, target_minutes? (5–40; ignored for story), for_relationship_id? }` → 202 `{ lesson, notice?, chunks? }` (story: how many chunks, and the cut notice; 400 + `problems`; 409 at 3 lessons being made; 503 without the Claude key)
-- `audio_lessons.format` is a TEXT column without a CHECK, so the story format needed no migration.
+- `POST /api/audio-lessons` `{ format: 'composed', plan, title?, source?: { lesson_id | call_id, label? }, dry_run? }` → 200 dry run `{ dry_run: true, problems, estimate_minutes, chapters, transcript_preview, clips, segments, tts_chars, pinyin_fixes?, source? }` (nothing stored) / 202 `{ lesson, estimate_minutes, chapters, clips, pinyin_fixes? }` · `POST /api/audio-lessons/composed/preview` = the dry run, outside the cost guard's job group · summaries carry `source_label` (see "Composed lessons")
+- `GET /api/calls/:id/recap?max_segments=` → `{ recap }` — a video lesson's material for a recap, call members only (see "Composed lessons")
+- `audio_lessons.format` is a TEXT column without a CHECK, so the story and composed formats needed no migration.
 - `GET /api/audio-lessons/:id/audio` · `POST /api/audio-lessons/:id/retry` · `DELETE /api/audio-lessons/:id`
 
 ## Companion mini lesson
@@ -681,8 +780,8 @@ Jerome listens walking or on the train with the phone locked, and Claude tunes t
 level, so every lesson takes one-tap feedback that never needs the screen:
 
 - **A section** is one transcript row as the player shows it (`transcriptRows`): a sentence with its
-  repeats ("×3 +2"), a sleep word with its repeats, an English narration with the Chinese inside it — the
-  unit "say that again" means. Shorter (a single clip) would make back land mid-repeat; longer (a chapter)
+  repeats ("×3 +2"), a sleep word with its repeats, an English narration with the Chinese inside it, a
+  composed lesson's line with its repeats (the same `transcriptRows` fold) — the unit "say that again" means. Shorter (a single clip) would make back land mid-repeat; longer (a chapter)
   would throw away minutes.
 - **Back a section** (`backSectionTarget`, shared/audio-lesson/feedback.ts): the row playing from its start
   (`again`); when that row started less than **2 s of listening** ago (`BACK_SECTION_GRACE_MS`, scaled by the
@@ -778,6 +877,11 @@ English Azure → Google; all clips 24 kHz mono MP3); `mp3.ts` joins frames + ge
 header in the Worker. Queue `audio-lesson-queue` (re-enqueues on rate limits / after 4 min). R2
 `audio-lessons/` (person-made). Web player: offline (Cache API), chapters, ±10 s, speed, transcript,
 sleep timer, Media Session. MCP `create_audio_lesson` / `get_audio_lesson` / `list_audio_lessons` / `get_audio_lesson_feed`.
+**composed** (Nov 2026, "Composed lessons" above) = a plan of BLOCKS an agent writes through the MCP (`compose_audio_lesson`,
+dry run first; `shared/audio-lesson/composed.ts` — chapter / zh / en / pause / sequence + the macros drill / word_focus /
+structure / exchange / retell / recall, `clip` reserved), compiled deterministically into the same script — no Claude call on
+the server; `source: { lesson_id }` labels it "Recap of the 21 Nov lesson"; the material comes from `GET /api/calls/:id/recap`
+(MCP `list_my_lessons` / `get_lesson_for_recap`).
 - `GET|POST /api/audio-lessons` (POST `{ format: dialogue|sleep|story, … }` → 202 `{ lesson, notice?, chunks? }`), `GET|DELETE /api/audio-lessons/:id` (a story's detail carries `notice`), `GET /api/audio-lessons/:id/audio`, `POST /api/audio-lessons/:id/retry`
 - **Private podcast feed** (`routes/podcast.ts`, `services/podcast-feed.ts`, docs/AUDIO_LESSONS.md "Podcast feed"): public,
   mounted BEFORE the auth middleware — `GET /api/podcast/:token/feed.xml` (RSS 2.0 + iTunes + `podcast:chapters`, one item

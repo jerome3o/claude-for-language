@@ -194,7 +194,9 @@ export function introLine(format: AudioLessonFormat): string {
     ? 'Sleep lesson — slow Chinese to fall asleep to.'
     : format === 'story'
       ? 'Listen & repeat — a story or conversation, each line three times slowly, then its English, then twice more.'
-      : 'Dialogue lesson — a Chinese conversation, explained in English.';
+      : format === 'composed'
+        ? 'Composed lesson — built from blocks: Chinese lines with short English anchors and lots of repetition.'
+        : 'Dialogue lesson — a Chinese conversation, explained in English.';
 }
 
 export interface NoteChapter {

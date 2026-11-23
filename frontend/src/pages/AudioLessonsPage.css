@@ -252,6 +252,15 @@
   white-space: nowrap;
 }
 
+.al-row-source {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: #4f46e5;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .al-row-sub {
   font-size: 0.8rem;
   color: var(--color-text-light);

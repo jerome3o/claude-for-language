@@ -387,6 +387,10 @@ private fun LessonRow(l: AudioLessonDto, saved: Boolean, downloading: Double?, o
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Text(l.title.ifBlank { "Audio lesson" }, fontWeight = FontWeight.SemiBold, fontSize = 17.sp, color = Lab.colors.ink, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            // A composed lesson's source (docs/AUDIO_LESSONS.md "Composed lessons").
+            l.source_label?.takeIf { it.isNotBlank() }?.let {
+                Text(it, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Color(0xFF6366F1), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.testTag("al-source-${l.id}"))
+            }
             val sub = buildString {
                 append(l.statusLine)
                 if (ready && saved) append(" · ✓ On this phone")

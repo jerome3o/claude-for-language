@@ -5,6 +5,10 @@
  *
  *   GET    /audio-lessons            { lessons: AudioLessonSummary[] } newest first (stuck builds marked failed)
  *   POST   /audio-lessons            { format: dialogue|sleep|story, description?, dialogue?, text?, title?, target_minutes?, for_relationship_id? } → 202 { lesson, notice?, chunks? }
+ *                                     { format: 'composed', plan, title?, source?: { call_id? | lesson_id?, label? }, dry_run? } (services/audio-lessons/composed.ts):
+ *                                     dry_run → 200 { dry_run: true, problems, estimate_minutes, chapters, transcript_preview, … } (nothing stored);
+ *                                     else 202 { lesson, estimate_minutes, chapters, pinyin_fixes? } recorded like any lesson (no Claude call) — 400 + problems
+ *   POST   /audio-lessons/composed/preview   the same dry run (not in the cost guard's job group: nothing is made)
  *   GET    /audio-lessons/:id        { lesson: AudioLessonDetail } (chapters, transcript, words, usage)
  *   GET    /audio-lessons/:id/audio  the MP3 (owner only; Range → 206)
  *   POST   /audio-lessons/:id/retry  a failed lesson again, from what was already made → 202
@@ -16,7 +20,11 @@
  * Every summary carries `listened_at` and `companion` (services/lesson-unlock.ts).
  */
 import { Hono } from 'hono';
-import { pickAudioLessonInput } from '@shared/audio-lesson/input';
+import { pickAudioLessonInput, pickComposedRequest } from '@shared/audio-lesson/input';
+import { uniqueSpeech } from '@shared/audio-lesson';
+import { prepareComposedLesson, previewBody } from '../services/audio-lessons/composed';
+import { resolveRecapSource } from '../services/calls/recap';
+import { pinyinSources } from '../services/pinyin-check';
 import type { Env } from '../types';
 import { applyStoredFileHeaders } from '../services/stored-file-headers';
 import * as q from '../db/audio-lesson-queries';
@@ -54,11 +62,71 @@ routes.get('/audio-lessons', async (c) => {
   return c.json({ lessons: rows.map(r => ({ ...q.lessonSummary(r), ...(info.get(r.id) ?? { listened_at: null, companion: null }) })) });
 });
 
+/**
+ * A composed lesson (shared/audio-lesson/composed.ts): `dryRun` answers the preview and stores
+ * nothing; otherwise the compiled script is stored and recorded on audio-lesson-queue.
+ */
+async function composedLesson(c: { env: Env; executionCtx: ExecutionContext; json: (body: unknown, status?: number) => Response }, uid: string, body: unknown, forceDryRun: boolean): Promise<Response> {
+  const picked = pickComposedRequest(body);
+  const dryRun = forceDryRun || picked.dryRun;
+  if (picked.problems.length) return c.json({ error: picked.problems[0], problems: picked.problems, ...(dryRun ? { dry_run: true } : {}) }, 400);
+  let source: { call_id?: string; lesson_id?: string; label: string } | null = null;
+  if (picked.source) {
+    const res = await resolveRecapSource(c.env.DB, uid, picked.source);
+    if (!res.ok) return c.json({ error: res.error, problems: [res.error], ...(dryRun ? { dry_run: true } : {}) }, 400);
+    source = res.source;
+  }
+  const prepared = await prepareComposedLesson(picked.plan, pinyinSources(c.env));
+  const preview = previewBody(prepared);
+  if (dryRun) return c.json({ dry_run: true, ...preview, ...(source ? { source } : {}) });
+  if (preview.problems.length || !prepared.plan || !prepared.preview.script) {
+    return c.json({ error: preview.problems[0] ?? 'The plan could not be compiled', ...preview }, 400);
+  }
+  if ((await q.countActiveAudioLessons(c.env.DB, uid)) >= MAX_ACTIVE_AUDIO_LESSONS) {
+    return c.json({ error: `${MAX_ACTIVE_AUDIO_LESSONS} lessons are already being made — wait for one to finish` }, 409);
+  }
+  const plan = prepared.plan;
+  const script = prepared.preview.script;
+  const title = plan.title.trim().slice(0, 120);
+  const id = await q.createAudioLesson(c.env.DB, { userId: uid, format: 'composed', title, input: { title, ...(source ? { source } : {}) } });
+  const clips = uniqueSpeech(script).length;
+  await q.patchAudioLesson(c.env.DB, id, {
+    plan_json: plan,
+    script_json: script,
+    words_json: script.words,
+    progress_done: 0,
+    progress_total: clips,
+  });
+  await startJob(c, id);
+  await trackServer('server.content_created', { kind: 'audio_lesson', count: 1, via: 'api' }, { env: c.env, userId: uid });
+  const row = await q.getAudioLesson(c.env.DB, id, uid);
+  return c.json(
+    {
+      lesson: q.lessonSummary(row!),
+      estimate_minutes: preview.estimate_minutes,
+      chapters: preview.chapters,
+      clips: preview.clips,
+      ...(preview.pinyin_fixes ? { pinyin_fixes: preview.pinyin_fixes } : {}),
+    },
+    202,
+  );
+}
+
+routes.post('/audio-lessons/composed/preview', async (c) => {
+  const uid = userId(c);
+  if (!uid) return c.json({ error: 'Unauthorized' }, 401);
+  const body = await c.req.json<Record<string, unknown>>().catch(() => ({}));
+  return composedLesson(c, uid, body, true);
+});
+
 routes.post('/audio-lessons', async (c) => {
   const uid = userId(c);
   if (!uid) return c.json({ error: 'Unauthorized' }, 401);
+  const raw = await c.req.json<Record<string, unknown>>().catch(() => ({}) as Record<string, unknown>);
+  // Composed: the plan is the lesson — no Claude key needed.
+  if (raw && raw.format === 'composed') return composedLesson(c, uid, raw, false);
   if (!c.env.ANTHROPIC_API_KEY && !testMode(c.env)) return c.json({ error: 'Audio lessons need the Claude key, which is not configured on the server' }, 503);
-  const body = await c.req.json<Record<string, unknown>>().catch(() => ({}));
+  const body = raw;
   const picked = pickAudioLessonInput(body);
   if (picked.problems.length) return c.json({ error: picked.problems[0], problems: picked.problems }, 400);
 

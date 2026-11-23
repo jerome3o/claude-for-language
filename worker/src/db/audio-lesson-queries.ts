@@ -48,6 +48,8 @@ export interface AudioLessonRow {
   started_at: string | null;
   finished_at: string | null;
   updated_at: string | null;
+  /** Only from `listAudioLessons`: a composed lesson's `input.source.label` ("Recap of the 21 Nov lesson"). */
+  source_label?: string | null;
   /** Only from `listReadyAudioLessons`: the script's `speakers` (the podcast feed names a dialogue's lines). */
   speakers_json?: string | null;
 }
@@ -96,6 +98,7 @@ export function lessonSummary(row: AudioLessonRow): AudioLessonSummary {
     audio_version: row.status === 'ready' ? audioVersion(row) : null,
     created_at: row.created_at,
     finished_at: row.finished_at,
+    source_label: row.source_label ?? parse<AudioLessonInput>(row.input_json, {}).source?.label ?? null,
   };
 }
 
@@ -156,7 +159,8 @@ export async function listAudioLessons(db: D1Database, userId: string, limit = 1
     .prepare(
       `SELECT id, user_id, title, format, status, NULL AS input_json, progress, progress_done, progress_total, error, NULL AS agent_transcript, rounds,
          NULL AS plan_json, NULL AS script_json, NULL AS timeline_json, words_json, audio_key, duration_ms, size_bytes, NULL AS usage_json, zh_provider,
-         for_relationship_id, created_at, started_at, finished_at, updated_at
+         for_relationship_id, created_at, started_at, finished_at, updated_at,
+         CASE WHEN format = 'composed' AND json_valid(input_json) THEN json_extract(input_json, '$.source.label') END AS source_label
        FROM audio_lessons WHERE user_id = ? AND format IS NOT NULL ORDER BY created_at DESC LIMIT ?`,
     )
     .bind(userId, limit)

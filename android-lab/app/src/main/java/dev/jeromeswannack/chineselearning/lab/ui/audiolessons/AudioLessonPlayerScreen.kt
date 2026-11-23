@@ -234,7 +234,8 @@ private fun PlayerTop(ui: AudioLessonPlayerUi, actions: AudioLessonPlayerActions
             Spacer(Modifier.width(4.dp))
             Column(Modifier.weight(1f)) {
                 val info = AudioLessonFormats.info(lesson.format)
-                Text("${info.icon} ${info.kind}", color = AlColors.muted, fontSize = 13.sp)
+                val source = lesson.source_label?.takeIf { it.isNotBlank() }?.let { " · $it" } ?: ""
+                Text("${info.icon} ${info.kind}$source", color = AlColors.muted, fontSize = 13.sp)
                 Text(lesson.title, color = AlColors.bright, fontSize = 21.sp, fontWeight = FontWeight.Bold, lineHeight = 26.sp)
             }
         }

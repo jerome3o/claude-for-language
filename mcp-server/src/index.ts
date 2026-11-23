@@ -49,6 +49,7 @@ import { registerMemeReviewTools } from './tools/meme-review.js';
 import { registerClipTools } from './tools/clips.js';
 import { registerAudioLessonTools } from './tools/audio-lessons.js';
 import { registerAudioLessonFeedbackTools } from './tools/audio-lesson-feedback.js';
+import { registerLessonRecapTools } from './tools/lesson-recap.js';
 import { registerBumpTools } from './tools/bumps.js';
 import { registerCardHoldTools } from './tools/card-holds.js';
 import { registerNoteImageTools } from './tools/note-images.js';
@@ -1386,6 +1387,8 @@ Optional \`unlock\` makes the lesson wait LOCKED (never offered, not even in tod
     registerAudioLessonTools(ctx);
     // Feedback while listening: "Too hard" / back a section presses per lesson (docs/AUDIO_LESSONS.md).
     registerAudioLessonFeedbackTools(ctx);
+    // Video lessons as recap material (get_lesson_for_recap) → compose_audio_lesson (docs/AUDIO_LESSONS.md "Composed lessons").
+    registerLessonRecapTools(ctx);
     registerBumpTools(ctx);
     registerCardHoldTools(ctx);
     registerNoteImageTools(ctx);
