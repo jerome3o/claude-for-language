@@ -47,6 +47,8 @@ data class AudioLessonDto(
     val listened_at: String? = null,
     /** Its companion mini lesson (shared/lesson/unlock.ts), if one was asked for. */
     val companion: AudioLessonCompanionDto? = null,
+    /** A composed lesson's source, shown under the title: "Recap of the 21 Nov lesson". */
+    val source_label: String? = null,
 ) {
     val ready: Boolean get() = status == "ready"
     val building: Boolean get() = AudioLessonTimeline.isBuilding(status)

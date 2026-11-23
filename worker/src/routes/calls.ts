@@ -7,6 +7,8 @@
  *   GET    /calls?relationship_id=&live=1             my calls, newest first
  *   POST   /calls                                     { relationship_id?, title? } → 201 call
  *   GET    /calls/:id                                 call + participants + pieces + transcript + report
+ *   GET    /calls/:id/recap?max_segments=             what a recap of the lesson needs (services/calls/recap.ts): transcript by speaker
+ *                                                     with offsets, board, chat, report, the caller's lesson notes + homework around it
  *   DELETE /calls/:id                                 the creator deletes a call and its audio
  *   POST   /calls/:id/join                            → { ticket, ws_path, ice_servers }
  *   POST   /calls/:id/end                             end for everyone (idempotent)
@@ -39,6 +41,7 @@ import {
 import { closePiece, forceClosePieces, listPieces, registerPiece, storeChunk } from '../services/calls/recording';
 import { advanceCallProcessing, reprocessCall } from '../services/calls/processing';
 import { listCallActivities } from '../services/calls/activities';
+import { lessonRecapMaterial } from '../services/calls/recap';
 import { advanceLessonProcessing, afterCallDeleted, lessonMaterial, lessonProcessingStatus, reportIsCurrent } from '../services/calls/lessons';
 import { createJoinTicket, verifyJoinTicket } from '../services/calls/ticket';
 import { getIceServers } from '../services/calls/ice';
@@ -193,6 +196,17 @@ calls.get('/calls/:id', async (c) => {
     });
   } catch (error) {
     return errorResponse(c, error, 'Failed to load the call');
+  }
+});
+
+// A recap of the lesson (the MCP get_lesson_for_recap → a composed audio lesson): call members only (404).
+calls.get('/calls/:id/recap', async (c) => {
+  try {
+    const max = Number(c.req.query('max_segments'));
+    const recap = await lessonRecapMaterial(c.env.DB, c.req.param('id'), c.get('user').id, Number.isFinite(max) && max > 0 ? { maxSegments: Math.floor(max) } : {});
+    return c.json({ recap });
+  } catch (error) {
+    return errorResponse(c, error, 'Failed to load the lesson');
   }
 });
 

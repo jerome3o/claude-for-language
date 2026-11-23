@@ -3,7 +3,7 @@ package dev.jeromeswannack.chineselearning.lab.core
 import kotlin.math.max
 
 /*
- * The three audio-lesson formats (docs/AUDIO_LESSONS.md): how each is named and shown, and the
+ * The audio-lesson formats (docs/AUDIO_LESSONS.md; "composed" is made only through the MCP): how each is named and shown, and the
  * story form's length hint. Port of AUDIO_LESSON_FORMAT_INFO / audioLessonFormatInfo
  * (shared/audio-lesson/types.ts) and storyMinutesForText / storyEstimateLine
  * (shared/audio-lesson/story.ts), parity-tested (parity/fixtures/audio-lesson.ts → AudioLessonParityTest).
@@ -21,6 +21,8 @@ object AudioLessonFormats {
         "dialogue" to AudioLessonFormatInfo("🎙️", "Dialogue", "Practise a situation", "Dialogue lesson"),
         "sleep" to AudioLessonFormatInfo("🌙", "Sleep", "New words, slowly", "Sleep lesson"),
         "story" to AudioLessonFormatInfo("📖", "Story", "Listen & repeat", "Listen & repeat a story"),
+        // Built from blocks by an agent through the MCP (compose_audio_lesson) — never offered by the form, so not in ALL.
+        "composed" to AudioLessonFormatInfo("🧩", "Composed", "Built from blocks", "Composed lesson"),
     )
 
     /** Port of audioLessonFormatInfo: an unknown format is shown as a dialogue lesson. */

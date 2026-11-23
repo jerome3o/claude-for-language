@@ -5,6 +5,7 @@
 import { hasHan } from './compile';
 import { fitStoryChunks, splitStoryText, storyCutNotice, storyFallbackTitle } from './story';
 import { AUDIO_LESSON_FORMATS, AUDIO_LESSON_INPUT_LIMITS, type AudioLessonFormat, type AudioLessonInput } from './types';
+import { COMPOSED_LIMITS, type ComposedPlan } from './composed';
 
 export interface PickedAudioLessonInput {
   format: AudioLessonFormat;
@@ -71,4 +72,38 @@ export function pickAudioLessonInput(body: unknown): PickedAudioLessonInput {
   if (given) input.title = given;
   const fallback = format === 'sleep' ? [...source].slice(0, 16).join('') : format === 'story' ? storyTitle : description.slice(0, 80) || 'Dialogue lesson';
   return { format: format ?? 'dialogue', input, title: given || fallback || 'Audio lesson', problems, notice, ...(chunks !== undefined ? { chunks } : {}) };
+}
+
+/** What a composed lesson request carries (POST /api/audio-lessons with format "composed", the MCP compose_audio_lesson). */
+export interface PickedComposedRequest {
+  /** A copy of the plan (the worker's pinyin check corrects it in place), its title set from `title` when given. */
+  plan: ComposedPlan | null;
+  title: string;
+  dryRun: boolean;
+  /** `source` as sent (checked by the worker against the caller's calls). */
+  source: { call_id?: unknown; lesson_id?: unknown; label?: unknown } | null;
+  problems: string[];
+}
+
+export function pickComposedRequest(body: unknown): PickedComposedRequest {
+  const b = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>;
+  const problems: string[] = [];
+  const dryRun = b.dry_run === true;
+  const rawPlan = b.plan;
+  let plan: ComposedPlan | null = null;
+  if (!rawPlan || typeof rawPlan !== 'object' || Array.isArray(rawPlan)) {
+    problems.push('plan: the composed lesson plan { title, blocks: [...] } is required');
+  } else {
+    const size = JSON.stringify(rawPlan).length;
+    if (size > COMPOSED_LIMITS.maxPlanBytes) problems.push(`plan: too big (${size.toLocaleString('en')} characters of JSON, at most ${COMPOSED_LIMITS.maxPlanBytes.toLocaleString('en')})`);
+    else {
+      plan = JSON.parse(JSON.stringify(rawPlan)) as ComposedPlan;
+      const given = text(b.title).slice(0, COMPOSED_LIMITS.maxTitleChars);
+      if (given) plan.title = given;
+    }
+  }
+  const src = b.source;
+  const source = src && typeof src === 'object' && !Array.isArray(src) ? (src as PickedComposedRequest['source']) : null;
+  if (src !== undefined && src !== null && !source) problems.push('source: { call_id? | lesson_id?, label? }');
+  return { plan, title: plan && typeof plan.title === 'string' ? plan.title.trim() : '', dryRun, source, problems };
 }

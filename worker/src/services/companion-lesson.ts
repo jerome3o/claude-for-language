@@ -26,6 +26,7 @@ import {
 import { applyYiBuToneChanges, pinyinSyllables, YI_BU_CONVENTION } from '@shared/pinyin/toneChange';
 import { hanCharsOf } from '@shared/audio-lesson/tones';
 import type { DialoguePlan, LessonWord, SleepPlan, StoryPlan, AudioLessonFormat } from '@shared/audio-lesson/types';
+import { composedPlanLines, type ComposedPlan } from '@shared/audio-lesson/composed';
 import type { Env } from '../types';
 import { LESSON_SPEC_INPUT_SCHEMA, createCustomLessonFromSpec, updateCustomLessonFromSpec } from './custom-lesson';
 import { LESSON_SPEC_SCHEMA_TEXT, LESSON_STYLE_RULES } from './lesson-editor';
@@ -125,6 +126,14 @@ export function companionBrief(row: CompanionSourceRow): string {
         ...plan.chunks.slice(0, 80).map((c, i) => `${i}. ${c.speaker ?? '—'} | ${c.hanzi} | ${c.pinyin} | ${c.english}`),
       );
     }
+  } else if (row.format === 'composed') {
+    const plan = parse<ComposedPlan | null>(row.plan_json, null);
+    if (plan) {
+      parts.push(
+        'Every Chinese line it says, in order (hanzi | pinyin | english):',
+        ...composedPlanLines(plan).slice(0, 80).map((l, i) => `${i}. ${l.hanzi} | ${l.pinyin} | ${l.english || '—'}`),
+      );
+    }
   }
   if (words.length) {
     parts.push('Words listed for the lesson (status = the learner\'s cards when it was made):', ...words.map(w => `${wordLine(w)}${w.status ? `  [${w.status}]` : ''}`));
@@ -174,7 +183,7 @@ export function companionSpecProblems(spec: CustomLessonSpec, format: AudioLesso
   for (const t of ['scramble', 'translate', 'listen_choice', 'dictation']) {
     if (count(t) < 1) problems.push(`add at least one "${t}" exercise on the podcast's own words / sentences`);
   }
-  if (format !== 'sleep' && count('conversation') < 1) problems.push('end with a "conversation" exercise replaying the podcast\'s dialogue with comprehension questions');
+  if (format !== 'sleep' && format !== 'composed' && count('conversation') < 1) problems.push('end with a "conversation" exercise replaying the podcast\'s dialogue with comprehension questions');
   return problems;
 }
 
