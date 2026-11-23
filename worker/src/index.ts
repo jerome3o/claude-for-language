@@ -59,6 +59,7 @@ import pictureHuntRoutes from './routes/picture-hunts';
 import noteImageRoutes from './routes/note-images';
 import { generateNoteImage, handleNoteImageMessage, type NoteImageMessage } from './services/note-images';
 import audioLessonRoutes from './routes/audio-lessons';
+import audioLessonFeedbackRoutes from './routes/audio-lesson-feedback';
 import { podcastPublic, podcastMe } from './routes/podcast';
 import { podcastsRoutes, podcastSourcePublic, handlePodcastQueueMessage } from './routes/podcasts';
 import { runPictureHuntJob } from './services/picture-hunt';
@@ -776,6 +777,7 @@ app.route('/api', pictureHuntRoutes);
 app.route('/api', noteImageRoutes);
 // Audio lessons: an agent-written listening lesson rendered to one MP3 (routes/audio-lessons.ts, built on audio-lesson-queue)
 app.route('/api', audioLessonRoutes);
+app.route('/api', audioLessonFeedbackRoutes); // Feedback while listening — POST /api/audio-lessons/:id/feedback, GET /api/me/audio-lesson-feedback
 // Settings → Audio lessons → Podcast feed: the feed link (made on first use), Reset, Turn off.
 app.route('/api', podcastMe);
 // Podcasts (docs/PODCASTS.md): subscribe to Chinese podcasts, transcribe an episode into segments (routes/podcasts.ts)

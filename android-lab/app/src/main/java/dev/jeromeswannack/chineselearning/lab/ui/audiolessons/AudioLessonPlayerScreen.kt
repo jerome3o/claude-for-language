@@ -9,6 +9,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -100,6 +101,11 @@ data class AudioLessonPlayerUi(
     val listened: Boolean = false,
     val companionBusy: Boolean = false,
     val online: Boolean = true,
+    /** Feedback while listening: the transcript rows marked "Too hard" on this phone (😵). */
+    val flaggedRows: Set<Int> = emptySet(),
+    /** Changes on every in-app "Too hard" tap (elapsedRealtime), so "Noted" shows again; 0 = none yet. */
+    val notedAt: Long = 0,
+    val notedText: String = "",
 ) {
     val transcriptOn: Boolean get() = showTranscript ?: (lesson?.format != "sleep")
 }
@@ -128,6 +134,9 @@ data class AudioLessonPlayerActions(
     val onMakeCompanion: () -> Unit = {},
     val onUnlockCompanion: () -> Unit = {},
     val onStartCompanion: (String) -> Unit = {},
+    /** Feedback while listening (docs/AUDIO_LESSONS.md): back a section / "Too hard" — the lock screen has the same. */
+    val onBackSection: () -> Unit = {},
+    val onTooHard: () -> Unit = {},
 )
 
 /**
@@ -270,6 +279,7 @@ private fun PlayerTop(ui: AudioLessonPlayerUi, actions: AudioLessonPlayerActions
     }
     Scrubber(ui.positionMs, duration, ui.canPlay, actions.onSeek)
     Controls(ui, actions)
+    FeedbackRow(ui, actions)
     run {
         FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             NightChip(AudioLessonTimeline.speedLabel(ui.speed), compact = true, onClick = actions.onSpeed)
@@ -366,6 +376,45 @@ private fun Controls(ui: AudioLessonPlayerUi, actions: AudioLessonPlayerActions)
     }
 }
 
+/**
+ * Feedback while listening (the web's FeedbackBar): ⏪ Back a section (the line with its repeats again; within
+ * 2 s of a new line, the one before) and 😵 Too hard (noted for Claude, playing carries on). The lock screen and
+ * the notification have the same two (⏮ and the flag), so these are for when the screen is on.
+ */
+@Composable
+private fun FeedbackRow(ui: AudioLessonPlayerUi, actions: AudioLessonPlayerActions) {
+    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(Modifier.fillMaxWidth().widthIn(max = 460.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            FeedbackPill("⏪  Back a section", "Back a section", ui.canPlay, hard = false, modifier = Modifier.weight(1f).testTag("al-back-section"), onClick = actions.onBackSection)
+            FeedbackPill("😵  Too hard", "Too hard", ui.canPlay, hard = true, modifier = Modifier.weight(1f).testTag("al-too-hard"), onClick = actions.onTooHard)
+        }
+        var shown by remember { mutableStateOf(false) }
+        LaunchedEffect(ui.notedAt) {
+            if (ui.notedAt == 0L) return@LaunchedEffect
+            shown = true
+            kotlinx.coroutines.delay(2200)
+            shown = false
+        }
+        val alpha by animateFloatAsState(if (shown) 1f else 0f, label = "noted")
+        Text(ui.notedText, color = AlColors.periwinkle, fontSize = 13.sp, modifier = Modifier.alpha(alpha).heightIn(min = 18.dp).testTag("al-noted"))
+    }
+}
+
+@Composable
+private fun FeedbackPill(label: String, description: String, enabled: Boolean, hard: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    val border = if (hard) Color(0xFFFCA5A5).copy(alpha = 0.55f) else Color.White.copy(alpha = 0.25f)
+    val bg = if (hard) Color(0xFFFCA5A5).copy(alpha = 0.12f) else Color.White.copy(alpha = 0.06f)
+    Box(
+        modifier.heightIn(min = 48.dp).alpha(if (enabled) 1f else 0.4f).clip(RoundedCornerShape(24.dp)).background(bg)
+            .border(1.dp, border, RoundedCornerShape(24.dp))
+            .bouncyClickable(enabled, pressedScale = 0.94f, onClick = onClick)
+            .semanticsLabel(description),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(label, color = AlColors.bright, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+    }
+}
+
 @Composable
 private fun RoundControl(label: String, description: String, enabled: Boolean, size: Int, primary: Boolean = false, onClick: () -> Unit) {
     val bg by animateColorAsState(if (primary) AlColors.periwinkle else Color.White.copy(alpha = 0.08f), label = "ctl")
@@ -427,7 +476,7 @@ private fun LazyListScope.playerPanels(ui: AudioLessonPlayerUi, actions: AudioLe
 
 private fun LazyListScope.transcript(rows: List<AudioLessonTranscriptRow>, current: Int, actions: AudioLessonPlayerActions, ui: AudioLessonPlayerUi) {
     rows.forEachIndexed { i, row ->
-        item(key = "t${row.first}") { TranscriptRowView(row, i == current, ui.showPinyin, ui.showEnglish, ui.known, actions.onWord) { actions.onSeek(row.startMs) } }
+        item(key = "t${row.first}") { TranscriptRowView(row, i == current, ui.showPinyin, ui.showEnglish, ui.known, actions.onWord, flagged = i in ui.flaggedRows) { actions.onSeek(row.startMs) } }
     }
 }
 
@@ -452,6 +501,7 @@ private fun TranscriptRowView(
     showEnglish: Boolean,
     known: Set<String>,
     onWord: (ReaderWordDto, String) -> Unit,
+    flagged: Boolean = false,
     onClick: () -> Unit,
 ) {
     val bg by animateColorAsState(if (current) AlColors.periwinkle.copy(alpha = 0.16f) else Color.Transparent, label = "row")
@@ -486,6 +536,10 @@ private fun TranscriptRowView(
                 val (repeatText, repeatAria) = AudioLessonTimeline.repeatLabel(row.repeat, row.again)
                 if (repeatText.isNotEmpty()) {
                     Text(repeatText, color = AlColors.muted, fontSize = 12.sp, modifier = Modifier.padding(start = 6.dp).semantics { contentDescription = repeatAria })
+                }
+                // Marked "Too hard" on this phone (the web's .al-line-flag).
+                if (flagged) {
+                    Text("😵", fontSize = 13.sp, modifier = Modifier.padding(start = 6.dp).semantics { contentDescription = "You marked this too hard" }.testTag("al-row-flag"))
                 }
             }
             if (showPinyin) row.pinyin?.let { Text(it, color = AlColors.periwinkle.copy(alpha = 0.85f), fontSize = 13.sp) }

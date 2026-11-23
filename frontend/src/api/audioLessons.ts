@@ -84,3 +84,11 @@ export function requestCompanionLesson(
 export function fetchAudioLessonFile(id: string): Promise<Response> {
   return send(`/audio-lessons/${encodeURIComponent(id)}/audio`);
 }
+
+/** Feedback while listening ("Too hard", back / next a section; docs/AUDIO_LESSONS.md): idempotent by event id. */
+export function postAudioLessonFeedback(
+  lessonId: string,
+  events: unknown[],
+): Promise<{ accepted: string[]; stored: number; rejected: string[] }> {
+  return json(`/audio-lessons/${encodeURIComponent(lessonId)}/feedback`, { method: 'POST', body: JSON.stringify({ events }) });
+}
