@@ -14,6 +14,7 @@ export function trayNodes(opts: { presenting: boolean; listening: boolean; busy:
       b('✅ Homework', 'open:homework'),
       b('🔍 Explore', 'open:explorer'),
       opts.listening ? b('■ Stop', 'speak', 'primary') : b(opts.busy ? '… Listening' : '🎤 Speak', 'speak', 'chip', !opts.online || opts.busy),
+      b('🌏 Worlds', 'worlds'),
       b('💬 Feedback', 'feedback'),
       b('↺ Bring here', 'recall'),
       ...(opts.presenting ? [b('Exit VR', 'exit', 'danger')] : []),

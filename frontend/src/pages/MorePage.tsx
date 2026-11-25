@@ -167,6 +167,7 @@ export function MorePage() {
           <NavRow icon="🎧" label="Audio lessons" desc="Listen on the train, or fall asleep to slow Chinese" to="/audio-lessons" />
           <NavRow icon="📹" label="Video calls (beta)" desc="Live lessons with a whiteboard, then a transcript" to="/calls" />
           <NavRow icon="🥽" label="VR (beta)" desc="Study, readers and homework in a headset — grab the windows" to="/vr" />
+          <NavRow icon="🌏" label="VR worlds (beta)" desc="语言世界 · A kitchen to explore: pick things up, do what it says in Chinese" to="/vr/worlds" />
         </NavSection>
 
         {!role.isTutorOnly && (

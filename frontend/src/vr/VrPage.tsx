@@ -248,8 +248,13 @@ export function VrPage() {
     } else if (action === 'speak') startSpeech();
     else if (action === 'feedback') void openFeedback();
     else if (action === 'recall') dispatch({ type: 'recall', head: head() });
+    else if (action === 'worlds') {
+      // The worlds are their own page (and their own session): leave the headset first.
+      apiRef.current?.exitVr();
+      navigate('/vr/worlds');
+    }
     else if (action === 'exit') apiRef.current?.exitVr();
-  }, [open, startSpeech, openFeedback, head]);
+  }, [open, startSpeech, openFeedback, head, navigate]);
 
   const onPresentingChange = useCallback((p: boolean) => {
     setPresenting(p);

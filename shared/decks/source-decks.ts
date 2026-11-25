@@ -15,7 +15,7 @@
  * Ported to android-lab/core (SourceDecks.kt), parity-tested (parity/fixtures/source-decks.ts).
  */
 
-export const SOURCE_DECK_KEYS = ['readers', 'chats', 'sentences', 'claude', 'explorer', 'practice'] as const;
+export const SOURCE_DECK_KEYS = ['readers', 'chats', 'sentences', 'claude', 'explorer', 'practice', 'vr'] as const;
 export type SourceDeckKey = (typeof SOURCE_DECK_KEYS)[number];
 
 export interface SourceDeckDef {
@@ -65,6 +65,12 @@ export const SOURCE_DECKS: Readonly<Record<SourceDeckKey, SourceDeckDef>> = {
     key: 'practice',
     name: 'From lessons & practice',
     description: 'Words added from lessons, video calls, picture hunts, clips, idioms, podcasts and other practice.',
+    legacyNames: [],
+  },
+  vr: {
+    key: 'vr',
+    name: 'From VR',
+    description: 'Words added from things you picked up in the VR worlds.',
     legacyNames: [],
   },
 };

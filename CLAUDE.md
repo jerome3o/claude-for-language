@@ -130,6 +130,7 @@ Read the doc before changing a feature; it has the code map, the endpoints and t
 | Audio lessons (incl. composed lessons / video-lesson recaps from MCP blocks) + private podcast feed | [docs/AUDIO_LESSONS.md](./docs/AUDIO_LESSONS.md) | `worker/src/services/audio-lessons/`, `shared/audio-lesson/` |
 | Podcasts (Lab only) | [docs/PODCASTS.md](./docs/PODCASTS.md) | `worker/src/services/podcasts/` |
 | Clips · Idioms · Phone practice · Meme review · VR | [docs/CLIPS.md](./docs/CLIPS.md) · [docs/IDIOMS.md](./docs/IDIOMS.md) · [docs/PHONE_PRACTICE.md](./docs/PHONE_PRACTICE.md) · [docs/MEME_REVIEW.md](./docs/MEME_REVIEW.md) · [docs/VR.md](./docs/VR.md) | `shared/clips/`, `shared/idioms/`, `shared/phone/`, `shared/meme-review/`, `shared/vr/` |
+| 🥽 VR worlds (语言世界): the world contract, task language, helper library, physics, building a new world | [docs/VR_WORLDS.md](./docs/VR_WORLDS.md) | `shared/vr-worlds/`, `frontend/src/vr/worlds/` |
 | Handwriting / stroke order | [docs/STROKE_ORDER.md](./docs/STROKE_ORDER.md) | `shared/strokes/` |
 | In-app feedback | [docs/FEEDBACK.md](./docs/FEEDBACK.md) | `worker/src/routes/feedback.ts`, `shared/feedback/` |
 | Usage analytics, cost guard, AI cost | [docs/ANALYTICS.md](./docs/ANALYTICS.md) | `shared/analytics/`, `worker/src/middleware/cost-guard.ts` |

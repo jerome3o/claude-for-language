@@ -37,6 +37,10 @@ export interface PanelMeshProps {
   /** Name in the e2e / debug registry (`window.__vr`). */
   debugId?: string;
   renderOrder?: number;
+  /** Drawn over the scene (no depth test): VR worlds' labels and panels stay readable in front of walls and things. */
+  overlay?: boolean;
+  /** false: never hit by rays (a label over a thing must not steal the pointer from it). */
+  interactive?: boolean;
 }
 
 function uvToPx(hit: VrHit, layout: UiLayout, widthPx: number): { x: number; y: number } | null {
@@ -105,7 +109,7 @@ export function PanelMesh(props: PanelMeshProps) {
 
   useEffect(() => {
     const mesh = meshRef.current;
-    if (!mesh) return;
+    if (!mesh || props.interactive === false) return;
     const regionOf = (hit: VrHit | null) => {
       const layout = layoutRef.current;
       if (!hit || !layout) return null;
@@ -146,9 +150,9 @@ export function PanelMesh(props: PanelMeshProps) {
   const w = widthPx / PX_PER_METRE;
   const h = heightPx / PX_PER_METRE;
   return (
-    <mesh ref={meshRef} position={[0, anchor === 'top' ? -h / 2 : 0, 0]} scale={[w, h, 1]} renderOrder={props.renderOrder ?? 0}>
+    <mesh ref={meshRef} position={[0, anchor === 'top' ? -h / 2 : 0, 0]} scale={[w, h, 1]} renderOrder={props.renderOrder ?? (props.overlay ? 20 : 0)}>
       <planeGeometry args={[1, 1]} />
-      <meshBasicMaterial map={texture} alphaTest={0.5} toneMapped={false} />
+      <meshBasicMaterial map={texture} alphaTest={0.5} toneMapped={false} depthTest={!props.overlay} depthWrite={!props.overlay} transparent={!!props.overlay} />
     </mesh>
   );
 }

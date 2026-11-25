@@ -20,6 +20,7 @@ export type SourceDeckSurface =
   | 'call_flashcards'
   | 'word_recap'
   | 'coach'
+  | 'vr_world'
   | 'other';
 
 export interface SourceDeckNoteInput {

@@ -99,6 +99,7 @@ const IMMERSIVE = [
   /^\/tutor-notes\/practice\/?$/,
   /^\/clips(\/[^/]+)?\/?$/,
   /^\/vr\/?$/,
+  /^\/vr\/worlds\/[^/]+\/?$/,
   /^\/phone\/[^/]+\/?$/,
   /^\/coach\/chat\/[^/]+(\/recap)?\/?$/,
   /^\/chats\/claude\/[^/]+(\/recap)?\/?$/,

@@ -8,6 +8,10 @@ look-ups, and 💬 feedback with a screenshot of what you were looking at.
 Settings → Advanced → VR). Sign in as usual; the headset browser keeps you signed in like any other
 browser.
 
+**🌏 VR worlds** — detailed places (a kitchen first) with physics, Chinese names on everything and
+mini tasks in Chinese — are their own pages, `/vr/worlds` (🌏 Worlds on the tray, More → Practice):
+see [docs/VR_WORLDS.md](./VR_WORLDS.md), which is also the guide to building a new world.
+
 Web only, by design (android-lab/PARITY.md "VR"): it ships with every deploy to `main`, reuses the
 app's sign-in, API, offline IndexedDB, study queue, audio caches and live transcription, works on
 any WebXR headset, and degrades to a **flat 3D preview** (mouse / touch) in every other browser.
@@ -55,7 +59,8 @@ Other headsets (Quest browser, Pico, Android XR, Vision Pro with WebXR on) need 
   front of you; ✕ closes it. Where you left each one — and which were open — is remembered on the
   device (`localStorage` `vr-windows-v1`).
 - **The tray** is a low desk in front of you: 📚 Study · 📖 Reader · ✅ Homework · 🔍 Explore ·
-  🎤 Speak · 💬 Feedback · ↺ Bring here (every window back in front of you) · Exit VR. It follows
+  🎤 Speak · 🌏 Worlds (leaves the room for the VR worlds picker) · 💬 Feedback · ↺ Bring here (every
+  window back in front of you) · Exit VR. It follows
   you when you've turned well away from it for a moment.
 - **Comfort:** nothing ever moves you (no artificial locomotion, no snapping the view), a calm static
   room, upright panels, text sized for ~0.85 m.
