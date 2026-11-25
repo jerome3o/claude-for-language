@@ -71,6 +71,65 @@ class LessonRunParityTest {
         assertTrue(retried > 0, "some runs have a retry round")
     }
 
+    /** ↺ Undo: the same answers and undos with the player's bookkeeping give the same run, score, counts and outcome. */
+    @Test
+    fun undoMatchesTypeScript() {
+        val f = fixture()
+        var undos = 0
+        var acrossRetry = 0
+        for ((i, c) in f["undos"]!!.jsonArray.withIndex()) {
+            val o = c.jsonObject
+            val steps = LessonRun.stepsOfTypes(o["sections"]!!.jsonArray.map { strings(it) })
+            var st = LessonRun.NEW_RUN
+            var correct = 0
+            var total = 0
+            var rows = listOf<ExerciseAttempt>()
+            var recordings = 0
+            var stack = listOf<LessonRun.UndoFrame>()
+            for ((k, a) in o["actions"]!!.jsonArray.withIndex()) {
+                val e = a.jsonObject
+                val where = "undo[$i] action $k"
+                if (e["kind"]!!.str == "undo") {
+                    val u = LessonRun.undo(stack) ?: fail("$where: nothing to undo")
+                    assertEquals(e["restored"]!!.str, u.frame.key, "$where restored")
+                    assertEquals(e["phase"]!!.str, u.frame.phase, "$where phase")
+                    if (u.frame.phase == "retry") acrossRetry++
+                    st = u.frame.state; correct = u.frame.correct; total = u.frame.total
+                    rows = rows.take(u.frame.attempts); recordings = Math.min(recordings, u.frame.recordings); stack = u.stack
+                    undos++
+                } else {
+                    val cur = LessonRun.current(st, steps) ?: fail("$where: finished")
+                    val verdict = e["verdict"]!!.boolOrNull
+                    stack = stack + (LessonRun.undoFrame(st, steps, correct, total, rows.size, recordings) ?: fail("$where frame"))
+                    val max = if (verdict == null) 0 else 1
+                    val points = if (verdict == true) max else 0
+                    val retry = if (cur.phase == "retry") LessonRun.retryNumber(rows, cur.step.key) else 0
+                    if (cur.phase == "main" && max > 0) { correct += points; total += max }
+                    rows = rows + ExerciseAttempt(cur.step.section, cur.step.index, cur.step.type, verdict, points, max, retry = if (retry > 0) retry else null)
+                    if (e["recording"]!!.jsonPrimitive.boolean) recordings++
+                    st = LessonRun.advance(st, steps, verdict)
+                }
+                assertEquals(state(e["state"]!!.jsonObject), st, "$where state")
+                assertEquals(e["correct"]!!.jsonPrimitive.int, correct, "$where correct")
+                assertEquals(e["total"]!!.jsonPrimitive.int, total, "$where total")
+                assertEquals(e["attempts"]!!.jsonPrimitive.int, rows.size, "$where attempts")
+                assertEquals(e["recordings"]!!.jsonPrimitive.int, recordings, "$where recordings")
+                assertEquals(e["stack"]!!.jsonPrimitive.int, stack.size, "$where stack")
+                assertEquals(e["can_undo"]!!.jsonPrimitive.boolean, LessonRun.canUndo(stack), "$where canUndo")
+                val out = LessonRevision.runOutcome(LessonAttemptData("2026-11-25T00:00:00.000Z", 0, rows))
+                val eo = e["outcome"]!!.jsonObject
+                assertEquals(strings(eo["keys"]!!), out?.keys, "$where outcome keys")
+                assertEquals(strings(eo["missed"]!!), out?.missed, "$where outcome missed")
+            }
+        }
+        assertTrue(undos > 50, "the vectors undo often")
+        assertTrue(acrossRetry > 0, "some undos are in the retry round")
+        for ((i, c) in f["keepsAnswer"]!!.jsonArray.withIndex()) {
+            val o = c.jsonObject
+            assertEquals(o["keeps"]!!.jsonPrimitive.boolean, LessonRun.undoKeepsAnswer(o["type"]!!.str!!, o["self_assessed"]!!.boolOrNull), "keepsAnswer[$i]")
+        }
+    }
+
     @Test
     fun helpersMatchTypeScript() {
         val f = fixture()

@@ -1018,6 +1018,41 @@ pass is through the blue meets the orange and each fix eats one orange slot. Ret
 attempt with `retry: 1, 2…` (recordings `s0e1r1`), so the tutor sees them; only main-pass rows decide
 "right first time". Analytics `lesson.retry { type, right, left }`.
 
+### Undo (↺ in the lesson's top bar)
+
+Jerome (Nov 2026), in a homework lesson's "Say it in Chinese": "I got it wrong, but I accidentally clicked
+I got it right. Can we add a go back thing like we have in the flashcards, but to the lessons?" The player's
+top bar has the flashcards' **↺** (web `StudyCustomLesson`, `data-testid="lesson-undo"`; Lab `LessonPlayer`,
+`LESSON_UNDO_TAG`) on every run — Home / the Mini Lessons page, a homework pass, a revision, previews too
+(harmless: nothing is recorded there). It is greyed until something is answered; a take recording is stopped
+first (the take lock).
+
+- **What it takes back**: the last GRADED answer. Every answer pushes an undo frame — the run exactly as it
+  stood before it: where it was (main pass / retry round, the owed queue, fixed / retried), the score, how many
+  attempt rows and recordings (`runUndoFrame` / `undoRun` in `shared/study/lessonRun.ts`; Lab
+  `LessonRun.undoFrame` / `undo`, parity-tested by the `undos` vectors). ↺ restores it exactly, so **the score,
+  the "missed first time" set (the outcome is derived from the attempt rows, which are cut back) and the retry
+  queue follow the new grade**: a "Got it" taken back and answered "Missed it" is owed in the retry round and
+  comes back as a revision; a "Missed it" taken back and answered "Got it" is no longer owed. Notes passed
+  since (an unscored Next) go with it — one tap lands on the exercise he mis-graded.
+- **How far back**: every frame stacks for the whole run and is saved with it (`undo` on the saved run), so
+  repeated ↺ step back to the start of the run, across the retry round's boundary, and still work after the
+  run is continued another day. Start over clears it.
+- **What comes back on screen** (`undoKeepsAnswer`): the **self-checked** exercises — translate ("Say it in
+  Chinese"), listen & translate, describe the picture — come back on their **answer side** with what he said /
+  typed (Claude's check runs again; it is cached, so it is back at once) and Got it / Missed it to tap again.
+  **Every other exercise comes back fresh**, to answer again: those checked on the device (choice, scramble,
+  match, judge, gap_choice, write_typed, dictation…), the recorded / Claude-checked speaking ones (speak, oral
+  expression) and the multi-part ones (conversation) — their verdict is the answer, so redoing it is the fix.
+- **Attempt rows and recordings**: the undone answer's row is removed — the uploaded attempt (and the tutor's
+  review) carries the final grade only; a retry number is reused, so media keys stay in step. Recordings made in
+  the undone answer are dropped (web: the blob; Lab: the file is deleted); a re-recording takes their place.
+- **Not after the end**: the last answer that finishes the run records the completion at once (and, in a
+  homework pass, the assignment's `done`), uploaded straight away when online — so the finish screen has no ↺
+  (an undo there would have to retract a completion other devices may already have). Inside a homework pass the
+  lesson's own events only happen at the end, so ↺ never touches the pass's events.
+- Analytics `lesson.undo { exercise_type, from: main | retry }`.
+
 ### Revise until right first time (`shared/study/lessonRevision.ts`; Lab `core/…/LessonRevision.kt`, parity-tested)
 
 No rating at the end any more (no Again / Hard / Good / Easy, no ✓ Done for good). Jerome: "100 % first

@@ -34,6 +34,8 @@ data class SavedLessonRun(
     @SerialName("saved_at") val savedAt: Long,
     val attempts: List<ExerciseAttempt> = emptyList(),
     val recordings: List<SavedRecording> = emptyList(),
+    /** ↺ Undo's frames (core LessonRun.UndoFrame), so a continued run can still step back. */
+    val undo: List<LessonRun.UndoFrame> = emptyList(),
 )
 
 /**

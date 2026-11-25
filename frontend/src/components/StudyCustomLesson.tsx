@@ -12,6 +12,9 @@
  * - **Never lost**: a real run (`lessonId`) is saved after every exercise (services/lessonRuns.ts)
  *   and continues next time — another day, after a restart, offline: "Continue where you left off
  *   (7 of 18)" · Start over.
+ * - **↺ Undo** (top bar, like the flashcards'): takes back the last graded answer — run, score, attempt
+ *   rows and that answer's recordings exactly as before it (shared/study/lessonRun.ts `undoRun`); a
+ *   self-checked exercise comes back on its answer side, any other fresh. Repeatable to the run's start.
  * - **The end** records the completion at once — its attempt (answers, checks, time, retries) for
  *   the tutor and its outcome (what was missed first time), which decides: all right first time →
  *   done forever; otherwise it comes back in a week as a revision. No rating to give.
@@ -48,6 +51,11 @@ import {
   runRetryBar,
   EXERCISE_UNIT,
   verdictWrong,
+  canUndoRun,
+  runUndoFrame,
+  undoKeepsAnswer,
+  undoRun,
+  type LessonRunUndoFrame,
   type LessonRunMode,
   type LessonRunState,
 } from '@shared/study/lessonRun';
@@ -183,6 +191,10 @@ function StudyCustomLessonPlayer({
   const recordings = useRef<LessonRecording[]>([]);
   const completedRef = useRef(false);
   const [runKey, setRunKey] = useState(0);
+  // ↺ Undo (shared/study/lessonRun.ts): the run before each answer, newest last — saved with the run.
+  const [undoStack, setUndoStack] = useState<LessonRunUndoFrame[]>([]);
+  // The answer an undone self-checked exercise comes back with (on its answer side); `seq` remounts it.
+  const [undone, setUndone] = useState<{ seq: number; key: string; answer?: ExerciseAnswer }>({ seq: 0, key: '' });
 
   const steps = useMemo(() => lessonSteps(lesson.spec, keys, { skipHandwriting }), [lesson.spec, keys, skipHandwriting]);
   const exercises = useMemo(() => {
@@ -208,6 +220,7 @@ function StudyCustomLessonPlayer({
         startedAt.current = new Date(saved.started_at);
         attempts.current = saved.attempts ?? [];
         recordings.current = saved.recordings ?? [];
+        setUndoStack(Array.isArray(saved.undo) ? saved.undo : []);
         setResumed(true);
         track('lesson.resume', { source, mode: saved.mode, exercises: lessonSteps(lesson.spec, saved.keys, { skipHandwriting }).length, at: saved.state.pos });
       }
@@ -245,9 +258,10 @@ function StudyCustomLessonPlayer({
     };
   }
 
-  function persist(next: LessonRunState, nextScore: { correct: number; total: number }) {
+  function persist(next: LessonRunState, nextScore: { correct: number; total: number }, undo: LessonRunUndoFrame[]) {
     if (!real || !lessonId) return;
     void saveLessonRun({
+      undo,
       lesson_id: lessonId,
       shape,
       mode,
@@ -291,6 +305,11 @@ function StudyCustomLessonPlayer({
     const points = partPoints(answer) ?? (correct ? maxPoints : 0);
     const scoredPoints = correct === null ? 0 : Math.min(points, maxPoints);
     const retry = phase === 'retry' ? retryNumber(attempts.current, step.key) : 0;
+    // ↺ Undo restores the run exactly as it is now.
+    const frame = runUndoFrame(state, steps, score, attempts.current.length, recordings.current.length);
+    const nextUndo = frame ? [...undoStack, frame] : undoStack;
+    setUndoStack(nextUndo);
+    if (undone.answer) setUndone(prev => ({ seq: prev.seq, key: '' }));
     let nextScore = score;
     if (phase === 'main' && correct !== null && maxPoints > 0) {
       nextScore = { correct: score.correct + scoredPoints, total: score.total + maxPoints };
@@ -318,12 +337,39 @@ function StudyCustomLessonPlayer({
     setState(next);
     if (phase === 'retry') track('lesson.retry', { type: step.type, right: !wrong, left: runRetryBar(next, steps).retries });
     if (!runCurrent(next, steps)) finish(nextScore);
-    else persist(next, nextScore);
+    else persist(next, nextScore, nextUndo);
+  }
+
+  /**
+   * ↺ Undo (docs/STUDY_SESSION.md "Mini lessons" → "Undo"): the last graded answer taken back — the run,
+   * score, attempt rows (the uploaded attempt carries the final grade only) and that answer's recordings
+   * exactly as before it. A self-checked exercise comes back on its answer side with what he gave
+   * (`undoKeepsAnswer`); any other comes back fresh. Only before the end: the end records the completion.
+   */
+  function undo() {
+    if (done || completedRef.current) return;
+    const u = undoRun(undoStack);
+    if (!u) return;
+    const { frame } = u;
+    const row = attempts.current[frame.attempts];
+    attempts.current = attempts.current.slice(0, frame.attempts);
+    recordings.current = recordings.current.slice(0, frame.recordings);
+    const restoredScore = { correct: frame.correct, total: frame.total };
+    setScore(restoredScore);
+    setState(frame.state);
+    setUndoStack(u.stack);
+    setUndone(prev => ({ seq: prev.seq + 1, key: frame.key, answer: row && undoKeepsAnswer(frame.type, row.answer) ? row.answer : undefined }));
+    exerciseStart.current = Date.now();
+    cancelPending();
+    track('lesson.undo', { exercise_type: frame.type, from: frame.phase });
+    persist(frame.state, restoredScore, u.stack);
   }
 
   function startOver() {
     attempts.current = [];
     recordings.current = [];
+    setUndoStack([]);
+    setUndone(prev => ({ seq: prev.seq, key: '' }));
     startedAt.current = new Date();
     exerciseStart.current = Date.now();
     completedRef.current = false;
@@ -362,6 +408,20 @@ function StudyCustomLessonPlayer({
           {preview && previewSave && !previewSave.saved && !done && (
             <button type="button" className="lesson-preview-save" onClick={previewSave.onSaveNow} disabled={previewSave.busy} data-testid="lesson-preview-save-now">
               {previewSave.busy ? 'Saving…' : '＋ Save'}
+            </button>
+          )}
+          {/* ↺ Undo the last answer — like the flashcards' and the homework pass's (docs/STUDY_SESSION.md "Undo"). */}
+          {!done && (
+            <button
+              type="button"
+              className="study-close-btn study-undo-btn"
+              onClick={() => (takeLock ? takeLock.guardLeave(undo) : undo())}
+              disabled={!canUndoRun(undoStack)}
+              aria-label="Undo last answer"
+              title="Undo last answer"
+              data-testid="lesson-undo"
+            >
+              ↺
             </button>
           )}
           {claudeTarget && !done && <LessonAskClaudeButton />}
@@ -409,8 +469,9 @@ function StudyCustomLessonPlayer({
             </div>
           ) : item && current ? (
             <ExerciseView
-              key={`ex-${runKey}-${current.phase}-${current.step.key}-${bar.answered}`}
+              key={`ex-${runKey}-${current.phase}-${current.step.key}-${bar.answered}-u${undone.seq}`}
               exercise={item.exercise}
+              initial={undone.key === current.step.key ? undone.answer : undefined}
               speak={speak}
               mediaKey={mediaKey}
               focus={lesson.title}

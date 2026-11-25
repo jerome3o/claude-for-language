@@ -27,12 +27,14 @@ import { JudgeExercise, GapChoiceExercise } from './judge-gap-exercises';
 /** correct is null for unscored exercises (notes). */
 export type ExerciseDone = (correct: boolean | null, answer?: ExerciseAnswer, recording?: Blob) => void;
 
-export function ExerciseView({ exercise, speak, onDone, mediaKey, focus }: {
+export function ExerciseView({ exercise, speak, onDone, mediaKey, focus, initial }: {
   exercise: LessonExercise;
   /** The lesson's title / grammar point, for Claude's answer check. */
   focus?: string;
   speak: (text: string) => void;
   onDone: ExerciseDone;
+  /** ↺ Undo: the answer it comes back with, on its answer side (translate, listen & translate, describe the picture — `undoKeepsAnswer`). */
+  initial?: ExerciseAnswer;
   /** Where a recording made in this exercise is kept (oral expression). */
   mediaKey?: string;
 }) {
@@ -45,7 +47,7 @@ export function ExerciseView({ exercise, speak, onDone, mediaKey, focus }: {
     case 'choice':
       return <ChoiceExercise question={exercise.question} options={exercise.options} correctIndex={exercise.correct} explanation={exercise.explanation} correction={exercise.correction} speak={speak} onNext={onNext} />;
     case 'translate':
-      return <TranslateExercise english={exercise.english} referenceHanzi={exercise.reference_hanzi} referencePinyin={exercise.reference_pinyin} note={exercise.note} focus={focus} speak={speak} onNext={onNext} />;
+      return <TranslateExercise english={exercise.english} referenceHanzi={exercise.reference_hanzi} referencePinyin={exercise.reference_pinyin} note={exercise.note} focus={focus} speak={speak} onNext={onNext} initial={initial} />;
     case 'match':
       return <MatchExercise pairs={exercise.pairs} speak={speak} onNext={onNext} />;
     case 'describe_image':
@@ -57,6 +59,7 @@ export function ExerciseView({ exercise, speak, onDone, mediaKey, focus }: {
           referenceHanzi={exercise.reference_hanzi}
           referencePinyin={exercise.reference_pinyin}
           referenceEnglish={exercise.reference_english}
+          initial={initial}
           speak={speak}
           onNext={onNext}
         />
@@ -66,7 +69,7 @@ export function ExerciseView({ exercise, speak, onDone, mediaKey, focus }: {
     case 'listen_choice':
       return <ListenChoiceExercise audio={exercise.audio} question={exercise.question} options={exercise.options} correctIndex={exercise.correct} explanation={exercise.explanation} speak={speak} onNext={onNext} />;
     case 'listen_translate':
-      return <ListenTranslateExercise audio={exercise.audio} note={exercise.note} focus={focus} speak={speak} onNext={onNext} />;
+      return <ListenTranslateExercise audio={exercise.audio} note={exercise.note} focus={focus} speak={speak} onNext={onNext} initial={initial} />;
     case 'sentence_making':
       return <SentenceMakingExercise words={exercise.words} task={exercise.task} input={exercise.input} example={exercise.example} speak={speak} onNext={onNext} />;
     case 'write_typed':
