@@ -184,6 +184,18 @@ const EFFECTS = {
     for (let i = 0; i < n; i++) b[i] *= 0.75 + 0.25 * Math.sin((TWO_PI * 13 * i) / rate) * Math.sin((TWO_PI * 0.5 * i) / rate);
     return seamLoop(normalize(b, 0.5), rate, 0.5);
   },
+  fan: (rate) => {
+    // a fan (the market's pedestal fan, the restaurant's wall fan): motor hum + air whoosh pulsing at the blade rate (loops)
+    const len = 4;
+    const n = Math.floor(len * rate);
+    const b = pink(n, 88);
+    bandpass(b, rate, 150, 1800);
+    for (let i = 0; i < n; i++) {
+      const t = i / rate;
+      b[i] = b[i] * (0.7 + 0.3 * Math.sin(TWO_PI * 15 * t)) + 0.12 * Math.sin(TWO_PI * 100 * t) + 0.05 * Math.sin(TWO_PI * 200 * t);
+    }
+    return seamLoop(normalize(b, 0.4), rate, 0.5);
+  },
   // The apartment's TV (the 家 world, loop while it is on): a presenter's speech-like murmur over a soft
   // studio pad.
   'tv-chatter': (rate) => {
@@ -207,22 +219,6 @@ const EFFECTS = {
     for (let i = 0; i < n; i++) {
       const t = i / rate;
       b[i] = b[i] * (0.85 + 0.15 * Math.sin(TWO_PI * 0.6 * t)) + 0.08 * Math.sin(TWO_PI * 100 * t) + 0.03 * Math.sin(TWO_PI * 200.5 * t);
-    }
-    return seamLoop(normalize(b, 0.4), rate, 0.5);
-  },
-  fan: (rate) => {
-    // an electric fan (the restaurant's 电扇): a motor hum + the blade pass as soft air (loops)
-    const len = 4;
-    const n = Math.floor(len * rate);
-    const r = rng(91);
-    const air = new Float64Array(n);
-    for (let i = 0; i < n; i++) air[i] = r() * 2 - 1;
-    bandpass(air, rate, 200, 1800);
-    const b = new Float64Array(n);
-    for (let i = 0; i < n; i++) {
-      const t = i / rate;
-      const blade = 0.7 + 0.3 * Math.sin(TWO_PI * 18 * t); // 3 blades × 6 turns a second
-      b[i] = 0.55 * air[i] * blade + 0.12 * Math.sin(TWO_PI * 100 * t) + 0.05 * Math.sin(TWO_PI * 200 * t);
     }
     return seamLoop(normalize(b, 0.4), rate, 0.5);
   },
@@ -304,6 +300,47 @@ function murmur(n, rate, seed, voices = 5) {
     }
   }
   return normalize(out, 1);
+}
+
+/**
+ * A vendor calling out (吆喝): a few voiced syllables — a glottal pulse train with a tone contour,
+ * through two vowel formants — the last one drawn out, then a short room echo. Not speech, but it
+ * reads as someone shouting their wares across the hall.
+ */
+function vendorCall(buf, rate, t0, seed, f0 = 170, gain = 1) {
+  const r = rng(seed);
+  const VOWELS = [[800, 1200], [500, 900], [350, 2200], [500, 1700], [400, 800], [650, 1100]];
+  const syll = 3 + Math.floor(r() * 3);
+  const call = new Float64Array(Math.floor(3.2 * rate));
+  let t = 0;
+  for (let k = 0; k < syll; k++) {
+    const last = k === syll - 1;
+    const dur = last ? 0.55 + r() * 0.35 : 0.13 + r() * 0.1;
+    const [F1, F2] = VOWELS[Math.floor(r() * VOWELS.length)];
+    const contour = [r() * 0.3 - 0.1, r() * 0.4 - 0.25];
+    const n = Math.floor(dur * rate);
+    const src = new Float64Array(n);
+    let ph = 0;
+    for (let i = 0; i < n; i++) {
+      const u = i / n;
+      const f = f0 * (1 + contour[0] + (contour[1] - contour[0]) * u + 0.02 * Math.sin(TWO_PI * 5.5 * i / rate));
+      ph += f / rate;
+      src[i] = (ph % 1) * 2 - 1; // sawtooth: a buzzy voice
+    }
+    const a = bandpass(Float64Array.from(src), rate, F1 * 0.7, F1 * 1.3);
+    const b2 = bandpass(Float64Array.from(src), rate, F2 * 0.8, F2 * 1.2);
+    const s0 = Math.floor(t * rate);
+    for (let i = 0; i < n && s0 + i < call.length; i++) {
+      const u = i / n;
+      const env = Math.min(1, u * 12) * Math.min(1, (1 - u) * (last ? 3 : 8));
+      call[s0 + i] += env * (a[i] + 0.6 * b2[i]);
+    }
+    noiseBurst(call, rate, t, 0.25, 0.015, 1500, 6000, seed * 13 + k); // a consonant onset
+    t += dur + 0.03 + r() * 0.05;
+  }
+  normalize(call, 1);
+  const at = Math.floor(t0 * rate);
+  for (const [d, g] of [[0, 1], [0.09, 0.35], [0.21, 0.18], [0.37, 0.08]]) add(buf, call, gain * g, at + Math.floor(d * rate));
 }
 
 const AMB_LEN = 22; // rendered; 20 s after the seam crossfade
@@ -421,6 +458,39 @@ const AMBIENCES = {
     // the kitchen's service bell: an order is ready
     bell(b, rate, 13.0, 1760, 0.05, 0.5);
     return seamLoop(normalize(b, 0.38), rate, 2);
+  },
+  market: (rate) => {
+    // 菜市场: a busy covered hall — murmur, vendors calling out, a cleaver on a board, bags, a fan, a scale's beep
+    const n = AMB_LEN * rate;
+    const b = new Float64Array(n);
+    add(b, murmur(n, rate, 90, 9), 0.42);
+    add(b, lowpass(brown(n, 7, 0.03), rate, 200), 0.22);
+    for (const [t, seed, f0, g] of [[1.2, 3, 165, 0.32], [5.6, 7, 230, 0.26], [10.4, 11, 150, 0.3], [14.9, 17, 245, 0.22], [18.0, 19, 180, 0.18]]) {
+      const call = new Float64Array(Math.floor(3.6 * rate));
+      vendorCall(call, rate, 0, seed, f0, 1);
+      lowpass(call, rate, 3800);
+      add(b, call, g, Math.floor(t * rate));
+    }
+    // a cleaver chopping on a board: a run of wooden knocks, a heavier one to finish
+    const chop = impact('wood', rate);
+    for (const [start, count, gap] of [[2.9, 9, 0.19], [8.3, 6, 0.24], [13.2, 11, 0.16]]) {
+      for (let k = 0; k < count; k++) add(b, chop, 0.16 + 0.04 * (k % 2), Math.floor((start + k * gap) * rate));
+      add(b, impact('stone', rate), 0.2, Math.floor((start + count * gap + 0.1) * rate));
+    }
+    // plastic bags rustling
+    for (const [t, seed] of [[4.1, 1], [9.7, 2], [16.3, 3]]) {
+      const rustle = new Float64Array(Math.floor(0.6 * rate));
+      for (let k = 0; k < 14; k++) noiseBurst(rustle, rate, k * 0.04, 0.4 + (k % 3) * 0.2, 0.01, 2500, 9000, 400 + seed * 20 + k);
+      add(b, rustle, 0.09, Math.floor(t * rate));
+    }
+    // a fan somewhere: air pulsing at the blade rate
+    const air = pink(n, 91);
+    bandpass(air, rate, 200, 1500);
+    for (let i = 0; i < n; i++) air[i] *= 0.75 + 0.25 * Math.sin((TWO_PI * 14 * i) / rate);
+    add(b, air, 0.05);
+    // the electronic scale's beep-beep
+    for (const t of [7.2, 7.38, 17.1, 17.28]) mode(b, rate, t, 2700, 0.05, 0.04, 0.003);
+    return seamLoop(normalize(b, 0.4), rate, 2);
   },
   airport: (rate) => {
     const n = AMB_LEN * rate;

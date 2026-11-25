@@ -16,6 +16,15 @@ like what they're made of.
 This document is the contract for building a world. The kitchen (`frontend/src/vr/worlds/kitchen/`)
 is the reference: copy it.
 
+**The worlds:**
+
+- 🍳 **厨房 Kitchen** (`kitchen/`, 33 objects, 9 tasks) — the reference world.
+- 🏠 **家 Apartment** (`home/`, 56 objects, 12 tasks) — living room, bedroom, bathroom off a hallway.
+- 🥬 **菜市场 Wet market** (`market/`, 54 objects, 11 tasks) — a covered market aisle: 菜摊 / 水果摊 / 豆腐摊 / 干货摊 with
+  produce from lathes and instanced heaps, price tags in 斤, a 电子秤 and a hanging 秤 that really weigh what's on them
+  (`market/weigh.ts`: a Rapier shape query over the pan, held things don't count), an invented 二维码, a 钱箱, a 电风扇;
+  ambience `market` (murmur, vendors calling out, a cleaver on a board, bags, the scale's beep) + the `fan` loop.
+
 ---
 
 ## Playing
@@ -244,7 +253,7 @@ Procedural is preferred (small, no licences). If a world needs a model code can'
 - **Ambience**: `ambience: 'kitchen' | 'house' | 'street' | 'restaurant' | 'airport' | 'apartment' | 'none'` — 20 s
   loops (room tone + fridge hum + clock + birds; traffic + a bicycle bell; murmur + dishes + a wok's clang and sizzle + tea poured + chopsticks on a bowl + the kitchen's service bell;
   a hall + the announcement chime + a suitcase; a flat over the city: traffic far below, a horn, a door).
-- **Loops on states**: `loops: { 'water=on': 'water' }` (positional, at the object); the restaurant's fan (`'power=on': 'fan'`) and call button (`'call=on': 'callbell'`, a ding-dong every 2 s).
+- **Loops on states**: `loops: { 'water=on': 'water' }` (positional, at the object); the fan shared by the market and the restaurant (`'power=on': 'fan'`) and the restaurant's call button (`'call=on': 'callbell'`, a ding-dong every 2 s).
 - All synthesised by `scripts/audio/generate-vr-sfx.mjs` (CC0, deterministic; ffmpeg + libmp3lame).
   A new ambience = a function in its `AMBIENCES` + the name in `types.ts` `AMBIENCES`; run
   `node scripts/audio/generate-vr-sfx.mjs amb-<name>`. Keep loops ≤ 120 KB.
