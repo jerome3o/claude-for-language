@@ -177,6 +177,8 @@ export interface SavedLessonRunCore {
   /** ISO. */
   started_at: string;
   saved_at: string;
+  /** ↺ Undo's frames (`LessonRunUndoFrame`), so a continued run can still step back; absent = none. */
+  undo?: LessonRunUndoFrame[];
 }
 
 /**
@@ -232,4 +234,86 @@ export function retryNumber(attempts: ReadonlyArray<{ section: number; index: nu
   let n = 0;
   for (const a of attempts) if ((a.retry ?? 0) > 0 && exerciseKey(a.section, a.index) === key) n = Math.max(n, a.retry ?? 0);
   return n + 1;
+}
+
+// ============ ↺ Undo ============
+//
+// Jerome (Nov 2026): "I accidentally clicked I got it right. Can we add a go back thing like we have
+// in the flashcards, but to the lessons?" Every answer in a run pushes an UNDO FRAME — the run exactly
+// as it stood before that answer (where it was, the score, how many attempt rows and recordings) — so
+// ↺ restores it EXACTLY: the score, the "missed first time" set (derived from the attempt rows, which
+// are cut back), the retry round's queue. Frames stack for the whole run (saved with it), so repeated
+// ↺ step back to the start of the run, across the retry round's boundary. Only before the run is
+// finished: the end records the completion at once. docs/STUDY_SESSION.md "Mini lessons" → "Undo".
+
+/** The run as it stood before one answer — what ↺ restores. */
+export interface LessonRunUndoFrame {
+  /** The exercise answered (what comes back on screen). */
+  key: string;
+  type: string;
+  phase: LessonRunPhase;
+  scored: boolean;
+  state: LessonRunState;
+  correct: number;
+  total: number;
+  /** Attempt rows / recordings before the answer (the answer's own are cut off). */
+  attempts: number;
+  recordings: number;
+}
+
+/**
+ * The frame to push just BEFORE the exercise on screen is answered (null when the run is finished).
+ * `attempts` / `recordings` = how many the run holds now.
+ */
+export function runUndoFrame(
+  state: LessonRunState,
+  steps: readonly LessonRunStep[],
+  score: { correct: number; total: number },
+  attempts: number,
+  recordings: number
+): LessonRunUndoFrame | null {
+  const cur = runCurrent(state, steps);
+  if (!cur) return null;
+  return {
+    key: cur.step.key,
+    type: cur.step.type,
+    phase: cur.phase,
+    scored: cur.step.scored,
+    state: { pos: state.pos, owed: [...state.owed], fixed: state.fixed, retried: state.retried ?? 0 },
+    correct: score.correct,
+    total: score.total,
+    attempts,
+    recordings,
+  };
+}
+
+/** Whether ↺ can take anything back. */
+export function canUndoRun(stack: readonly LessonRunUndoFrame[] | null | undefined): boolean {
+  return !!stack && stack.length > 0;
+}
+
+/**
+ * ↺: the frame to restore and the stack left. It takes back the last GRADED answer — notes passed
+ * since (an unscored "Next") go with it, so one tap lands on the exercise he mis-graded; with no
+ * graded answer on the stack it steps back one screen. Null when there is nothing to undo.
+ */
+export function undoRun(stack: readonly LessonRunUndoFrame[] | null | undefined): { frame: LessonRunUndoFrame; stack: LessonRunUndoFrame[] } | null {
+  if (!stack || stack.length === 0) return null;
+  let i = stack.length - 1;
+  while (i > 0 && !stack[i].scored) i--;
+  if (!stack[i].scored) i = stack.length - 1;
+  return { frame: stack[i], stack: stack.slice(0, i) };
+}
+
+/** The self-checked exercises that come back on their ANSWER side after ↺. */
+const UNDO_KEEPS_ANSWER = new Set(['translate', 'listen_translate', 'describe_image']);
+
+/**
+ * Whether ↺ brings an exercise back on its answer side with the answer he gave (`answer` = its undone
+ * attempt row's answer): only the self-checked ones (translate, listen & translate, describe the
+ * picture), where the slip is the Got it / Missed it tap. Everything else — checked on the device,
+ * recorded, or in several parts — comes back fresh, to answer again.
+ */
+export function undoKeepsAnswer(type: string, answer: { self_assessed?: boolean } | null | undefined): boolean {
+  return UNDO_KEEPS_ANSWER.has(type) && answer?.self_assessed === true;
 }

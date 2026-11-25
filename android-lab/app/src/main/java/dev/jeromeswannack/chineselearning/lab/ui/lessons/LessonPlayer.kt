@@ -30,6 +30,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -143,6 +144,8 @@ const val LESSON_BAR_TAG = "lesson-run-bar"
 const val LESSON_RETRY_TAG = "lesson-retry-line"
 const val LESSON_END_TAG = "lesson-end-line"
 const val LESSON_DONE_TAG = "lesson-done"
+/** ↺ Undo the last answer (top bar). */
+const val LESSON_UNDO_TAG = "lesson-undo"
 
 /** `lesson.start` / `lesson.complete` source: where the player sits. */
 private fun lessonSource(context: PlayerContext): String = when (context) {
@@ -160,6 +163,8 @@ private fun lessonSource(context: PlayerContext): String = when (context) {
  * homework pass's retry bar). The end records the completion at once (its outcome decides: all
  * right first time → done forever; otherwise a revision in a week) — no rating to give. A real run
  * is saved after every exercise ([resume]) and continues next time; ✕ never records a completion.
+ * ↺ in the top bar takes back the last graded answer exactly (core LessonRun.undo; repeatable to the run's
+ * start, saved with the run) — a self-checked exercise comes back on its answer side, any other fresh.
  * [PlayerContext.Preview] records nothing.
  */
 @Composable
@@ -227,6 +232,11 @@ fun LessonPlayer(
     }
     var endLine by remember(run) { mutableStateOf<String?>(null) }
     var completed by remember(run) { mutableStateOf(false) }
+    // ↺ Undo (core LessonRun.undo): the run before each answer, newest last — saved with the run.
+    var undoStack by remember(run) { mutableStateOf(from(run)?.undo ?: emptyList()) }
+    // An undone self-checked exercise comes back on its answer side with this answer; [undoSeq] restarts it.
+    var undoSeq by remember(run) { mutableIntStateOf(0) }
+    var restoredAnswer by remember(run) { mutableStateOf<Pair<String, dev.jeromeswannack.chineselearning.lab.core.ExerciseAnswer>?>(null) }
     val current = LessonRun.current(state, steps)
     val done = current == null
     // 💬 Ask Claude about the exercise on screen: a real run of one of his stored lessons only.
@@ -281,12 +291,28 @@ fun LessonPlayer(
         onComplete(LessonResult(correct, total, attempt, recordings.toList(), outcome, mode))
     }
 
+    /** Saved after every answer (and every ↺) — a real run only. */
+    fun save(next: LessonRun.State) {
+        if (preview) return
+        resume?.onProgress(
+            SavedLessonRun(
+                lessonId = restored?.lessonId ?: "", shape = shape, mode = mode, keys = keys, state = next, correct = correct, total = total,
+                startedAt = startedAt, savedAt = System.currentTimeMillis(), attempts = attempts.toList(),
+                recordings = recordings.map { SavedRecording(it.mediaKey, it.file.absolutePath, it.mime) },
+                undo = undoStack,
+            ),
+        )
+    }
+
     fun advance(isCorrect: Boolean?, answer: dev.jeromeswannack.chineselearning.lab.core.ExerciseAnswer?, recording: java.io.File?) {
         // Never moved on while a take records (the footer is "■ Stop recording" then; this is the backstop).
         if (!takeLock.mayProceed()) { takeLock.stop("advance"); return }
         val cur = LessonRun.current(state, steps) ?: return
         val ex = exercises[cur.step.key]?.first ?: return
         val retry = if (cur.phase == "retry") LessonRun.retryNumber(attempts, cur.step.key) else 0
+        // ↺ Undo restores the run exactly as it is now.
+        LessonRun.undoFrame(state, steps, correct, total, attempts.size, recordings.size)?.let { undoStack = undoStack + it }
+        restoredAnswer = null
         val base = LessonAttempts.attemptFor(cur.step.section, cur.step.index, ex, isCorrect, answer, System.currentTimeMillis() - exerciseStart)
         val attempt = if (retry > 0) base.copy(retry = retry) else base
         if (cur.phase == "main" && isCorrect != null && attempt.maxPoints > 0) {
@@ -308,13 +334,36 @@ fun LessonPlayer(
             dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("lesson.retry", mapOf("type" to cur.step.type, "right" to !wrong, "left" to LessonRun.retryBar(next, steps).retries))
         }
         if (LessonRun.finished(next, steps)) finish()
-        else if (!preview) resume?.onProgress(
-            SavedLessonRun(
-                lessonId = restored?.lessonId ?: "", shape = shape, mode = mode, keys = keys, state = next, correct = correct, total = total,
-                startedAt = startedAt, savedAt = System.currentTimeMillis(), attempts = attempts.toList(),
-                recordings = recordings.map { SavedRecording(it.mediaKey, it.file.absolutePath, it.mime) },
-            ),
-        )
+        else save(next)
+    }
+
+    /**
+     * ↺ Undo (docs/STUDY_SESSION.md "Mini lessons" → "Undo"): the last graded answer taken back — run, score,
+     * attempt rows (the uploaded attempt carries the final grade only) and that answer's recordings (dropped,
+     * their files deleted) exactly as before it. A self-checked exercise comes back on its answer side
+     * ([LessonRun.undoKeepsAnswer]); any other fresh. Only before the end: the end records the completion.
+     */
+    fun undo() {
+        if (done || completed) return
+        val u = LessonRun.undo(undoStack) ?: return
+        val f = u.frame
+        val row = attempts.getOrNull(f.attempts)
+        while (attempts.size > f.attempts) attempts.removeAt(attempts.size - 1)
+        while (recordings.size > f.recordings) {
+            val dropped = recordings.removeAt(recordings.size - 1)
+            runCatching { dropped.file.delete() }
+        }
+        state = f.state
+        correct = f.correct
+        total = f.total
+        undoStack = u.stack
+        restoredAnswer = row?.answer?.takeIf { LessonRun.undoKeepsAnswer(f.type, it.selfAssessed) }?.let { f.key to it }
+        undoSeq++
+        continuing = false
+        exerciseStart = System.currentTimeMillis()
+        env.exerciseChanged()
+        if (!preview) dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("lesson.undo", mapOf("exercise_type" to f.type, "from" to f.phase))
+        save(f.state)
     }
 
     fun startOver() {
@@ -342,6 +391,13 @@ fun LessonPlayer(
                 }
                 if (preview && previewSave != null && !previewSave.saved && !done) {
                     SecondaryPill(if (previewSave.busy) "Saving…" else "＋ Save", Modifier.heightIn(min = 44.dp).testTag(PREVIEW_SAVE_NOW_TAG), enabled = !previewSave.busy, onClick = previewSave.onSaveNow)
+                }
+                // ↺ Undo the last answer — the study screen's / homework pass's undo (docs/STUDY_SESSION.md "Undo").
+                if (!done) {
+                    val canUndo = LessonRun.canUndo(undoStack)
+                    IconButton(onClick = { takeLock.guardLeave { undo() } }, enabled = canUndo, modifier = Modifier.testTag(LESSON_UNDO_TAG)) {
+                        Icon(Icons.AutoMirrored.Filled.Undo, "Undo last answer", tint = if (canUndo) Lab.colors.ink else Lab.colors.muted.copy(alpha = 0.3f))
+                    }
                 }
                 claudeTarget?.let { t -> LessonAskClaudeButton { claudeState.open = Triple(t, "toolbar", null) } }
                 IconButton(onClick = { takeLock.guardLeave(onEnd) }) { Icon(Icons.Filled.Close, if (preview) "Close preview" else "Close lesson", tint = Lab.colors.muted) }
@@ -371,7 +427,7 @@ fun LessonPlayer(
                         )
                     }
                     AnimatedContent(
-                        targetState = Triple(run, current?.phase, current?.step?.key to bar.answered),
+                        targetState = Triple(run to undoSeq, current?.phase, current?.step?.key to bar.answered),
                         transitionSpec = {
                             (slideInHorizontally(spring(dampingRatio = 0.85f, stiffness = 380f)) { it / 4 } + fadeIn(tween(180))) togetherWith
                                 (slideOutHorizontally(tween(200)) { -it / 4 } + fadeOut(tween(150)))
@@ -394,7 +450,7 @@ fun LessonPlayer(
                                 if (Lessons.renderable(exercise)) {
                                     androidx.compose.runtime.CompositionLocalProvider(LocalLessonFocus provides title) {
                                         ExerciseClaudeHost(claudeTarget, claudeState) {
-                                            ExerciseView(exercise, env, mediaKey) { c, a, r -> if (stillHere()) advance(c, a, r) }
+                                            ExerciseView(exercise, env, mediaKey, initial = restoredAnswer?.takeIf { it.first == key }?.second) { c, a, r -> if (stillHere()) advance(c, a, r) }
                                         }
                                     }
                                 } else {

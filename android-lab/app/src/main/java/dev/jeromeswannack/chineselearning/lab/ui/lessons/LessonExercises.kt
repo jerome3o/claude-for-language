@@ -348,13 +348,27 @@ private fun optionState(answered: Boolean, index: Int, correct: Int?, choice: In
 
 // ============ Translate (self-assessed) ============
 
+/**
+ * An answer brought back by ↺ Undo has Claude's check run again once — answer checks are cached on the phone
+ * and for everyone, so it is back at once (offline: none, as before). Web: useRestoredAnswerCheck.
+ */
 @Composable
-fun TranslateView(ex: TranslateExercise, env: ExerciseEnv, onNext: (Boolean, ExerciseAnswer?) -> Unit) {
-    var answer by remember { mutableStateOf("") }
-    var source by remember { mutableStateOf<String?>(null) }
-    var revealed by remember { mutableStateOf(false) }
+private fun RestoredAnswerCheck(initial: ExerciseAnswer?, onFinal: (String, String) -> Unit) {
+    LaunchedEffect(Unit) {
+        val text = initial?.text?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
+        onFinal(text, initial.input ?: "typed")
+    }
+}
+
+@Composable
+fun TranslateView(ex: TranslateExercise, env: ExerciseEnv, onNext: (Boolean, ExerciseAnswer?) -> Unit, initial: ExerciseAnswer? = null) {
+    // [initial]: ↺ Undo brought it back on its answer side with what he gave (core LessonRun.undoKeepsAnswer).
+    var answer by remember { mutableStateOf(initial?.text.orEmpty()) }
+    var source by remember { mutableStateOf(if (initial?.text.isNullOrEmpty()) null else initial?.input ?: "typed") }
+    var revealed by remember { mutableStateOf(initial != null) }
     // Claude's check of the answer (core LessonAnswerCheck), started the moment it is final.
     val ac = rememberLessonAnswerCheck("translate", ex.english, ex.referenceHanzi, ex.referencePinyin, env) { answer = ""; source = null; revealed = false }
+    RestoredAnswerCheck(initial) { t, s -> ac.onFinal(t, s) }
     PhaseLabel("Say it in Chinese")
     PromptText(ex.english)
     if (!revealed) {
@@ -491,8 +505,9 @@ internal fun rememberImageFile(key: String?, env: ExerciseEnv): File? {
 }
 
 @Composable
-fun DescribeImageView(ex: DescribeImageExercise, env: ExerciseEnv, onNext: (Boolean, ExerciseAnswer?) -> Unit) {
-    var revealed by remember { mutableStateOf(false) }
+fun DescribeImageView(ex: DescribeImageExercise, env: ExerciseEnv, onNext: (Boolean, ExerciseAnswer?) -> Unit, initial: ExerciseAnswer? = null) {
+    // [initial]: ↺ Undo brought it back on its answer side.
+    var revealed by remember { mutableStateOf(initial != null) }
     PhaseLabel("Describe the picture")
     val source = env.picture
     val picture = if (source != null) {
@@ -571,13 +586,15 @@ fun ListenChoiceView(ex: ListenChoiceExercise, env: ExerciseEnv, onNext: (Boolea
 // ============ Listening: translate what you heard (self-assessed) ============
 
 @Composable
-fun ListenTranslateView(ex: ListenTranslateExercise, env: ExerciseEnv, onNext: (Boolean, ExerciseAnswer?) -> Unit) {
-    var answer by remember { mutableStateOf("") }
-    var source by remember { mutableStateOf<String?>(null) }
-    var revealed by remember { mutableStateOf(false) }
-    var plays by remember { mutableIntStateOf(0) }
+fun ListenTranslateView(ex: ListenTranslateExercise, env: ExerciseEnv, onNext: (Boolean, ExerciseAnswer?) -> Unit, initial: ExerciseAnswer? = null) {
+    // [initial]: ↺ Undo brought it back on its answer side with what he gave (core LessonRun.undoKeepsAnswer).
+    var answer by remember { mutableStateOf(initial?.text.orEmpty()) }
+    var source by remember { mutableStateOf(if (initial?.text.isNullOrEmpty()) null else initial?.input ?: "typed") }
+    var revealed by remember { mutableStateOf(initial != null) }
+    var plays by remember { mutableIntStateOf(initial?.plays ?: 0) }
     // Claude checks an answer written in Chinese (an English one keeps the self-assessment alone).
     val ac = rememberLessonAnswerCheck("listen_translate", ex.audio.english, ex.audio.hanzi, ex.audio.pinyin, env) { answer = ""; source = null; revealed = false }
+    RestoredAnswerCheck(initial) { t, s -> ac.onFinal(t, s) }
     fun report() = ac.report(ExerciseAnswer(text = answer.trim().ifEmpty { null }, selfAssessed = true, plays = plays, input = source?.takeIf { answer.isNotBlank() }))
 
     PhaseLabel("Listen and translate")

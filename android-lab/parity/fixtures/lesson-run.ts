@@ -2,7 +2,8 @@
  * Golden vectors for a mini lesson RUN (shared/study/lessonRun.ts): the steps (whole lesson and a
  * revision's subset with its context notes), the shape, the retry round driven by random verdicts
  * (state, what is on screen, the retry bar, the resume line after every answer), canResumeRun,
- * verdictWrong, retryNumber / retryMediaKey / retryLine. Writes lesson-run.json; checked by
+ * verdictWrong, retryNumber / retryMediaKey / retryLine, ↺ undo (random answers + undos with the
+ * player's bookkeeping, the outcome after each), undoKeepsAnswer. Writes lesson-run.json; checked by
  * core/…/LessonRunParityTest.kt.
  */
 import { writeFileSync, mkdirSync } from 'node:fs';
@@ -10,7 +11,9 @@ import { join } from 'node:path';
 import {
   advanceRun, canResumeRun, lessonShape, lessonSteps, resumeLine, retryLine, retryMediaKey, retryNumber,
   runCurrent, runRetryBar, verdictWrong, NEW_RUN, type LessonRunState,
+  canUndoRun, runUndoFrame, undoKeepsAnswer, undoRun, type LessonRunUndoFrame,
 } from '../../../shared/study/lessonRun';
+import { runOutcome } from '../../../shared/study/lessonRevision';
 
 const OUT = process.argv[2];
 mkdirSync(OUT, { recursive: true });
@@ -73,4 +76,52 @@ const retries = Array.from({ length: 60 }, () => {
   return { attempts, key, next: retryNumber(attempts, key), media: retryMediaKey(int(0, 2), int(0, 4), n), n, line: retryLine(n) };
 });
 
-writeFileSync(join(OUT, 'lesson-run.json'), JSON.stringify({ runs, resume, verdicts, retries }));
+// ↺ Undo: random runs mixing answers and undos, with the player's bookkeeping (score, attempt rows,
+// recordings) — after every action the run, score, counts, the stack and the outcome the rows give.
+type Row = { section: number; index: number; type: string; correct: boolean | null; points: number; max_points: number; retry?: number };
+const undos = Array.from({ length: 150 }, () => {
+  const sections = Array.from({ length: int(1, 3) }, () => Array.from({ length: int(1, 5) }, () => pick(TYPES)));
+  const spec = { sections: sections.map((types) => ({ exercises: types.map((type) => ({ type })) })) };
+  const steps = lessonSteps(spec as never);
+  let state: LessonRunState = NEW_RUN;
+  let correct = 0;
+  let total = 0;
+  let rows: Row[] = [];
+  let recordings = 0;
+  let stack: LessonRunUndoFrame[] = [];
+  const actions: unknown[] = [];
+  for (let i = 0; i < 50; i++) {
+    const cur = runCurrent(state, steps);
+    if (!cur) break;
+    if (canUndoRun(stack) && r() < 0.3) {
+      const u = undoRun(stack)!;
+      state = u.frame.state;
+      correct = u.frame.correct;
+      total = u.frame.total;
+      rows = rows.slice(0, u.frame.attempts);
+      recordings = Math.min(recordings, u.frame.recordings);
+      stack = u.stack;
+      actions.push({ kind: 'undo', restored: u.frame.key, phase: u.frame.phase, state, correct, total, attempts: rows.length, recordings, stack: stack.length, can_undo: canUndoRun(stack), outcome: runOutcome({ exercises: rows }) });
+      continue;
+    }
+    const verdict = cur.step.scored ? (r() < 0.45 ? false : true) : null;
+    const recording = cur.step.scored && r() < 0.2;
+    const frame = runUndoFrame(state, steps, { correct, total }, rows.length, recordings)!;
+    stack = [...stack, frame];
+    const max = verdict === null ? 0 : 1;
+    const points = verdict ? max : 0;
+    const retry = cur.phase === 'retry' ? retryNumber(rows, cur.step.key) : 0;
+    if (cur.phase === 'main' && max) { correct += points; total += max; }
+    rows = [...rows, { section: cur.step.section, index: cur.step.index, type: cur.step.type, correct: verdict, points, max_points: max, ...(retry ? { retry } : {}) }];
+    if (recording) recordings++;
+    state = advanceRun(state, steps, verdict);
+    actions.push({ kind: 'answer', verdict, recording, state, correct, total, attempts: rows.length, recordings, stack: stack.length, can_undo: canUndoRun(stack), outcome: runOutcome({ exercises: rows }) });
+  }
+  return { sections, actions };
+});
+
+const keepsAnswer = ['translate', 'listen_translate', 'describe_image', 'speak', 'choice', 'note', 'oral_expression'].flatMap((type) =>
+  [true, false, null].map((selfAssessed) => ({ type, self_assessed: selfAssessed, keeps: undoKeepsAnswer(type, selfAssessed === null ? null : { self_assessed: selfAssessed }) })),
+);
+
+writeFileSync(join(OUT, 'lesson-run.json'), JSON.stringify({ runs, resume, verdicts, retries, undos, keepsAnswer }));

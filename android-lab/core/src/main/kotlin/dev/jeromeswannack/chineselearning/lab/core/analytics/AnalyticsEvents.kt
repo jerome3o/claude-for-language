@@ -290,6 +290,7 @@ object AnalyticsEvents {
         ev("lesson.structure_card", "lessons", listOf("action", "source", "index", "count")),
         ev("lesson.structure_intro", "lessons", listOf("action", "source", "index", "count", "scenes", "duration_ms")),
         ev("lesson.start_over", "lessons", listOf("source")),
+        ev("lesson.undo", "lessons", listOf("exercise_type", "from")),
         ev("lesson.row_action", "lessons", listOf("action", "kind", "from", "undo")),
         ev("lesson.audio", "lessons", listOf("source", "hits", "misses", "stale", "max_wait_ms", "clips", "prefetched")),
         ev("lesson.replay_practice", "lessons", listOf("exercises", "duration_ms"), replacedBy = "lesson.complete"),

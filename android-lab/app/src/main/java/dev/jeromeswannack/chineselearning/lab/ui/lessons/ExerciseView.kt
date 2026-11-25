@@ -109,19 +109,26 @@ typealias ExerciseDone = (correct: Boolean?, answer: ExerciseAnswer?, recording:
 
 /** `ExerciseView`: the one switch over exercise types on the study side. */
 @Composable
-fun ExerciseView(exercise: LessonExercise, env: ExerciseEnv, mediaKey: String?, onDone: ExerciseDone) {
+fun ExerciseView(
+    exercise: LessonExercise,
+    env: ExerciseEnv,
+    mediaKey: String?,
+    /** ↺ Undo: the answer it comes back with, on its answer side (translate, listen & translate, describe the picture — core LessonRun.undoKeepsAnswer). */
+    initial: ExerciseAnswer? = null,
+    onDone: ExerciseDone,
+) {
     val onNext: (Boolean, ExerciseAnswer?) -> Unit = { correct, answer -> onDone(correct, answer, null) }
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         when (exercise) {
             is NoteExercise -> NoteView(exercise, env) { onDone(null, null, null) }
             is ScrambleExercise -> ScrambleView(exercise, env, onNext)
             is ChoiceExercise -> ChoiceView(exercise, env, onNext)
-            is TranslateExercise -> TranslateView(exercise, env, onNext)
+            is TranslateExercise -> TranslateView(exercise, env, onNext, initial)
             is MatchExercise -> MatchView(exercise, env, onNext)
-            is DescribeImageExercise -> DescribeImageView(exercise, env, onNext)
+            is DescribeImageExercise -> DescribeImageView(exercise, env, onNext, initial)
             is SpeakExercise -> SpeakView(exercise, env, onNext)
             is ListenChoiceExercise -> ListenChoiceView(exercise, env, onNext)
-            is ListenTranslateExercise -> ListenTranslateView(exercise, env, onNext)
+            is ListenTranslateExercise -> ListenTranslateView(exercise, env, onNext, initial)
             is SentenceMakingExercise -> SentenceMakingView(exercise, env, onNext)
             is WriteTypedExercise -> WriteTypedView(exercise, env, onNext)
             is WriteHandwritingExercise -> WriteHandwritingView(exercise, env, onNext)

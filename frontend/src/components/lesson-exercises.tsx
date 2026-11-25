@@ -48,6 +48,20 @@ type Speak = (text: string) => void;
  * they answered (recorded in the lesson attempt for the tutor to review). */
 export type OnNext = (correct: boolean, answer?: ExerciseAnswer) => void;
 
+/**
+ * An answer brought back by ↺ Undo (shared/study/lessonRun.ts `undoKeepsAnswer`) has Claude's check run
+ * again once — answer checks are cached for everyone, so it is back at once (offline: none, as before).
+ */
+function useRestoredAnswerCheck(initial: ExerciseAnswer | undefined, onFinal: (text: string, source: DictatedAnswer['source'] | null) => void) {
+  const ran = useRef(false);
+  useEffect(() => {
+    if (ran.current || !initial?.text?.trim()) return;
+    ran.current = true;
+    onFinal(initial.text, initial.input ?? 'typed');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+}
+
 /** Joined-sentence scramble check: whitespace-insensitive, alt orders accepted. */
 export function checkScrambleOrder(
   userOrder: string[],
@@ -430,16 +444,19 @@ export function TranslateExercise(props: {
   focus?: string;
   speak: Speak;
   onNext: OnNext;
+  /** ↺ Undo brought it back: on its answer side with what he gave (shared/study/lessonRun.ts `undoKeepsAnswer`). */
+  initial?: ExerciseAnswer;
 }) {
-  const { label, english, referenceHanzi, referencePinyin, note, focus, speak, onNext } = props;
-  const [answer, setAnswer] = useState('');
-  const [source, setSource] = useState<DictatedAnswer['source'] | null>(null);
-  const [revealed, setRevealed] = useState(false);
+  const { label, english, referenceHanzi, referencePinyin, note, focus, speak, onNext, initial } = props;
+  const [answer, setAnswer] = useState(initial?.text ?? '');
+  const [source, setSource] = useState<DictatedAnswer['source'] | null>(initial?.text ? initial.input ?? 'typed' : null);
+  const [revealed, setRevealed] = useState(!!initial);
   // Claude's check of the answer (shared/lesson/answerCheck.ts), started the moment it is final.
   const ac = useLessonAnswerCheck({
     exerciseType: 'translate', promptEn: english, modelAnswer: referenceHanzi, modelPinyin: referencePinyin, focus,
     onRetry: () => { setAnswer(''); setSource(null); setRevealed(false); },
   });
+  useRestoredAnswerCheck(initial, ac.onFinal);
 
   function reveal(given?: DictatedAnswer) {
     // A pause is never grammar: a spoken answer is shown and checked without the recogniser's punctuation.
@@ -679,9 +696,11 @@ export function DescribeImageExercise(props: {
   referenceEnglish?: string | null;
   speak: Speak;
   onNext: OnNext;
+  /** ↺ Undo brought it back on its answer side. */
+  initial?: ExerciseAnswer;
 }) {
-  const { imageKey, imagePrompt, task, referenceHanzi, referencePinyin, referenceEnglish, speak, onNext } = props;
-  const [revealed, setRevealed] = useState(false);
+  const { imageKey, imagePrompt, task, referenceHanzi, referencePinyin, referenceEnglish, speak, onNext, initial } = props;
+  const [revealed, setRevealed] = useState(!!initial);
   const image = useLessonImage(imageKey, imagePrompt);
 
   function reveal() {
@@ -849,17 +868,20 @@ export function ListenTranslateExercise(props: {
   focus?: string;
   speak: Speak;
   onNext: OnNext;
+  /** ↺ Undo brought it back on its answer side (shared/study/lessonRun.ts `undoKeepsAnswer`). */
+  initial?: ExerciseAnswer;
 }) {
-  const { audio, note, focus, speak, onNext } = props;
-  const [answer, setAnswer] = useState('');
-  const [source, setSource] = useState<DictatedAnswer['source'] | null>(null);
-  const [revealed, setRevealed] = useState(false);
-  const plays = useRef(0);
+  const { audio, note, focus, speak, onNext, initial } = props;
+  const [answer, setAnswer] = useState(initial?.text ?? '');
+  const [source, setSource] = useState<DictatedAnswer['source'] | null>(initial?.text ? initial.input ?? 'typed' : null);
+  const [revealed, setRevealed] = useState(!!initial);
+  const plays = useRef(initial?.plays ?? 0);
   // Claude checks an answer written in Chinese (an English one keeps the self-assessment alone).
   const ac = useLessonAnswerCheck({
     exerciseType: 'listen_translate', promptEn: audio.english, modelAnswer: audio.hanzi, modelPinyin: audio.pinyin, focus,
     onRetry: () => { setAnswer(''); setSource(null); setRevealed(false); },
   });
+  useRestoredAnswerCheck(initial, ac.onFinal);
   const report = () => ac.report({ text: answer.trim() || undefined, input: answer.trim() ? source ?? undefined : undefined, self_assessed: true, plays: plays.current });
   const reveal = (given?: DictatedAnswer) => {
     // A pause is never grammar: a spoken answer is shown and checked without the recogniser's punctuation.

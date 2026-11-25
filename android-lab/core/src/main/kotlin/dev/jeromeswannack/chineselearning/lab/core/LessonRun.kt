@@ -155,4 +155,60 @@ object LessonRun {
         for (a in attempts) if ((a.retry ?: 0) > 0 && exerciseKey(a.section, a.index) == key) n = Math.max(n, a.retry ?: 0)
         return n + 1
     }
+
+    // ============ ↺ Undo ============
+    //
+    // Jerome (Nov 2026): "I accidentally clicked I got it right. Can we add a go back thing like we have
+    // in the flashcards, but to the lessons?" Every answer pushes an [UndoFrame] — the run exactly as it
+    // stood before it — so ↺ restores the score, the missed-first-time set (derived from the attempt rows,
+    // cut back) and the retry queue exactly; frames stack for the whole run (saved with it). Only before
+    // the end: the end records the completion. docs/STUDY_SESSION.md "Mini lessons" → "Undo".
+
+    /** Port of LessonRunUndoFrame: the run as it stood before one answer. */
+    @Serializable
+    data class UndoFrame(
+        val key: String,
+        val type: String,
+        /** "main" | "retry". */
+        val phase: String,
+        val scored: Boolean,
+        val state: State,
+        val correct: Int,
+        val total: Int,
+        /** Attempt rows / recordings before the answer. */
+        val attempts: Int,
+        val recordings: Int,
+    )
+
+    /** Port of runUndoFrame: the frame to push just before the exercise on screen is answered (null when finished). */
+    fun undoFrame(state: State, steps: List<Step>, correct: Int, total: Int, attempts: Int, recordings: Int): UndoFrame? {
+        val cur = current(state, steps) ?: return null
+        return UndoFrame(cur.step.key, cur.step.type, cur.phase, cur.step.scored, state, correct, total, attempts, recordings)
+    }
+
+    /** Port of canUndoRun. */
+    fun canUndo(stack: List<UndoFrame>?): Boolean = !stack.isNullOrEmpty()
+
+    /** Port of undoRun's result: the frame to restore and the stack left. */
+    data class Undo(val frame: UndoFrame, val stack: List<UndoFrame>)
+
+    /**
+     * Port of undoRun: takes back the last GRADED answer (notes passed since go with it); with no graded
+     * answer on the stack it steps back one screen. Null when there is nothing to undo.
+     */
+    fun undo(stack: List<UndoFrame>?): Undo? {
+        if (stack.isNullOrEmpty()) return null
+        var i = stack.size - 1
+        while (i > 0 && !stack[i].scored) i--
+        if (!stack[i].scored) i = stack.size - 1
+        return Undo(stack[i], stack.subList(0, i).toList())
+    }
+
+    private val UNDO_KEEPS_ANSWER = setOf("translate", "listen_translate", "describe_image")
+
+    /**
+     * Port of undoKeepsAnswer: only the self-checked exercises (translate, listen & translate, describe the
+     * picture) come back on their answer side with what he gave; everything else comes back fresh.
+     */
+    fun undoKeepsAnswer(type: String, selfAssessed: Boolean?): Boolean = type in UNDO_KEEPS_ANSWER && selfAssessed == true
 }
