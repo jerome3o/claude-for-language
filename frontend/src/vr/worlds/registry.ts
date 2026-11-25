@@ -5,6 +5,7 @@
  */
 import type { WorldDefinition, WorldMeta } from './types';
 import { kitchenMeta } from './kitchen/meta';
+import { homeMeta } from './home/meta';
 import { streetMeta } from './street/meta';
 
 export interface WorldEntry {
@@ -14,6 +15,7 @@ export interface WorldEntry {
 
 export const WORLDS: readonly WorldEntry[] = [
   { meta: kitchenMeta, load: () => import('./kitchen') },
+  { meta: homeMeta, load: () => import('./home') },
   { meta: streetMeta, load: () => import('./street') },
 ];
 

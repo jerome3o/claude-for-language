@@ -83,7 +83,7 @@ interface WorldDefinition extends WorldSpec {        // shared/vr-worlds/types.t
   objects: WorldObjectDef[];                          // WorldObjectSpec + model (+ loops)
   lighting: 'indoor_day' | 'indoor_warm' | 'indoor_hall' | 'outdoor_day' | 'outdoor_evening';
   shadowArea?: number;                                // metres the shadow map covers around the origin (default 8)
-  ambience: 'kitchen' | 'house' | 'street' | 'restaurant' | 'airport' | 'city' | 'none';
+  ambience: 'kitchen' | 'house' | 'street' | 'restaurant' | 'airport' | 'apartment' | 'city' | 'none';
   Scene: ComponentType;                               // static geometry + colliders
 }
 
@@ -238,12 +238,13 @@ Procedural is preferred (small, no licences). If a world needs a model code can'
   material plays both (a glass bottle on a wooden table). Silent for the first 1.5 s (things settle).
 - **pickup / drop / throw / use / open / teleport / click / hint / success / finish** — the engine
   plays them.
-- **Ambience**: `ambience: 'kitchen' | 'house' | 'street' | 'restaurant' | 'airport' | 'city' | 'none'` — 20 s
+- **Ambience**: `ambience: 'kitchen' | 'house' | 'street' | 'restaurant' | 'airport' | 'apartment' | 'city' | 'none'` — 20 s
   loops (room tone + fridge hum + clock + birds; traffic + a bicycle bell; murmur + dishes + a sizzle;
-  a hall + the announcement chime + a suitcase; `city` = the street world at dusk: cars and a bus with
-  air brakes, an e-bike's whine and beep, a far horn, people passing, sparrows).
+  a hall + the announcement chime + a suitcase; a flat over the city: traffic far below, a horn, a door;
+  `city` = the street world at dusk: cars and a bus with air brakes, an e-bike's whine and beep, a far
+  horn, people passing, sparrows).
 - **Loops on states**: `loops: { 'water=on': 'water' }` (positional, at the object). Others made so far:
-  `crossing` (the walkers' signal ticking while green), `sizzle` (a hot griddle).
+  `crossing` (the walkers' signal ticking while green), `sizzle` (a hot griddle), `tv-chatter`, `ac-hum`.
 - All synthesised by `scripts/audio/generate-vr-sfx.mjs` (CC0, deterministic; ffmpeg + libmp3lame).
   A new ambience = a function in its `AMBIENCES` + the name in `types.ts` `AMBIENCES`; run
   `node scripts/audio/generate-vr-sfx.mjs amb-<name>`. Keep loops ≤ 120 KB.
@@ -286,7 +287,8 @@ Run `cd frontend && npx vitest run src/vr ../shared/vr-worlds`.
 5. Dev builds expose `window.__vrWorld`: `objects()` (id, screen x / y, visible, position, held),
    `targets()` (every panel button on screen), `run()`, `inspect(id)`, `inspectTexts()`,
    `hudTexts()`, `place(id, [x, y, z])`, `screenOf([x, y, z])`, `hideHud(true)` (the thumbnail),
-   `presenting()`, `head()`, `rig()`. Click real pixels (`page.mouse.click(o.x, o.y)`): it goes
+   `presenting()`, `head()`, `rig()`, `stand(x, z, yaw, pitch?)` (stand in another room — screenshots; walking a few metres takes
+   minutes in swiftshader). Click real pixels (`page.mouse.click(o.x, o.y)`): it goes
    through the same raycast as a controller. Keys: W A S D / Q E to walk and turn.
 6. The thumbnail: hide the HUD and the top bar, 1280×720 at spawn, scale to 640×360 JPEG.
 7. E2E: `e2e/tests/vr-worlds.spec.ts` (`E2E_WEB_PORT=3011 E2E_API_PORT=8798 npx playwright test tests/vr-worlds.spec.ts`).
@@ -325,6 +327,7 @@ frontend/src/vr/worlds/
   scene/physicsQuery.ts    floor / wall ray casts (Rapier)
   scene/Burst.tsx          the success sparkles
   kitchen/                 the reference world
+  home/                    家 Apartment: living room + entry, bedroom, bathroom off a hallway; 56 things, 12 tasks (TV, curtains, slippers by the door, laundry), ambience `apartment` + TV / AC loops
   street/                  街上 On the street (dusk): crossing button + signals, the 便利店 inside, stalls, sorted bins, bus stop — 50 objects, 12 tasks
 ```
 
