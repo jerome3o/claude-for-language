@@ -495,6 +495,7 @@ function WorldRunner({ def }: { def: WorldDefinition }) {
       presenting: () => apiRef.current?.presenting() ?? false,
       head: () => apiRef.current?.head() ?? null,
       rig: () => apiRef.current?.rig() ?? null,
+      stand: (x: number, z: number, yaw: number, pitch?: number) => apiRef.current?.stand(x, z, yaw, pitch),
       hideHud: (hidden: boolean) => setHudHidden(hidden),
       inspect: (id: string) => openInspect(id),
       inspected: () => inspectId,
