@@ -241,7 +241,7 @@ Procedural is preferred (small, no licences). If a world needs a model code can'
 - **Ambience**: `ambience: 'kitchen' | 'house' | 'street' | 'restaurant' | 'airport' | 'none'` — 20 s
   loops (room tone + fridge hum + clock + birds; traffic + a bicycle bell; murmur + dishes + a sizzle;
   a hall + the announcement chime + a suitcase).
-- **Loops on states**: `loops: { 'water=on': 'water' }` (positional, at the object).
+- **Loops on states**: `loops: { 'water=on': 'water' }` (positional, at the object). Loops so far: `water`, `conveyor`, `xray`, `coffee`.
 - All synthesised by `scripts/audio/generate-vr-sfx.mjs` (CC0, deterministic; ffmpeg + libmp3lame).
   A new ambience = a function in its `AMBIENCES` + the name in `types.ts` `AMBIENCES`; run
   `node scripts/audio/generate-vr-sfx.mjs amb-<name>`. Keep loops ≤ 120 KB.
@@ -323,6 +323,7 @@ frontend/src/vr/worlds/
   scene/physicsQuery.ts    floor / wall ray casts (Rapier)
   scene/Burst.tsx          the success sparkles
   kitchen/                 the reference world
+  airport/                 机场: check-in (秤 weighs what's on it, 传送带 carries bags), security (托盘, the 安检机 belt carries trays), gate 12, café — 49 objects, 12 tasks; its own belt drive / weigher / mesh baking in airport/parts.tsx
 ```
 
 - Physics: `@react-three/rapier` 1.5.0 (the React 18 / fiber 8 line; Rapier 0.14 with its WASM inlined)

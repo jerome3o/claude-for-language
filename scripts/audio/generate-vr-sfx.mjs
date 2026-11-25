@@ -7,7 +7,7 @@
  * long, cloth is mostly a soft filtered thump) plus a short noise transient; the player varies pitch
  * and volume with the impact speed. UI sounds are little bells and sweeps; ambiences are 20 s loops
  * rendered with a crossfaded seam (room tone, a fridge hum, street traffic, a restaurant's murmur, an
- * airport hall). Written for this app and dedicated to the public domain (CC0 1.0).
+ * airport hall); machine loops (a tap, a conveyor belt, an x-ray machine, an espresso machine). Written for this app and dedicated to the public domain (CC0 1.0).
  *
  * Deterministic (seeded noise). Encoding needs ffmpeg with libmp3lame (FFMPEG=/path, else `ffmpeg`):
  *
@@ -184,6 +184,51 @@ const EFFECTS = {
     for (let i = 0; i < n; i++) b[i] *= 0.75 + 0.25 * Math.sin((TWO_PI * 13 * i) / rate) * Math.sin((TWO_PI * 0.5 * i) / rate);
     return seamLoop(normalize(b, 0.5), rate, 0.5);
   },
+  // The airport's machines (loops while their state is on).
+  conveyor: (rate) => {
+    // a check-in conveyor: motor hum, belt rumble, a roller click as each joint passes
+    const len = 4.5;
+    const n = Math.floor(len * rate);
+    const b = new Float64Array(n);
+    add(b, lowpass(brown(n, 91, 0.04), rate, 180), 0.5);
+    for (let i = 0; i < n; i++) {
+      const t = i / rate;
+      b[i] += 0.08 * Math.sin(TWO_PI * 100 * t) + 0.05 * Math.sin(TWO_PI * 200.5 * t) + 0.03 * Math.sin(TWO_PI * 301 * t);
+    }
+    for (let k = 0; k < 18; k++) noiseBurst(b, rate, 0.12 + k * 0.25, 0.22, 0.006, 600, 4000, 400 + k);
+    return seamLoop(normalize(b, 0.45), rate, 0.5);
+  },
+  xray: (rate) => {
+    // the x-ray machine: a steady high transformer whine over a soft belt rumble
+    const len = 4.5;
+    const n = Math.floor(len * rate);
+    const b = new Float64Array(n);
+    add(b, lowpass(brown(n, 93, 0.03), rate, 220), 0.35);
+    for (let i = 0; i < n; i++) {
+      const t = i / rate;
+      const w = 0.9 + 0.1 * Math.sin(TWO_PI * 0.7 * t);
+      b[i] += w * (0.05 * Math.sin(TWO_PI * 120 * t) + 0.025 * Math.sin(TWO_PI * 2400 * t) + 0.012 * Math.sin(TWO_PI * 4800.3 * t));
+    }
+    return seamLoop(normalize(b, 0.35), rate, 0.5);
+  },
+  coffee: (rate) => {
+    // an espresso machine: a pump's buzz, then the steam wand's hiss and gurgle
+    const len = 5.5;
+    const n = Math.floor(len * rate);
+    const b = new Float64Array(n);
+    for (let i = 0; i < Math.floor(2.2 * rate); i++) {
+      const t = i / rate;
+      b[i] += 0.25 * Math.sign(Math.sin(TWO_PI * 50 * t)) * 0.4 + 0.1 * Math.sin(TWO_PI * 100 * t);
+    }
+    lowpass(b, rate, 900);
+    const hiss = new Float64Array(Math.floor(2.8 * rate));
+    const r = rng(95);
+    for (let i = 0; i < hiss.length; i++) hiss[i] = (r() * 2 - 1) * (0.7 + 0.3 * Math.sin(TWO_PI * 7 * (i / rate)));
+    bandpass(hiss, rate, 2500, 9000);
+    for (let i = 0; i < hiss.length; i++) hiss[i] *= Math.min(1, i / (0.2 * rate)) * Math.min(1, (hiss.length - i) / (0.3 * rate));
+    add(b, hiss, 0.6, Math.floor(2.4 * rate));
+    return seamLoop(normalize(b, 0.4), rate, 0.4);
+  },
 };
 
 /** Crossfades the last `fade` seconds into the start: the result loops seamlessly (length − fade). */
@@ -319,19 +364,34 @@ const AMBIENCES = {
     return seamLoop(normalize(b, 0.38), rate, 2);
   },
   airport: (rate) => {
+    // a big departures hall: air handling, a crowd's murmur, footsteps, rolling suitcases, the
+    // four-note announcement chime, a far-off jet taking off.
     const n = AMB_LEN * rate;
     const b = new Float64Array(n);
-    add(b, lowpass(pink(n, 5), rate, 900), 0.25);
+    add(b, lowpass(pink(n, 5), rate, 900), 0.22);
     add(b, lowpass(brown(n, 6, 0.03), rate, 120), 0.3);
-    add(b, murmur(n, rate, 80, 6), 0.22);
-    // the announcement chime: ding-dong
-    bell(b, rate, 6, 784, 0.35, 1.8);
-    bell(b, rate, 6.6, 622.25, 0.35, 2.2);
-    // a rolling suitcase
-    const roll = new Float64Array(Math.floor(3 * rate));
-    for (let k = 0; k < 40; k++) noiseBurst(roll, rate, k * 0.07, 0.25, 0.01, 200, 2000, 300 + k);
-    for (let i = 0; i < roll.length; i++) roll[i] *= Math.sin((Math.PI * i) / roll.length);
-    add(b, roll, 0.5, Math.floor(13 * rate));
+    add(b, murmur(n, rate, 80, 9), 0.3);
+    // the announcement chime: four rising notes, then (later) the falling answer
+    [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => bell(b, rate, 2.2 + i * 0.36, f, 0.3, 1.6));
+    [1046.5, 783.99, 659.25, 523.25].forEach((f, i) => bell(b, rate, 15.2 + i * 0.36, f, 0.22, 1.6));
+    // rolling suitcases: wheel clicks over floor joints, swelling past
+    for (const [t0, dur, step, seed] of [[0.6, 3.2, 0.065, 300], [7.2, 2.6, 0.08, 360], [11.4, 3.6, 0.058, 420]]) {
+      const roll = new Float64Array(Math.floor(dur * rate));
+      const bumps = Math.floor(dur / step);
+      for (let k = 0; k < bumps; k++) noiseBurst(roll, rate, k * step, k % 7 === 0 ? 0.45 : 0.22, 0.01, 200, 2200, seed + k);
+      add(roll, lowpass(brown(roll.length, seed, 0.05), rate, 300), 0.15);
+      for (let i = 0; i < roll.length; i++) roll[i] *= Math.sin((Math.PI * i) / roll.length) ** 1.5;
+      add(b, roll, 0.45, Math.floor(t0 * rate));
+    }
+    // footsteps crossing the hall
+    for (let k = 0; k < 14; k++) noiseBurst(b, rate, 4.1 + k * 0.52, 0.12 * Math.sin((Math.PI * (k + 0.5)) / 14), 0.02, 120, 1800, 500 + k);
+    // a distant take-off: a low roar rising and fading
+    const jet = new Float64Array(Math.floor(9 * rate));
+    const jr = pink(jet.length, 77);
+    for (let i = 0; i < jet.length; i++) jet[i] = jr[i];
+    lowpass(jet, rate, 500);
+    for (let i = 0; i < jet.length; i++) jet[i] *= Math.sin((Math.PI * i) / jet.length) ** 2;
+    add(b, jet, 0.35, Math.floor(8 * rate));
     return seamLoop(normalize(b, 0.38), rate, 2);
   },
 };
