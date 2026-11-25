@@ -184,6 +184,29 @@ const EFFECTS = {
     for (let i = 0; i < n; i++) b[i] *= 0.75 + 0.25 * Math.sin((TWO_PI * 13 * i) / rate) * Math.sin((TWO_PI * 0.5 * i) / rate);
     return seamLoop(normalize(b, 0.5), rate, 0.5);
   },
+  fan: (rate) => {
+    // an electric fan (the restaurant's 电扇): a motor hum + the blade pass as soft air (loops)
+    const len = 4;
+    const n = Math.floor(len * rate);
+    const r = rng(91);
+    const air = new Float64Array(n);
+    for (let i = 0; i < n; i++) air[i] = r() * 2 - 1;
+    bandpass(air, rate, 200, 1800);
+    const b = new Float64Array(n);
+    for (let i = 0; i < n; i++) {
+      const t = i / rate;
+      const blade = 0.7 + 0.3 * Math.sin(TWO_PI * 18 * t); // 3 blades × 6 turns a second
+      b[i] = 0.55 * air[i] * blade + 0.12 * Math.sin(TWO_PI * 100 * t) + 0.05 * Math.sin(TWO_PI * 200 * t);
+    }
+    return seamLoop(normalize(b, 0.4), rate, 0.5);
+  },
+  callbell: (rate) => {
+    // the waiter call button: a soft "ding-dong" every 2 s while it is calling (loops)
+    const b = new Float64Array(Math.floor(2 * rate));
+    bell(b, rate, 0.02, 1318.5, 0.6, 0.45);
+    bell(b, rate, 0.3, 1046.5, 0.6, 0.5);
+    return normalize(b, 0.45);
+  },
 };
 
 /** Crossfades the last `fade` seconds into the start: the result loops seamlessly (length − fade). */
@@ -316,6 +339,29 @@ const AMBIENCES = {
     const sz = new Float64Array(Math.floor(5 * rate));
     noiseBurst(sz, rate, 0, 1, 1.5, 3000, 9000, 70);
     add(b, sz, 0.05, Math.floor(10 * rate));
+    // the wok behind the hatch: a clang, then a sizzle that swells and fades
+    for (const [t, seed] of [[6.9, 71], [15.4, 72]]) {
+      add(b, impact('metal', rate), 0.06, Math.floor(t * rate));
+      const s2 = new Float64Array(Math.floor(3 * rate));
+      const r = rng(seed);
+      for (let i = 0; i < s2.length; i++) s2[i] = (r() * 2 - 1) * Math.sin((Math.PI * i) / s2.length) ** 2;
+      bandpass(s2, rate, 2500, 9000);
+      add(b, s2, 0.07, Math.floor((t + 0.05) * rate));
+    }
+    // tea poured into a cup: a trickle with a gurgle
+    const pour = new Float64Array(Math.floor(1.8 * rate));
+    const rp = rng(73);
+    for (let i = 0; i < pour.length; i++) pour[i] = (rp() * 2 - 1) * (0.6 + 0.4 * Math.sin((TWO_PI * 9 * i) / rate)) * Math.sin((Math.PI * i) / pour.length);
+    bandpass(pour, rate, 700, 3200);
+    add(b, pour, 0.1, Math.floor(3.6 * rate));
+    // chopsticks tapping a bowl, now and then
+    for (const [t, seed] of [[1.2, 81], [1.35, 82], [8.6, 83], [12.1, 84], [12.22, 85], [19.0, 86]]) {
+      const c = new Float64Array(Math.floor(0.1 * rate));
+      mode(c, rate, 0, 2600 + seed * 7, 0.6, 0.012);
+      add(b, c, 0.05, Math.floor(t * rate));
+    }
+    // the kitchen's service bell: an order is ready
+    bell(b, rate, 13.0, 1760, 0.05, 0.5);
     return seamLoop(normalize(b, 0.38), rate, 2);
   },
   airport: (rate) => {

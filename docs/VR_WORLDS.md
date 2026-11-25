@@ -123,7 +123,10 @@ in its own frame: **the origin is the middle of its collider** (a mug with `coll
 [0.042, 0.095] }` spans y −0.0475 … +0.0475), and its `at` is where that centre starts — so a thing
 resting on a counter whose top is 0.9 has `at[1] = 0.9 + half its height` (+ 1–2 mm).
 
-**Colliders.** Small things: one shape (a cup a cylinder, an apple a ball, chopsticks a box). Hollow
+**Colliders.** A wide flat surface that small things rest on (a round table top, a turntable) is
+better as boxes than one big flat `cylinder`: in Rapier a small box (a chopstick rest) fell straight
+through a 1.5 m disc collider — the restaurant builds its discs from seven box strips (`discParts`).
+Small things: one shape (a cup a cylinder, an apple a ball, chopsticks a box). Hollow
 things (a basket, a bin, a sink, a fridge): several thin boxes, so things go in. A fixed object's
 part may carry `when: { door: 'closed' }` — the fridge door is a wall while closed and a separate
 part while open. Only fixed objects may switch parts by state. Rays pick an object by its collider
@@ -239,9 +242,9 @@ Procedural is preferred (small, no licences). If a world needs a model code can'
 - **pickup / drop / throw / use / open / teleport / click / hint / success / finish** — the engine
   plays them.
 - **Ambience**: `ambience: 'kitchen' | 'house' | 'street' | 'restaurant' | 'airport' | 'none'` — 20 s
-  loops (room tone + fridge hum + clock + birds; traffic + a bicycle bell; murmur + dishes + a sizzle;
+  loops (room tone + fridge hum + clock + birds; traffic + a bicycle bell; murmur + dishes + a wok's clang and sizzle + tea poured + chopsticks on a bowl + the kitchen's service bell;
   a hall + the announcement chime + a suitcase).
-- **Loops on states**: `loops: { 'water=on': 'water' }` (positional, at the object).
+- **Loops on states**: `loops: { 'water=on': 'water' }` (positional, at the object); the restaurant's fan (`'power=on': 'fan'`) and call button (`'call=on': 'callbell'`, a ding-dong every 2 s).
 - All synthesised by `scripts/audio/generate-vr-sfx.mjs` (CC0, deterministic; ffmpeg + libmp3lame).
   A new ambience = a function in its `AMBIENCES` + the name in `types.ts` `AMBIENCES`; run
   `node scripts/audio/generate-vr-sfx.mjs amb-<name>`. Keep loops ≤ 120 KB.
@@ -323,6 +326,7 @@ frontend/src/vr/worlds/
   scene/physicsQuery.ts    floor / wall ray casts (Rapier)
   scene/Burst.tsx          the success sparkles
   kitchen/                 the reference world
+  restaurant/              饭馆: round table + 转盘 lazy Susan (a turning state), glass-door drinks fridge, till with 二维码 + 招财猫, serving hatch with the kitchen behind, 52 objects / 11 tasks; local merged-geometry helper (geom.ts) + canvas textures (menu, bill, scan-to-pay)
 ```
 
 - Physics: `@react-three/rapier` 1.5.0 (the React 18 / fiber 8 line; Rapier 0.14 with its WASM inlined)
