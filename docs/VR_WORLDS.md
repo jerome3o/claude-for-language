@@ -16,6 +16,15 @@ like what they're made of.
 This document is the contract for building a world. The kitchen (`frontend/src/vr/worlds/kitchen/`)
 is the reference: copy it.
 
+**The worlds:**
+
+- 🍳 **厨房 Kitchen** (`kitchen/`, 33 objects, 9 tasks) — the reference world.
+- 🏠 **家 Apartment** (`home/`, 56 objects, 12 tasks) — living room, bedroom, bathroom off a hallway.
+- 🥬 **菜市场 Wet market** (`market/`, 54 objects, 11 tasks) — a covered market aisle: 菜摊 / 水果摊 / 豆腐摊 / 干货摊 with
+  produce from lathes and instanced heaps, price tags in 斤, a 电子秤 and a hanging 秤 that really weigh what's on them
+  (`market/weigh.ts`: a Rapier shape query over the pan, held things don't count), an invented 二维码, a 钱箱, a 电风扇;
+  ambience `market` (murmur, vendors calling out, a cleaver on a board, bags, the scale's beep) + the `fan` loop.
+
 ---
 
 ## Playing
