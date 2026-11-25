@@ -184,6 +184,30 @@ const EFFECTS = {
     for (let i = 0; i < n; i++) b[i] *= 0.75 + 0.25 * Math.sin((TWO_PI * 13 * i) / rate) * Math.sin((TWO_PI * 0.5 * i) / rate);
     return seamLoop(normalize(b, 0.5), rate, 0.5);
   },
+  crossing: (rate) => {
+    // the pedestrian signal while green (street world): a quick "dī-dī-dī" tick, faster than walking pace
+    const len = 2;
+    const b = new Float64Array(Math.floor(len * rate));
+    for (let k = 0; k < 8; k++) {
+      const t0 = k * 0.25;
+      mode(b, rate, t0, 2850, 0.6, 0.018, 0.002);
+      mode(b, rate, t0, 5700, 0.12, 0.01, 0.002);
+      noiseBurst(b, rate, t0, 0.08, 0.004, 1500, 6000, 600 + k);
+    }
+    return normalize(b, 0.5);
+  },
+  sizzle: (rate) => {
+    // a hot griddle (the street world's jianbing cart): hiss + crackles, loops
+    const len = 4;
+    const n = Math.floor(len * rate);
+    const r = rng(91);
+    const b = new Float64Array(n);
+    for (let i = 0; i < n; i++) b[i] = r() * 2 - 1;
+    bandpass(b, rate, 2500, 9000);
+    for (let i = 0; i < n; i++) b[i] *= 0.35 + 0.15 * Math.sin((TWO_PI * 0.7 * i) / rate);
+    for (let k = 0; k < 70; k++) noiseBurst(b, rate, r() * (len - 0.05), 0.4 + r() * 0.6, 0.002 + r() * 0.004, 1500, 8000, 700 + k);
+    return seamLoop(normalize(b, 0.4), rate, 0.5);
+  },
 };
 
 /** Crossfades the last `fade` seconds into the start: the result loops seamlessly (length − fade). */
@@ -260,6 +284,45 @@ function murmur(n, rate, seed, voices = 5) {
 const AMB_LEN = 22; // rendered; 20 s after the seam crossfade
 
 const AMBIENCES = {
+  city: (rate) => {
+    // 街上 (the street world) at dusk: the city's hum, cars and a bus going by (air brakes), an e-bike's
+    // whine and its "dī dī", a far-off horn, people talking as they pass, evening sparrows.
+    const n = AMB_LEN * rate;
+    const b = new Float64Array(n);
+    add(b, lowpass(brown(n, 9, 0.04), rate, 180), 0.4);
+    add(b, lowpass(pink(n, 10), rate, 600), 0.1);
+    for (const [t, dur, seed, gain] of [[0.5, 4.5, 51, 0.5], [4.2, 3.5, 52, 0.35], [9.8, 5, 53, 0.55], [15.5, 4, 54, 0.4], [18.2, 3.2, 55, 0.3]]) {
+      add(b, passBy(rate, dur, seed, 70, 1400, 0), gain, Math.floor(t * rate));
+    }
+    // the bus: low and slow, then the air brakes hiss
+    add(b, passBy(rate, 6, 56, 40, 700, 55), 0.55, Math.floor(6.5 * rate));
+    const hiss = new Float64Array(Math.floor(1.2 * rate));
+    noiseBurst(hiss, rate, 0, 1, 0.35, 3000, 9000, 57);
+    add(b, hiss, 0.12, Math.floor(10.2 * rate));
+    // an e-bike: a rising electric whine, and its two-tone beep
+    const whine = new Float64Array(Math.floor(3 * rate));
+    sweep(whine, rate, 0, 520, 900, 3, 0.25);
+    add(b, whine, 0.25, Math.floor(2.4 * rate));
+    for (const t of [3.1, 3.32]) {
+      const beep = new Float64Array(Math.floor(0.2 * rate));
+      for (let i = 0; i < beep.length; i++) beep[i] = Math.sin((TWO_PI * 1760 * i) / rate) * Math.min(1, (beep.length - i) / 400) * Math.min(1, i / 60);
+      add(b, beep, 0.06, Math.floor(t * rate));
+    }
+    // a far-off car horn
+    const horn = new Float64Array(Math.floor(0.5 * rate));
+    for (let i = 0; i < horn.length; i++) {
+      const tt = i / rate;
+      horn[i] = (Math.sign(Math.sin(TWO_PI * 415 * tt)) * 0.5 + Math.sign(Math.sin(TWO_PI * 523 * tt)) * 0.5) * Math.min(1, i / 300) * Math.min(1, (horn.length - i) / 800);
+    }
+    add(b, lowpass(horn, rate, 1500), 0.05, Math.floor(13.4 * rate));
+    // people walking by, talking; a bicycle bell
+    add(b, murmur(n, rate, 120, 4), 0.1);
+    bell(b, rate, 17.1, 2093, 0.12, 0.5);
+    bell(b, rate, 17.3, 2093, 0.1, 0.5);
+    // evening sparrows in the tree
+    for (const [t, seed] of [[1.4, 61], [1.8, 62], [5.6, 63], [8.9, 64], [9.2, 65], [12.1, 66], [14.6, 67], [19.4, 68], [19.8, 69]]) chirp(b, rate, t, seed);
+    return seamLoop(normalize(b, 0.4), rate, 2);
+  },
   kitchen: (rate) => {
     const n = AMB_LEN * rate;
     const b = new Float64Array(n);
@@ -335,6 +398,21 @@ const AMBIENCES = {
     return seamLoop(normalize(b, 0.38), rate, 2);
   },
 };
+
+/** A vehicle going by: band noise swelling and fading, its pitch sliding down as it passes (Doppler-ish). */
+function passBy(rate, dur, seed, lo, hi, engine = 0) {
+  const len = Math.floor(dur * rate);
+  const car = pink(len, seed);
+  bandpass(car, rate, lo, hi);
+  let ph = 0;
+  for (let i = 0; i < len; i++) {
+    const t = i / len;
+    const env = Math.exp(-(((t - 0.5) * 4) ** 2));
+    ph += (TWO_PI * engine * (1.15 - 0.3 * t)) / rate;
+    car[i] = env * (car[i] + (engine ? 0.35 * Math.sin(ph) + 0.15 * Math.sin(2 * ph) : 0));
+  }
+  return car;
+}
 
 function encode(name, buf, rate, kbps) {
   const tmp = mkdtempSync(join(tmpdir(), 'vr-sfx-'));
