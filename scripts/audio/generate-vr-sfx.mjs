@@ -184,6 +184,32 @@ const EFFECTS = {
     for (let i = 0; i < n; i++) b[i] *= 0.75 + 0.25 * Math.sin((TWO_PI * 13 * i) / rate) * Math.sin((TWO_PI * 0.5 * i) / rate);
     return seamLoop(normalize(b, 0.5), rate, 0.5);
   },
+  // The apartment's TV (the 家 world, loop while it is on): a presenter's speech-like murmur over a soft
+  // studio pad.
+  'tv-chatter': (rate) => {
+    const n = Math.floor(6.5 * rate);
+    const b = new Float64Array(n);
+    add(b, murmur(n, rate, 400, 2), 0.7);
+    for (let i = 0; i < n; i++) {
+      const t = i / rate;
+      const sw = 0.6 + 0.4 * Math.sin(TWO_PI * 0.25 * t);
+      b[i] += sw * 0.05 * (Math.sin(TWO_PI * 220 * t) + 0.7 * Math.sin(TWO_PI * 277.2 * t) + 0.5 * Math.sin(TWO_PI * 329.6 * t));
+    }
+    bandpass(b, rate, 180, 4200);
+    return seamLoop(normalize(b, 0.45), rate, 0.5);
+  },
+  // The air conditioner's indoor unit: a soft fan (filtered noise) and a low motor hum.
+  'ac-hum': (rate) => {
+    const n = Math.floor(4.5 * rate);
+    const b = pink(n, 501);
+    lowpass(b, rate, 900);
+    highpass(b, rate, 60);
+    for (let i = 0; i < n; i++) {
+      const t = i / rate;
+      b[i] = b[i] * (0.85 + 0.15 * Math.sin(TWO_PI * 0.6 * t)) + 0.08 * Math.sin(TWO_PI * 100 * t) + 0.03 * Math.sin(TWO_PI * 200.5 * t);
+    }
+    return seamLoop(normalize(b, 0.4), rate, 0.5);
+  },
   fan: (rate) => {
     // an electric fan (the restaurant's 电扇): a motor hum + the blade pass as soft air (loops)
     const len = 4;
@@ -306,6 +332,38 @@ const AMBIENCES = {
     for (let s = 0; s < AMB_LEN; s++) noiseBurst(b, rate, s + 0.02, 0.06, 0.003, 2500, 7000, 200 + s);
     for (const [t, seed] of [[2.2, 11], [7.9, 12], [8.4, 13], [16.1, 14]]) chirp(b, rate, t, seed);
     return seamLoop(normalize(b, 0.28), rate, 2);
+  },
+  // 家: a flat on the 3rd floor — room tone, the city far below the windows (traffic swelling and
+  // fading, a distant horn), birds, a neighbour's door, a wall clock.
+  apartment: (rate) => {
+    const n = AMB_LEN * rate;
+    const b = new Float64Array(n);
+    add(b, lowpass(brown(n, 7), rate, 260), 0.2);
+    for (const [t, dur, seed] of [[0.5, 7, 61], [7, 6, 62], [13.5, 8, 63]]) {
+      const len = Math.floor(dur * rate);
+      const car = pink(len, seed);
+      bandpass(car, rate, 60, 500);
+      for (let i = 0; i < len; i++) car[i] *= Math.exp(-(((i / len - 0.5) * 3.2) ** 2));
+      add(b, car, 0.22, Math.floor(t * rate));
+    }
+    // a far-away car horn: two short low notes, muffled by the window
+    const horn = new Float64Array(Math.floor(0.8 * rate));
+    for (const [t0, len] of [[0, 0.18], [0.28, 0.3]]) {
+      const s = Math.floor(t0 * rate);
+      for (let i = 0; i < len * rate; i++) {
+        const t = i / rate;
+        const env = Math.min(1, t / 0.02) * Math.min(1, (len - t) / 0.04);
+        horn[s + i] += env * (Math.sin(TWO_PI * 392 * t) + 0.6 * Math.sin(TWO_PI * 494 * t));
+      }
+    }
+    lowpass(horn, rate, 700);
+    add(b, normalize(horn, 1), 0.05, Math.floor(10.4 * rate));
+    for (const [t, seed] of [[2.6, 71], [3.0, 72], [12.2, 73], [17.8, 74]]) chirp(b, rate, t, seed);
+    // a door closing somewhere in the building
+    noiseBurst(b, rate, 15.3, 0.25, 0.04, 60, 400, 75);
+    mode(b, rate, 15.3, 85, 0.25, 0.08);
+    for (let s = 0; s < AMB_LEN; s++) noiseBurst(b, rate, s + 0.5, 0.035, 0.003, 2500, 7000, 700 + s);
+    return seamLoop(normalize(b, 0.3), rate, 2);
   },
   street: (rate) => {
     const n = AMB_LEN * rate;

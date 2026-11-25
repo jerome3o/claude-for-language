@@ -65,6 +65,8 @@ export interface WorldSceneApi {
   screenOf(p: Vec3): { x: number; y: number } | null;
   /** Dev builds / e2e: where the headset's play space sits in the world. */
   rig(): Rig;
+  /** Dev builds / e2e (flat preview): stand at (x, z) looking along `yaw` (and `pitch`) — another room, a screenshot. */
+  stand(x: number, z: number, yaw: number, pitch?: number): void;
 }
 
 export interface WorldSceneProps {
@@ -275,6 +277,12 @@ function SceneContent(props: WorldSceneProps) {
         b.setAngvel({ x: 0, y: 0, z: 0 }, true);
       },
       rig: () => ({ ...rig.current }),
+      stand: (x, z, yaw, pitch) => {
+        flatRig.current = { x, z, yaw, pitch: pitch ?? flatRig.current.pitch };
+        camera.position.set(x, EYE_HEIGHT, z);
+        camera.rotation.set(flatRig.current.pitch, yaw, 0, 'YXZ');
+        camera.updateMatrixWorld();
+      },
       screenOf: (p) => {
         const rect = gl.domElement.getBoundingClientRect();
         const ndc = new Vector3(...p).project(camera);
