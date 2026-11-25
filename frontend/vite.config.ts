@@ -95,7 +95,9 @@ export default defineConfig({
         globPatterns: ['**/*.{js,css,html,svg,png,woff2,wasm}'],
         // 🥽 VR's Chinese font (docs/VR.md "Fonts"): ~100 Noto Sans SC slices, fetched only for the
         // characters a VR window draws — never precached for everyone; kept once fetched (below).
-        globIgnores: ['**/noto-sans-sc-*.woff2'],
+        // 🥽 VR worlds' physics (Rapier, ~2 MB with its wasm inlined, docs/VR_WORLDS.md): only for
+        // whoever opens a world — kept once fetched (below), never precached for everyone.
+        globIgnores: ['**/noto-sans-sc-*.woff2', '**/react-three-rapier*.js'],
         // Web Push (call alerts): the push / notificationclick handlers — public/push-sw.js.
         importScripts: ['push-sw.js'],
         runtimeCaching: [
@@ -105,6 +107,17 @@ export default defineConfig({
             options: {
               cacheName: 'vr-fonts',
               expiration: { maxEntries: 120, maxAgeSeconds: 180 * 24 * 60 * 60 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+          {
+            // VR worlds (docs/VR_WORLDS.md): the physics chunk, the sound effects / ambiences, the
+            // world thumbnails and models — cached the first time a world opens, so it plays offline.
+            urlPattern: /(\/assets\/react-three-rapier[^/]*\.js|\/vr\/(sfx|worlds)\/.+)$/,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'vr-worlds',
+              expiration: { maxEntries: 200, maxAgeSeconds: 180 * 24 * 60 * 60 },
               cacheableResponse: { statuses: [0, 200] },
             },
           },

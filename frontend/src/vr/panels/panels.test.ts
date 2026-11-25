@@ -168,8 +168,8 @@ describe('feedback, tray, images', () => {
   });
 
   it('tray: Exit VR only in the headset; 🎤 off offline', () => {
-    expect(actions(trayNodes({ presenting: false, listening: false, busy: false, online: true }))).toEqual(['open:study', 'open:reader', 'open:homework', 'open:explorer', 'speak', 'feedback', 'recall']);
-    expect(actions(trayNodes({ presenting: true, listening: false, busy: false, online: false }))).toEqual(['open:study', 'open:reader', 'open:homework', 'open:explorer', 'feedback', 'recall', 'exit']);
+    expect(actions(trayNodes({ presenting: false, listening: false, busy: false, online: true }))).toEqual(['open:study', 'open:reader', 'open:homework', 'open:explorer', 'speak', 'worlds', 'feedback', 'recall']);
+    expect(actions(trayNodes({ presenting: true, listening: false, busy: false, online: false }))).toEqual(['open:study', 'open:reader', 'open:homework', 'open:explorer', 'worlds', 'feedback', 'recall', 'exit']);
   });
 
   it('image keys are media keys only — never URLs', () => {

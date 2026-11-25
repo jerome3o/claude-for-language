@@ -1,0 +1,247 @@
+/* 🥽 VR worlds (docs/VR_WORLDS.md): the picker page and the world page's DOM bits. */
+
+.vr-worlds {
+  padding-bottom: 2rem;
+}
+
+.vr-worlds-back {
+  margin: 0.25rem 0 0.5rem;
+  font-size: 0.9rem;
+}
+
+.vr-worlds h1 {
+  margin: 0 0 0.4rem;
+  font-size: 1.5rem;
+}
+
+.vr-worlds h1 span {
+  font-weight: 500;
+  color: var(--text-secondary, #667085);
+  font-size: 1.1rem;
+  margin-left: 0.3rem;
+}
+
+.vr-worlds-intro {
+  margin: 0 0 1rem;
+  color: var(--text-secondary, #555);
+  line-height: 1.5;
+}
+
+.vr-worlds-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+}
+
+@media (min-width: 640px) {
+  .vr-worlds-grid {
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  }
+}
+
+.vr-world-card {
+  display: flex;
+  flex-direction: column;
+  border-radius: 16px;
+  overflow: hidden;
+  background: var(--card-bg, #fff);
+  border: 1px solid var(--border-color, #e5e7eb);
+  box-shadow: 0 2px 10px rgba(16, 24, 40, 0.06);
+}
+
+.vr-world-thumb {
+  position: relative;
+  display: block;
+  aspect-ratio: 16 / 9;
+  background: linear-gradient(135deg, #f6d6a8, #c9a27a 55%, #8a6a52);
+}
+
+.vr-world-thumb img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.vr-world-emoji {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 3.5rem;
+}
+
+.vr-world-body {
+  padding: 0.85rem 1rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.vr-world-body h2 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.vr-world-en {
+  font-weight: 500;
+  color: var(--text-secondary, #667085);
+  font-size: 1rem;
+}
+
+.vr-world-blurb {
+  margin: 0;
+  line-height: 1.45;
+}
+
+.vr-world-progress small {
+  color: var(--text-secondary, #667085);
+}
+
+.vr-world-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--border-color, #e5e7eb);
+  overflow: hidden;
+  margin-bottom: 0.3rem;
+}
+
+.vr-world-bar span {
+  display: block;
+  height: 100%;
+  background: #2c9257;
+  border-radius: 3px;
+}
+
+.vr-world-actions {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.vr-world-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0 1.1rem;
+  border-radius: 22px;
+  font-weight: 600;
+  text-decoration: none;
+  border: 1px solid var(--border-color, #d0d5dd);
+  color: inherit;
+  background: transparent;
+}
+
+.vr-world-btn.primary {
+  background: #3b7ff2;
+  border-color: #3b7ff2;
+  color: #fff;
+}
+
+.vr-worlds-note {
+  margin-top: 1.2rem;
+  font-size: 0.9rem;
+  color: var(--text-secondary, #667085);
+  line-height: 1.5;
+}
+
+/* ── the world page ── */
+
+.vr-worlds-missing {
+  padding: 2rem 1rem;
+  text-align: center;
+}
+
+.vr-worlds-loading {
+  display: grid;
+  place-items: center;
+  background: #1a2131;
+}
+
+.vr-worlds-loading-card {
+  text-align: center;
+  color: #eef2f8;
+  font-size: 1.15rem;
+  font-weight: 600;
+}
+
+.vr-worlds-loading-emoji {
+  font-size: 3.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.vr-worlds-loading-sub {
+  margin-top: 0.4rem;
+  font-weight: 400;
+  color: #9aa6bd;
+  font-size: 0.95rem;
+}
+
+.vr-page .vr-note.vr-world-note {
+  right: auto;
+  max-width: min(520px, calc(100vw - 24px));
+  bottom: max(12px, env(safe-area-inset-bottom));
+  top: auto;
+}
+
+.vr-walk-pad {
+  position: absolute;
+  right: 12px;
+  bottom: calc(max(12px, env(safe-area-inset-bottom)) + 70px);
+  display: grid;
+  grid-template-columns: repeat(2, 56px);
+  gap: 8px;
+}
+
+.vr-walk-pad button {
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  border: none;
+  background: rgba(26, 33, 49, 0.72);
+  color: #eef2f8;
+  font-size: 1.3rem;
+  touch-action: none;
+  user-select: none;
+}
+
+.vr-world-enter-overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(10, 14, 22, 0.45);
+}
+
+.vr-world-enter-overlay > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  align-items: center;
+  padding: 1.4rem 1.6rem;
+  border-radius: 18px;
+  background: rgba(26, 33, 49, 0.92);
+  color: #eef2f8;
+}
+
+.vr-world-enter-overlay button {
+  min-height: 48px;
+  padding: 0 1.6rem;
+  border-radius: 24px;
+  border: none;
+  font-size: 1.05rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.vr-world-enter-overlay .primary {
+  background: #3b7ff2;
+  color: #fff;
+}
+
+.vr-world-enter-overlay .ghost {
+  background: transparent;
+  color: #9aa6bd;
+}

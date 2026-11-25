@@ -441,6 +441,7 @@ ported to Lab `core/…/SourceDecks.kt` and parity-tested (`parity/fixtures/sour
 | `claude` | From Claude | Claude's `create_flashcards` (Ask Claude, the Coach, Claude threads, reader / exercise chats), Coach words, a Claude chat's "Make flashcards" and word recap |
 | `explorer` | From the explorer | the explorer's + Add as card when it was opened from somewhere with no source of its own (study card, homework, card hub, word tags, the character sheet) |
 | `practice` | From lessons & practice | picture hunts, video-call flashcards and in-call activities, clips, idioms, meme review, phone practice, podcasts (Lab) |
+| `vr` | From VR | things inspected in the 🌏 VR worlds (docs/VR_WORLDS.md) |
 
 - **One deck per family, made on first use** by the content service (`ensureSourceDeck`,
   `worker/src/services/content/decks.ts`) with the shared `DEFAULT_DECK_SETTINGS`, at the **top** of the

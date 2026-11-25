@@ -7,7 +7,7 @@ The schema itself is the source of truth — when this list and a migration disa
 ### Database Tables
 - `users` - User accounts
 - `auth_sessions` - Sign-in sessions (the id is the Bearer token; 30 days, sliding — renewed while in use) · `auth_codes` - one-time sign-in codes (migration 0129; see "Sign-in & sessions")
-- `decks` - Vocabulary decks; `decks.source_key` (migration 0150) = a source deck's stable key (`readers` · `chats` · `sentences` · `claude` · `explorer` · `practice`; UNIQUE per user where set; `shared/decks/source-decks.ts`, docs/STUDY_SESSION.md "Source decks") — "+ Add as card" saves into these with no deck picker, found by key never by name
+- `decks` - Vocabulary decks; `decks.source_key` (migration 0150) = a source deck's stable key (`readers` · `chats` · `sentences` · `claude` · `explorer` · `practice` · `vr`; UNIQUE per user where set; `shared/decks/source-decks.ts`, docs/STUDY_SESSION.md "Source decks") — "+ Add as card" saves into these with no deck picker, found by key never by name
 - `notes` - Vocabulary items (hanzi, pinyin, english, audio_url, fun_facts)
 - `cards` - SRS cards (3 per note, one per card_type)
 - `review_events` - Individual review records (rating, time, answer, recording_url). Card state is computed from these.

@@ -11,7 +11,7 @@ package dev.jeromeswannack.chineselearning.lab.core
 object SourceDecks {
     data class Def(val key: String, val name: String, val description: String, val legacyNames: List<String>)
 
-    val KEYS: List<String> = listOf("readers", "chats", "sentences", "claude", "explorer", "practice")
+    val KEYS: List<String> = listOf("readers", "chats", "sentences", "claude", "explorer", "practice", "vr")
 
     val DECKS: Map<String, Def> = linkedMapOf(
         "readers" to Def("readers", "From readers", "Words added while reading graded readers.", listOf("From my readers")),
@@ -20,6 +20,7 @@ object SourceDecks {
         "claude" to Def("claude", "From Claude", "Cards Claude made for you, and words added from your chats with Claude.", emptyList()),
         "explorer" to Def("explorer", "From the explorer", "Words added from the word and character explorer.", emptyList()),
         "practice" to Def("practice", "From lessons & practice", "Words added from lessons, video calls, picture hunts, clips, idioms, podcasts and other practice.", emptyList()),
+        "vr" to Def("vr", "From VR", "Words added from things you picked up in the VR worlds.", emptyList()),
     )
 
     fun isKey(value: String?): Boolean = value != null && value in KEYS
