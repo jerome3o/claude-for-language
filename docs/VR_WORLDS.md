@@ -20,6 +20,7 @@ is the reference: copy it.
 
 - 🍳 **厨房 Kitchen** (`kitchen/`, 33 objects, 9 tasks) — the reference world.
 - 🏠 **家 Apartment** (`home/`, 56 objects, 12 tasks) — living room, bedroom, bathroom off a hallway.
+- ✈️ **机场 Airport** (`airport/`, 49 objects, 12 tasks) — a departures hall: check-in (a 秤 that weighs, a 传送带 that carries bags), security (托盘, the 安检机's running belt, 不能带水), gate 12, a café, a plane outside the glass; ambience `airport` + `conveyor` / `xray` / `coffee` loops.
 - 🥬 **菜市场 Wet market** (`market/`, 54 objects, 11 tasks) — a covered market aisle: 菜摊 / 水果摊 / 豆腐摊 / 干货摊 with
   produce from lathes and instanced heaps, price tags in 斤, a 电子秤 and a hanging 秤 that really weigh what's on them
   (`market/weigh.ts`: a Rapier shape query over the pan, held things don't count), an invented 二维码, a 钱箱, a 电风扇;
@@ -255,12 +256,13 @@ Procedural is preferred (small, no licences). If a world needs a model code can'
   plays them.
 - **Ambience**: `ambience: 'kitchen' | 'house' | 'street' | 'restaurant' | 'airport' | 'apartment' | 'market' | 'city' | 'none'` — 20 s
   loops (room tone + fridge hum + clock + birds; traffic + a bicycle bell; murmur + dishes + a wok's clang and sizzle + tea poured + chopsticks on a bowl + the kitchen's service bell;
-  a hall + the announcement chime + a suitcase; a flat over the city: traffic far below, a horn, a door;
+  a hall + the announcement chimes + rolling suitcases + a far-off take-off; a flat over the city: traffic far below, a horn, a door;
   `city` = the street world at dusk: cars and a bus with air brakes, an e-bike's whine and beep, a far
   horn, people passing, sparrows).
 - **Loops on states**: `loops: { 'water=on': 'water' }` (positional, at the object). Others made so far:
   `crossing` (the walkers' signal ticking while green), `sizzle` (a hot griddle), `tv-chatter`, `ac-hum`,
-  `fan` (the market's and the restaurant's fans), `callbell` (the restaurant's call button: a ding-dong every 2 s).
+  `fan` (the market's and the restaurant's fans), `callbell` (the restaurant's call button: a ding-dong every 2 s),
+  `conveyor` / `xray` (the airport's belts), `coffee` (an espresso machine).
 - All synthesised by `scripts/audio/generate-vr-sfx.mjs` (CC0, deterministic; ffmpeg + libmp3lame).
   A new ambience = a function in its `AMBIENCES` + the name in `types.ts` `AMBIENCES`; run
   `node scripts/audio/generate-vr-sfx.mjs amb-<name>`. Keep loops ≤ 120 KB.
@@ -344,6 +346,7 @@ frontend/src/vr/worlds/
   scene/Burst.tsx          the success sparkles
   kitchen/                 the reference world
   home/                    家 Apartment: living room + entry, bedroom, bathroom off a hallway; 56 things, 12 tasks (TV, curtains, slippers by the door, laundry), ambience `apartment` + TV / AC loops
+  airport/                 机场: check-in (秤 weighs what's on it, 传送带 carries bags), security (托盘, the 安检机 belt carries trays), gate 12, café — 49 objects, 12 tasks; its own belt drive / weigher / mesh baking in airport/parts.tsx
   street/                  街上 On the street (dusk): crossing button + signals, the 便利店 inside, stalls, sorted bins, bus stop — 50 objects, 12 tasks
   restaurant/              饭馆: round table + 转盘 lazy Susan (a turning state), glass-door drinks fridge, till with 二维码 + 招财猫, serving hatch with the kitchen behind, 52 objects / 11 tasks; local merged-geometry helper (geom.ts) + canvas textures (menu, bill, scan-to-pay)
 ```

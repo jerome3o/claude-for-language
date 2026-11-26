@@ -21,9 +21,16 @@ jobs:
     # before any test ran ("Playwright does not support chromium on ubuntu26.04-x64"). Move this when
     # the Playwright in package-lock.json supports the newer image.
     runs-on: ubuntu-24.04
-    name: E2E Tests
-    # ~25 min for the whole suite on a hosted runner (retries included): room to spare.
-    timeout-minutes: 45
+    # Four shards on four runners: the suite (~300 tests, the VR worlds' specs the slowest — software
+    # WebGL) outgrew one 45-minute job in Nov 2026, and two shards still took up to 43 min.
+    # Each shard starts its own worker + frontend.
+    name: E2E Tests (${{ matrix.shard }}/4)
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    # ~15–25 min per shard (retries included): room to spare.
+    timeout-minutes: 60
 
     steps:
       - name: Checkout
@@ -72,8 +79,11 @@ jobs:
       - name: Create worker dev vars
         run: ./e2e/setup-test-env.sh ./worker
 
+      # Straight to Playwright: through `npm run test:e2e -- --shard=…` the flag went to the nested
+      # `npm run -w e2e` as an npm option and every shard ran the whole suite.
       - name: Run E2E tests
-        run: npm run test:e2e
+        run: npx playwright test --shard=${{ matrix.shard }}/4
+        working-directory: e2e
         env:
           CI: true
 
@@ -81,7 +91,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
-          name: playwright-report
+          name: playwright-report-${{ matrix.shard }}
           path: e2e/playwright-report/
           retention-days: 7
 
@@ -89,6 +99,6 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
-          name: test-results
+          name: test-results-${{ matrix.shard }}
           path: e2e/test-results/
           retention-days: 7
