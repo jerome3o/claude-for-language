@@ -8,6 +8,7 @@ import { kitchenMeta } from './kitchen/meta';
 import { airportMeta } from './airport/meta';
 import { homeMeta } from './home/meta';
 import { marketMeta } from './market/meta';
+import { streetMeta } from './street/meta';
 
 export interface WorldEntry {
   meta: WorldMeta;
@@ -19,6 +20,7 @@ export const WORLDS: readonly WorldEntry[] = [
   { meta: homeMeta, load: () => import('./home') },
   { meta: airportMeta, load: () => import('./airport') },
   { meta: marketMeta, load: () => import('./market') },
+  { meta: streetMeta, load: () => import('./street') },
 ];
 
 export function worldEntry(id: string): WorldEntry | undefined {

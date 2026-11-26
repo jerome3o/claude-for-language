@@ -30,7 +30,7 @@ export interface WorldObjectDef extends WorldObjectSpec {
 }
 
 /** Ambience loops (frontend/public/vr/sfx/amb-<id>.mp3, made by scripts/audio/generate-vr-sfx.mjs). */
-export const AMBIENCES = ['kitchen', 'house', 'street', 'restaurant', 'airport', 'apartment', 'market', 'none'] as const;
+export const AMBIENCES = ['kitchen', 'house', 'street', 'restaurant', 'airport', 'apartment', 'market', 'city', 'none'] as const;
 export type AmbienceId = (typeof AMBIENCES)[number];
 
 export interface WorldDefinition extends WorldSpec {
