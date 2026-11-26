@@ -136,7 +136,10 @@ in its own frame: **the origin is the middle of its collider** (a mug with `coll
 [0.042, 0.095] }` spans y −0.0475 … +0.0475), and its `at` is where that centre starts — so a thing
 resting on a counter whose top is 0.9 has `at[1] = 0.9 + half its height` (+ 1–2 mm).
 
-**Colliders.** Small things: one shape (a cup a cylinder, an apple a ball, chopsticks a box). Hollow
+**Colliders.** A wide flat surface that small things rest on (a round table top, a turntable) is
+better as boxes than one big flat `cylinder`: in Rapier a small box (a chopstick rest) fell straight
+through a 1.5 m disc collider — the restaurant builds its discs from seven box strips (`discParts`).
+Small things: one shape (a cup a cylinder, an apple a ball, chopsticks a box). Hollow
 things (a basket, a bin, a sink, a fridge): several thin boxes, so things go in. A fixed object's
 part may carry `when: { door: 'closed' }` — the fridge door is a wall while closed and a separate
 part while open. Only fixed objects may switch parts by state. Rays pick an object by its collider
@@ -252,12 +255,13 @@ Procedural is preferred (small, no licences). If a world needs a model code can'
 - **pickup / drop / throw / use / open / teleport / click / hint / success / finish** — the engine
   plays them.
 - **Ambience**: `ambience: 'kitchen' | 'house' | 'street' | 'restaurant' | 'airport' | 'apartment' | 'market' | 'city' | 'none'` — 20 s
-  loops (room tone + fridge hum + clock + birds; traffic + a bicycle bell; murmur + dishes + a sizzle;
+  loops (room tone + fridge hum + clock + birds; traffic + a bicycle bell; murmur + dishes + a wok's clang and sizzle + tea poured + chopsticks on a bowl + the kitchen's service bell;
   a hall + the announcement chimes + rolling suitcases + a far-off take-off; a flat over the city: traffic far below, a horn, a door;
   `city` = the street world at dusk: cars and a bus with air brakes, an e-bike's whine and beep, a far
   horn, people passing, sparrows).
 - **Loops on states**: `loops: { 'water=on': 'water' }` (positional, at the object). Others made so far:
-  `crossing` (the walkers' signal ticking while green), `sizzle` (a hot griddle), `tv-chatter`, `ac-hum`, `fan`,
+  `crossing` (the walkers' signal ticking while green), `sizzle` (a hot griddle), `tv-chatter`, `ac-hum`,
+  `fan` (the market's and the restaurant's fans), `callbell` (the restaurant's call button: a ding-dong every 2 s),
   `conveyor` / `xray` (the airport's belts), `coffee` (an espresso machine).
 - All synthesised by `scripts/audio/generate-vr-sfx.mjs` (CC0, deterministic; ffmpeg + libmp3lame).
   A new ambience = a function in its `AMBIENCES` + the name in `types.ts` `AMBIENCES`; run
@@ -344,6 +348,7 @@ frontend/src/vr/worlds/
   home/                    家 Apartment: living room + entry, bedroom, bathroom off a hallway; 56 things, 12 tasks (TV, curtains, slippers by the door, laundry), ambience `apartment` + TV / AC loops
   airport/                 机场: check-in (秤 weighs what's on it, 传送带 carries bags), security (托盘, the 安检机 belt carries trays), gate 12, café — 49 objects, 12 tasks; its own belt drive / weigher / mesh baking in airport/parts.tsx
   street/                  街上 On the street (dusk): crossing button + signals, the 便利店 inside, stalls, sorted bins, bus stop — 50 objects, 12 tasks
+  restaurant/              饭馆: round table + 转盘 lazy Susan (a turning state), glass-door drinks fridge, till with 二维码 + 招财猫, serving hatch with the kitchen behind, 52 objects / 11 tasks; local merged-geometry helper (geom.ts) + canvas textures (menu, bill, scan-to-pay)
 ```
 
 - Physics: `@react-three/rapier` 1.5.0 (the React 18 / fiber 8 line; Rapier 0.14 with its WASM inlined)

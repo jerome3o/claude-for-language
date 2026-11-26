@@ -254,7 +254,7 @@ const EFFECTS = {
     return seamLoop(normalize(b, 0.4), rate, 0.5);
   },
   fan: (rate) => {
-    // a pedestal fan (the market): motor hum + air whoosh pulsing at the blade rate (loops)
+    // a fan (the market's pedestal fan, the restaurant's wall fan): motor hum + air whoosh pulsing at the blade rate (loops)
     const len = 4;
     const n = Math.floor(len * rate);
     const b = pink(n, 88);
@@ -290,6 +290,13 @@ const EFFECTS = {
       b[i] = b[i] * (0.85 + 0.15 * Math.sin(TWO_PI * 0.6 * t)) + 0.08 * Math.sin(TWO_PI * 100 * t) + 0.03 * Math.sin(TWO_PI * 200.5 * t);
     }
     return seamLoop(normalize(b, 0.4), rate, 0.5);
+  },
+  callbell: (rate) => {
+    // the waiter call button: a soft "ding-dong" every 2 s while it is calling (loops)
+    const b = new Float64Array(Math.floor(2 * rate));
+    bell(b, rate, 0.02, 1318.5, 0.6, 0.45);
+    bell(b, rate, 0.3, 1046.5, 0.6, 0.5);
+    return normalize(b, 0.45);
   },
 };
 
@@ -535,6 +542,29 @@ const AMBIENCES = {
     const sz = new Float64Array(Math.floor(5 * rate));
     noiseBurst(sz, rate, 0, 1, 1.5, 3000, 9000, 70);
     add(b, sz, 0.05, Math.floor(10 * rate));
+    // the wok behind the hatch: a clang, then a sizzle that swells and fades
+    for (const [t, seed] of [[6.9, 71], [15.4, 72]]) {
+      add(b, impact('metal', rate), 0.06, Math.floor(t * rate));
+      const s2 = new Float64Array(Math.floor(3 * rate));
+      const r = rng(seed);
+      for (let i = 0; i < s2.length; i++) s2[i] = (r() * 2 - 1) * Math.sin((Math.PI * i) / s2.length) ** 2;
+      bandpass(s2, rate, 2500, 9000);
+      add(b, s2, 0.07, Math.floor((t + 0.05) * rate));
+    }
+    // tea poured into a cup: a trickle with a gurgle
+    const pour = new Float64Array(Math.floor(1.8 * rate));
+    const rp = rng(73);
+    for (let i = 0; i < pour.length; i++) pour[i] = (rp() * 2 - 1) * (0.6 + 0.4 * Math.sin((TWO_PI * 9 * i) / rate)) * Math.sin((Math.PI * i) / pour.length);
+    bandpass(pour, rate, 700, 3200);
+    add(b, pour, 0.1, Math.floor(3.6 * rate));
+    // chopsticks tapping a bowl, now and then
+    for (const [t, seed] of [[1.2, 81], [1.35, 82], [8.6, 83], [12.1, 84], [12.22, 85], [19.0, 86]]) {
+      const c = new Float64Array(Math.floor(0.1 * rate));
+      mode(c, rate, 0, 2600 + seed * 7, 0.6, 0.012);
+      add(b, c, 0.05, Math.floor(t * rate));
+    }
+    // the kitchen's service bell: an order is ready
+    bell(b, rate, 13.0, 1760, 0.05, 0.5);
     return seamLoop(normalize(b, 0.38), rate, 2);
   },
   market: (rate) => {
