@@ -7,6 +7,7 @@ import type { WorldDefinition, WorldMeta } from './types';
 import { kitchenMeta } from './kitchen/meta';
 import { homeMeta } from './home/meta';
 import { marketMeta } from './market/meta';
+import { streetMeta } from './street/meta';
 import { restaurantMeta } from './restaurant/meta';
 
 export interface WorldEntry {
@@ -18,6 +19,7 @@ export const WORLDS: readonly WorldEntry[] = [
   { meta: kitchenMeta, load: () => import('./kitchen') },
   { meta: homeMeta, load: () => import('./home') },
   { meta: marketMeta, load: () => import('./market') },
+  { meta: streetMeta, load: () => import('./street') },
   { meta: restaurantMeta, load: () => import('./restaurant') },
 ];
 

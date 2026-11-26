@@ -24,6 +24,9 @@ is the reference: copy it.
   produce from lathes and instanced heaps, price tags in 斤, a 电子秤 and a hanging 秤 that really weigh what's on them
   (`market/weigh.ts`: a Rapier shape query over the pan, held things don't count), an invented 二维码, a 钱箱, a 电风扇;
   ambience `market` (murmur, vendors calling out, a cleaver on a board, bags, the scale's beep) + the `fan` loop.
+- 🚦 **街上 On the street** (`street/`, 50 objects, 12 tasks) — a street corner at dusk: a zebra crossing whose button
+  turns the walkers' signals green (they tick), a 便利店 you open and walk into (柜台, 老板, 货架, 冰柜, 取款机), a fruit
+  stall, a 煎饼 cart that sizzles, sorted bins, a bus stop with a lost wallet; ambience `city` + `crossing` / `sizzle` loops.
 
 ---
 
@@ -92,7 +95,7 @@ interface WorldDefinition extends WorldSpec {        // shared/vr-worlds/types.t
   objects: WorldObjectDef[];                          // WorldObjectSpec + model (+ loops)
   lighting: 'indoor_day' | 'indoor_warm' | 'indoor_hall' | 'outdoor_day' | 'outdoor_evening';
   shadowArea?: number;                                // metres the shadow map covers around the origin (default 8)
-  ambience: 'kitchen' | 'house' | 'street' | 'restaurant' | 'airport' | 'none';
+  ambience: 'kitchen' | 'house' | 'street' | 'restaurant' | 'airport' | 'apartment' | 'market' | 'city' | 'none';
   Scene: ComponentType;                               // static geometry + colliders
 }
 
@@ -250,10 +253,14 @@ Procedural is preferred (small, no licences). If a world needs a model code can'
   material plays both (a glass bottle on a wooden table). Silent for the first 1.5 s (things settle).
 - **pickup / drop / throw / use / open / teleport / click / hint / success / finish** — the engine
   plays them.
-- **Ambience**: `ambience: 'kitchen' | 'house' | 'street' | 'restaurant' | 'airport' | 'apartment' | 'none'` — 20 s
+- **Ambience**: `ambience: 'kitchen' | 'house' | 'street' | 'restaurant' | 'airport' | 'apartment' | 'market' | 'city' | 'none'` — 20 s
   loops (room tone + fridge hum + clock + birds; traffic + a bicycle bell; murmur + dishes + a wok's clang and sizzle + tea poured + chopsticks on a bowl + the kitchen's service bell;
-  a hall + the announcement chime + a suitcase; a flat over the city: traffic far below, a horn, a door).
-- **Loops on states**: `loops: { 'water=on': 'water' }` (positional, at the object); the fan shared by the market and the restaurant (`'power=on': 'fan'`) and the restaurant's call button (`'call=on': 'callbell'`, a ding-dong every 2 s).
+  a hall + the announcement chime + a suitcase; a flat over the city: traffic far below, a horn, a door;
+  `city` = the street world at dusk: cars and a bus with air brakes, an e-bike's whine and beep, a far
+  horn, people passing, sparrows).
+- **Loops on states**: `loops: { 'water=on': 'water' }` (positional, at the object). Others made so far:
+  `crossing` (the walkers' signal ticking while green), `sizzle` (a hot griddle), `tv-chatter`, `ac-hum`,
+  `fan` (the market's and the restaurant's fans), `callbell` (the restaurant's call button: a ding-dong every 2 s).
 - All synthesised by `scripts/audio/generate-vr-sfx.mjs` (CC0, deterministic; ffmpeg + libmp3lame).
   A new ambience = a function in its `AMBIENCES` + the name in `types.ts` `AMBIENCES`; run
   `node scripts/audio/generate-vr-sfx.mjs amb-<name>`. Keep loops ≤ 120 KB.
@@ -337,6 +344,7 @@ frontend/src/vr/worlds/
   scene/Burst.tsx          the success sparkles
   kitchen/                 the reference world
   home/                    家 Apartment: living room + entry, bedroom, bathroom off a hallway; 56 things, 12 tasks (TV, curtains, slippers by the door, laundry), ambience `apartment` + TV / AC loops
+  street/                  街上 On the street (dusk): crossing button + signals, the 便利店 inside, stalls, sorted bins, bus stop — 50 objects, 12 tasks
   restaurant/              饭馆: round table + 转盘 lazy Susan (a turning state), glass-door drinks fridge, till with 二维码 + 招财猫, serving hatch with the kitchen behind, 52 objects / 11 tasks; local merged-geometry helper (geom.ts) + canvas textures (menu, bill, scan-to-pay)
 ```
 

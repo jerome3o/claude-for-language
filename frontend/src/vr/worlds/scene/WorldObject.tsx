@@ -105,6 +105,10 @@ export function WorldObject({ def, states, live, hub, grabber, sound, hinted, on
   const active = parts.filter((p) => partActive(p, states));
   const surface = SURFACE[def.material];
   const bounds = useMemo(() => localBounds(def), [def]);
+  // Stable props only: @react-three/rapier re-applies its options whenever one changes identity, and
+  // that also snaps the body back to where it was last DRAWN (a placed / thrown thing jumped back).
+  const userData = useMemo(() => ({ worldObject: def.id }), [def.id]);
+  const rotation = useMemo<[number, number, number]>(() => [0, def.yaw ?? 0, 0], [def.yaw]);
   const pick = useMemo(() => {
     const size = [0, 1, 2].map((i) => Math.max(MIN_PICK, bounds.max[i] - bounds.min[i])) as [number, number, number];
     const centre = [0, 1, 2].map((i) => (bounds.max[i] + bounds.min[i]) / 2) as [number, number, number];
@@ -178,12 +182,12 @@ export function WorldObject({ def, states, live, hub, grabber, sound, hinted, on
       type={dynamic ? 'dynamic' : 'fixed'}
       colliders={false}
       position={def.at}
-      rotation={[0, def.yaw ?? 0, 0]}
+      rotation={rotation}
       ccd={dynamic}
       canSleep
       linearDamping={0.08}
       angularDamping={0.35}
-      userData={{ worldObject: def.id }}
+      userData={userData}
       onCollisionEnter={dynamic ? onCollisionEnter : undefined}
       name={`obj:${def.id}`}
     >
