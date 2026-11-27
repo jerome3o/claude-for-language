@@ -86,7 +86,7 @@ line per refused clip). `wrangler tail` still shows everything live.
    real TTS calls are paced by the TTS limiter); `jobs` 10 a minute (`JOB_RATE_LIMITER`) and 30 an
    hour (D1 `rate_limit_counters`, migration 0128 — the bindings only count 10 / 60 s windows): POSTs
    that start background generation (audio lessons + companion / retry, readers/generate + retry,
-   picture hunts + upload / retry, quests + retry, podcast episodes + retry / lesson, session notes +
+   picture hunts + upload / retry, quests + retry, podcast episodes + retry / lesson, 📺 Watch videos + retry, session notes +
    retry, `/api/calls/:id/homework`, lesson notes / drafts / draft messages). Reads never count.
 2. **Daily AI cost cap**: `AI_DAILY_COST_CAP_USD` (`[vars]`, default `10`; `off` = none) against the
    user's `server.ai_call` `cost_usd` since UTC midnight (cached a minute per isolate), on the `ai`

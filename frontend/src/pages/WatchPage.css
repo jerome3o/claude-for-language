@@ -532,8 +532,8 @@
 }
 
 .watch-chip.on {
-  background: #1e293b;
-  border-color: #64748b;
+  background: rgba(248, 113, 113, 0.18);
+  border-color: var(--w-accent);
   color: var(--w-text);
 }
 

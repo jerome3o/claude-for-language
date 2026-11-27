@@ -411,7 +411,7 @@ export function WatchPlayerPage() {
               </>
             ) : (
               <div className="watch-card-empty">
-                {lines.length ? 'Press ▶ — the first line is at ' + watchClock(lines[0].start_ms) : working ? 'The first lines are on their way…' : loaded ? 'No transcript yet.' : ''}
+                {lines.length ? (isOnline ? 'Press ▶ — the first line is at ' + watchClock(lines[0].start_ms) : 'Tap a line, or ⏭, to read it here.') : working ? 'The first lines are on their way…' : loaded ? 'No transcript yet.' : ''}
               </div>
             )}
           </div>

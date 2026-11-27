@@ -38,6 +38,7 @@ paths (`android-lab/app/…/ui/nav`).
 - `/tutor-notes`, `/tutor-notes/practice?cards=&notes=` - Notes from your tutor (More → From your tutor, Home row) / practising those cards in the study card (immersive; a rating counts only when due)
 - `/audio-lessons`, `/audio-lessons/:id` - Audio lessons: list + New audio lesson (Dialogue / Sleep / Story; More → Practice), the player (immersive; offline once opened)
 - `/podcasts`, `/podcasts/feed?url=`, `/podcasts/episodes/:id` - 🎙 Podcasts — **Lab app only** (no web page yet; docs/PODCASTS.md)
+- `/watch`, `/watch/:id`, `/watch/share?text=&url=` - 📺 Watch (追剧, docs/WATCH.md; More → Practice, tutors More → Tools): my videos + paste a YouTube link + Find on YouTube, the player (immersive: YouTube's embed, the line card, ⏮ 🔁 ⏭, speed, Pause after each line, Listen first, the transcript), and the installed app's share target (manifest `share_target`)
 - `/idioms`, `/idioms/:hanzi` - 成语 Idioms (beta): look one up / browse the starter list, and one idiom's page (More → Practice; tutors More → Tools; the explorer's "📜 Story & usage")
 - `/clips`, `/clips/:id[?scene=N]` - 🎬 Clips (experimental; More → Practice "🎬 Clips (beta)"): the vertical feed (immersive, its own chrome; /clips/:id starts at that clip, `?scene=` at a scene)
 - `/phone`, `/phone/:id` - 📱 Phone practice (More → Practice, tutors More → Tools): the task list (✓ Done · best time, local only) and one task on the simulated phone (immersive; full screen on a phone, a phone frame + task card on a desktop)
