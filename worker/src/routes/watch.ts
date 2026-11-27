@@ -6,7 +6,7 @@
  * Signed in (mounted under /api after the auth middleware):
  *   GET    /api/watch                        my videos (newest opened first) + `available`
  *   POST   /api/watch/videos                 { url | video_id, duration_ms, title?, source? } → 202 { video } (200 when ready)
- *   GET    /api/watch/videos/:id             the video with its lines so far
+ *   GET    /api/watch/videos/:id             the video with its lines so far (and on my list from now on)
  *   PUT    /api/watch/videos/:id/position    { position_ms } — where I am (resume)
  *   POST   /api/watch/videos/:id/retry       a failed transcript, from where it stopped → 202
  *   DELETE /api/watch/videos/:id             off my list (the shared transcript is kept)
@@ -144,6 +144,8 @@ routes.get('/watch/videos/:id', async (c) => {
   const row = await getVideo(c.env.DB, c.req.param('id'));
   if (!row) return c.json({ error: 'Not found' }, 404);
   await nudgeIfStale(c, row);
+  // Opening a video (a pasted link someone else added before, a shared one) puts it in my list.
+  await linkVideoUser(c.env.DB, uid, row.id);
   await touchVideoUser(c.env.DB, uid, row.id);
   return c.json({ video: videoDetail(row, await getVideoUser(c.env.DB, uid, row.id)) });
 });

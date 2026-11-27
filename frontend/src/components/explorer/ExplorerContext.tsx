@@ -5,7 +5,7 @@ import { useBackLevels } from '../../hooks/useBackLevels';
 import { activeDrill, LanguageExplorer, type DrillRun } from './LanguageExplorer';
 
 /** Where the explorer was opened from (analytics `explorer.open` source). */
-export type ExplorerSource = 'study' | 'homework' | 'reader' | 'chat' | 'ask_claude' | 'claude_chat' | 'claude_card' | 'breakdown' | 'coach' | 'lesson' | 'card_hub' | 'idioms' | 'audio_lesson' | 'meme_review' | 'word_tag' | 'clips' | 'phone' | 'read_aloud' | 'sentence_round' | 'add' | 'other';
+export type ExplorerSource = 'study' | 'homework' | 'reader' | 'chat' | 'ask_claude' | 'claude_chat' | 'claude_card' | 'breakdown' | 'coach' | 'lesson' | 'card_hub' | 'idioms' | 'audio_lesson' | 'meme_review' | 'word_tag' | 'clips' | 'phone' | 'read_aloud' | 'sentence_round' | 'add' | 'watch' | 'other';
 
 /**
  * A card made a moment ago somewhere else (Claude's "✓ Added 2 cards" · 机会 ›): the note may only

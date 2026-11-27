@@ -36,7 +36,7 @@ const MORE: TabSpec = {
     // connections from More → "Tutors & connections", so /connections lights More — except where
     // a Students tab comes first in tabsFor and wins the tie.
     '/more', '/connections', '/decks', '/up-next', '/cards/held', '/generate', '/search', '/settings', '/profile', '/coach', '/analyze', '/readers', '/lessons', '/lesson-notes',
-    '/quests', '/picture-hunt', '/idioms', '/meme-review', '/clips', '/audio-lessons', '/library', '/duplicate-finder', '/admin',
+    '/quests', '/picture-hunt', '/idioms', '/meme-review', '/clips', '/audio-lessons', '/watch', '/library', '/duplicate-finder', '/admin',
   ],
 };
 
@@ -101,6 +101,8 @@ const IMMERSIVE = [
   /^\/vr\/?$/,
   /^\/vr\/worlds\/[^/]+\/?$/,
   /^\/phone\/[^/]+\/?$/,
+  // 📺 Watch (docs/WATCH.md): the player.
+  /^\/watch\/(?!share$)[^/]+\/?$/,
   /^\/coach\/chat\/[^/]+(\/recap)?\/?$/,
   /^\/chats\/claude\/[^/]+(\/recap)?\/?$/,
 ];

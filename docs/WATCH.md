@@ -135,7 +135,7 @@ drawn colour clip with a clock) — no YouTube frame is ever in the repo or the 
 - `POST /api/watch/videos` `{ url | video_id, duration_ms, title?, source?: paste | share | show }` → 202
   `{ video: WatchVideoDetail, existing }` (200 when ready; 400 bad link / no length / too long / not
   embeddable; 503 no Gemini key)
-- `GET /api/watch/videos/:id` → `{ video }` (lines so far, `gaps`)
+- `GET /api/watch/videos/:id` → `{ video }` (lines so far, `gaps`; opening a video puts it on my list)
 - `PUT /api/watch/videos/:id/position` `{ position_ms }` → `{ saved }`
 - `POST /api/watch/videos/:id/retry` → 202 · `DELETE /api/watch/videos/:id` → `{ removed }` (the shared
   transcript stays)

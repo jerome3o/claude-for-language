@@ -142,6 +142,7 @@ export function MorePage() {
               <NavRow icon="✦" label="Ask Claude / Coach" desc="Ask, check or translate — in your Chats" to="/chats?compose=1" />
               <NavRow icon="🔍" label="Sentence Breakdown" desc="Split any sentence into words" to="/analyze" />
               <NavRow icon="📱" label="Phone practice" desc="手机练习 · Real-life tasks on a simulated Chinese phone" to="/phone" />
+              <NavRow icon="📺" label="Watch" desc="追剧 · Chinese TV on YouTube, line by line" to="/watch" />
               <NavRow icon="📜" label="成语 Idioms (beta)" desc="The story behind each idiom, and how to use it" to="/idioms" />
               <NavRow icon="🌀" label="梗 Meme review · prototype" desc="What the Chinese internet said this month — with real sources" to="/meme-review" />
             </NavSection>
@@ -164,6 +165,7 @@ export function MorePage() {
           <NavRow icon="📜" label="成语 Idioms (beta)" desc="The story behind each idiom, and how to use it" to="/idioms" />
           <NavRow icon="🌀" label="梗 Meme review · prototype" desc="What the Chinese internet said this month — with real sources" to="/meme-review" />
           <NavRow icon="🎬" label="Clips (beta)" desc="Short vertical clips on your words — double-tap to dig deeper" to="/clips" />
+          <NavRow icon="📺" label="Watch" desc="追剧 · Chinese TV on YouTube — replay a line, tap any word" to="/watch" />
           <NavRow icon="🎧" label="Audio lessons" desc="Listen on the train, or fall asleep to slow Chinese" to="/audio-lessons" />
           <NavRow icon="📹" label="Video calls (beta)" desc="Live lessons with a whiteboard, then a transcript" to="/calls" />
           <NavRow icon="🥽" label="VR (beta)" desc="Study, readers and homework in a headset — grab the windows" to="/vr" />

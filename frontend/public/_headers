@@ -9,13 +9,16 @@
 #     group room sockets), Soniox real-time transcription (wss://stt-rt.soniox.com),
 #   images from anywhere over https (avatars, link previews, YouTube thumbnails),
 #   blob: / data: media and images (cached audio, recordings, page pictures),
+#   📺 Watch (docs/WATCH.md): YouTube's IFrame Player API script (www.youtube.com/iframe_api +
+#     its www-widgetapi.js) and the embedded player frame (youtube-nocookie.com; youtube.com as
+#     YouTube's own fallback host); its thumbnails are https images,
 #   'wasm-unsafe-eval' for sql.js (Anki export) and pdf.js, inline styles (React style attrs,
 #     Document Picture-in-Picture copies the page's styles).
 # WebRTC media / STUN / TURN are not governed by CSP. Violations are still POSTed to the
 # API's /api/csp-report (one "type":"csp" log line each). A NEW external origin (API,
 # socket, image / media host, script) must be added here or the browser blocks it.
 /*
-  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' data: blob: https://chinese-learning-api.jeromeswannack.workers.dev; font-src 'self' data:; connect-src 'self' data: blob: https://chinese-learning-api.jeromeswannack.workers.dev wss://chinese-learning-api.jeromeswannack.workers.dev wss://stt-rt.soniox.com; worker-src 'self' blob:; manifest-src 'self'; frame-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; report-uri https://chinese-learning-api.jeromeswannack.workers.dev/api/csp-report
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://www.youtube.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' data: blob: https://chinese-learning-api.jeromeswannack.workers.dev; font-src 'self' data:; connect-src 'self' data: blob: https://chinese-learning-api.jeromeswannack.workers.dev wss://chinese-learning-api.jeromeswannack.workers.dev wss://stt-rt.soniox.com; worker-src 'self' blob:; manifest-src 'self'; frame-src 'self' blob: https://www.youtube-nocookie.com https://www.youtube.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; report-uri https://chinese-learning-api.jeromeswannack.workers.dev/api/csp-report
   X-Frame-Options: DENY
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
