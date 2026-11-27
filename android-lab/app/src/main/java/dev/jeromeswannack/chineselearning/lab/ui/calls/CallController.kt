@@ -2,6 +2,7 @@ package dev.jeromeswannack.chineselearning.lab.ui.calls
 
 import dev.jeromeswannack.chineselearning.lab.core.calls.CallChime
 import dev.jeromeswannack.chineselearning.lab.core.calls.CallTimer
+import dev.jeromeswannack.chineselearning.lab.core.calls.CallGoals
 import dev.jeromeswannack.chineselearning.lab.core.calls.BoardItem
 import dev.jeromeswannack.chineselearning.lab.core.calls.BoardPages
 import dev.jeromeswannack.chineselearning.lab.core.calls.BoardPagesState
@@ -221,7 +222,23 @@ data class CallState(
     val presenceToasts: List<PresenceToast> = emptyList(),
     /** Call sounds on (⋯ → 🔔 Call sounds; per phone). */
     val callSounds: Boolean = true,
+    /** 🎯 Structures to use in this call (core CallGoals; the room's list — null = none / an older room). */
+    val goals: dev.jeromeswannack.chineselearning.lab.core.calls.CallGoals.Goals? = null,
+    /** The structures sheet is open on this phone. */
+    val goalsOpen: Boolean = false,
+    /** A structure was just used: the chip flashes (a transient note; its id makes it flash again). */
+    val goalsFlash: BoardNotice? = null,
+    /** The student's listener: "connecting" | "listening" | "unavailable" | "idle". */
+    val goalsListener: String = "idle",
 ) {
+    /** I am the student whose speech ticks the structures. */
+    val goalsMine: Boolean get() = goals?.studentId != null && goals.studentId == myUserId
+    /** I may tick by hand: the tutor; anyone in a solo call. */
+    val ticksGoals: Boolean get() = dev.jeromeswannack.chineselearning.lab.core.calls.CallGoals.mayActOnGoals("tick", myUserId, tutorId, goals?.studentId)
+    /** core CallGoals.goalListenStatus: listening | muted | unavailable | off. */
+    val goalsListen: String get() = dev.jeromeswannack.chineselearning.lab.core.calls.CallGoals.goalListenStatus(
+        phase == CallPhase.LIVE, goalsMine, goals?.goals?.map { it.status }, micOn, hasMic, goalsListener == "unavailable",
+    )
     /** I may run the timer: the relationship's tutor; anyone in a solo call (core CallTimer). */
     val runsTimer: Boolean get() = dev.jeromeswannack.chineselearning.lab.core.calls.CallTimer.canControlTimer(myUserId, tutorId)
     /** I am the relationship's tutor (never in a solo call). */
@@ -358,6 +375,10 @@ class CallDeps(
     val newViewCid: () -> String = { "v" + CallConnection.newInstanceId() },
     /** Play a call chime (core CallChime: join / leave / timer); the controller checks the sounds switch first. */
     val chime: (dev.jeromeswannack.chineselearning.lab.core.calls.CallChime.Kind) -> Unit = {},
+    /** 🎯 The structure listener (data/calls/GoalListener.kt): the student's own speech; null = never listens (tests). */
+    val goalListener: dev.jeromeswannack.chineselearning.lab.data.calls.GoalListening? = null,
+    /** 🎯 The model check of a heard structure (`POST /api/calls/:id/goals/check`): true / false, null = no answer (count the words). */
+    val checkGoal: suspend (dev.jeromeswannack.chineselearning.lab.core.calls.CallGoals.Goal, String) -> Boolean? = { _, _ -> null },
 )
 
 /**
@@ -527,6 +548,7 @@ class CallController(
         if (!restore && gotMic) prefs.micOff = false
         if (!media.hasMic) diag("media", "microphone: ${(r.micProblem ?: MediaProblem.NO_DEVICE).name.lowercase()}")
         if (!media.hasCamera) diag("media", "camera: ${(r.cameraProblem ?: MediaProblem.NO_DEVICE).name.lowercase()}")
+        if (gotMic) updateGoalListening()
         if (gotMic && _state.value.phase == CallPhase.LIVE) diag("media", "microphone added mid-call")
         if (gotCam && _state.value.phase == CallPhase.LIVE) diag("media", "camera added mid-call")
         media.setMicEnabled(_state.value.micOn)
@@ -791,6 +813,7 @@ class CallController(
         if (finished) return
         finished = true
         _state.update { it.copy(phase = next, error = message ?: it.error) }
+        updateGoalListening()
         runCatching { deps.recorder.stop() }
         _state.update { it.copy(recording = false) }
         closeLink()
@@ -859,6 +882,7 @@ class CallController(
                 _state.update { it.copy(tutorId = msg.tutorId) }
                 presence(CallChime.Event.Welcome(msg.peers.map { CallChime.PeerRef(it.clientId, it.userId, it.name) }))
                 timerArrived(msg.timer)
+                goalsArrived(msg.goals, welcome = true)
                 // "Same view": the room's view goes on my stage; a room without one gets mine.
                 val view = msg.view
                 if (view != null) sharedViewArrived(view)
@@ -945,6 +969,7 @@ class CallController(
                 diag("media", "${msg.name.ifBlank { "The tutor" }} stopped my screen share")
             }
             is ServerMessage.Timer -> timerArrived(msg.timer)
+            is ServerMessage.Goals -> goalsArrived(msg.goals)
             is ServerMessage.Ended -> finish(CallPhase.ENDED)
             ServerMessage.Replaced -> finish(CallPhase.ERROR, "You joined this call from another tab or device.")
             else -> Unit
@@ -1031,6 +1056,7 @@ class CallController(
         prefs.micOff = !next
         _state.update { it.copy(micOn = next) }
         broadcastState { it.copy(mic = next) }
+        updateGoalListening()
     }
 
     /** Camera on / off. Without a camera it tries to add one. */
@@ -1522,6 +1548,94 @@ class CallController(
         timerSawRunning = if (t.running && !CallTimer.timerDone(t, at)) true else if (!t.running) false else timerSawRunning
     }
 
+    // ------------------------------------------------------------ 🎯 structures to use (core CallGoals)
+
+    private var goalsAutoOpened = false
+    private val goalsChecked = HashSet<String>()
+
+    /** The room's list changed: a structure just used chimes (both phones) and flashes the chip; the student's sheet opens once. */
+    private fun goalsArrived(goals: CallGoals.Goals?, welcome: Boolean = false) {
+        val before = _state.value.goals
+        if (goals != null && before != null && !welcome && goals.v < before.v) return
+        _state.update { it.copy(goals = goals) }
+        if (goals != null && before != null && !welcome) {
+            val was = before.goals.filter { it.status == CallGoals.Status.USED }.map { it.id }.toSet()
+            val fresh = goals.goals.filter { it.status == CallGoals.Status.USED && it.id !in was }
+            if (fresh.isNotEmpty()) {
+                if (_state.value.callSounds) deps.chime(CallChime.Kind.GOAL)
+                val flash = BoardNotice(now(), "🎯")
+                _state.update { it.copy(goalsFlash = flash) }
+                scope.launch { delay(3_000); _state.update { if (it.goalsFlash == flash) it.copy(goalsFlash = null) else it } }
+                for (g in fresh) dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("call.goals_tick", mapOf("by" to (g.used?.by ?: "auto"), "mine" to _state.value.goalsMine, "source" to g.source))
+            }
+        }
+        val s = _state.value
+        if (!goalsAutoOpened && s.goalsMine && (goals?.goals?.isNotEmpty() == true)) {
+            goalsAutoOpened = true
+            _state.update { it.copy(goalsOpen = true) }
+            dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("call.goals_open", mapOf("how" to "auto", "role" to "student", "goals" to (goals.goals.size)))
+        }
+        runGoalChecks()
+        updateGoalListening()
+    }
+
+    /** Add / remove / move (anyone), tick / untick (the tutor); the room checks and answers `goals` to both. */
+    fun goalsAction(action: CallGoals.Action): Boolean {
+        when (action) {
+            is CallGoals.Action.Add -> dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("call.goals_add", mapOf("fixed" to (CallGoals.parseGoalPattern(action.text)?.second?.size ?: 0)))
+            is CallGoals.Action.Remove, is CallGoals.Action.Move, is CallGoals.Action.Untick -> dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("call.goals_edit", mapOf("action" to action.kind))
+            else -> {}
+        }
+        return room?.send(CallProtocol.goals(action)) ?: false
+    }
+
+    fun setGoalsOpen(open: Boolean, how: String = "chip") {
+        val s = _state.value
+        if (open && !s.goalsOpen) dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("call.goals_open", mapOf("how" to how, "role" to if (s.goalsMine) "student" else "tutor", "goals" to (s.goals?.goals?.size ?: 0)))
+        _state.update { it.copy(goalsOpen = open) }
+    }
+
+    /** One of his utterances (the listener, off the main thread): the goals it holds go to the room as `heard`. */
+    fun goalUtterance(text: String) {
+        val goals = _state.value.goals ?: return
+        if (!_state.value.goalsMine) return
+        for (g in CallGoals.goalsHeardIn(text, goals.goals).take(2)) room?.send(CallProtocol.goals(CallGoals.Action.HeardIt(g.id, text)))
+    }
+
+    /** Every goal being checked with my sentence: one check each → `checked` (no answer = the words' match counts). */
+    private fun runGoalChecks() {
+        val s = _state.value
+        if (!s.goalsMine || s.phase != CallPhase.LIVE) return
+        for (g in s.goals?.goals.orEmpty()) {
+            val text = g.checking?.text ?: continue
+            if (g.status != CallGoals.Status.CHECKING || !goalsChecked.add("${g.id}\u0000$text")) continue
+            scope.launch {
+                val started = now()
+                val verdict = runCatching { deps.checkGoal(g, text) }.getOrNull()
+                dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("call.goals_check", mapOf("ok" to (verdict ?: true), "cached" to false, "answered" to (verdict != null), "ms" to (now() - started)))
+                room?.send(CallProtocol.goals(CallGoals.Action.Checked(g.id, text, verdict ?: true)))
+            }
+        }
+    }
+
+    /** Listen only on the student's own phone, live, with an open goal and the mic on (core CallGoals.goalListenStatus). */
+    private fun updateGoalListening() {
+        val listener = deps.goalListener ?: return
+        val s = _state.value
+        val status = s.goalsListen
+        val listen = !finished && (status == "listening" || status == "unavailable")
+        if (listen) listener.start(
+            onUtterance = { text -> scope.launch { goalUtterance(text) } },
+            onState = { st -> scope.launch {
+                _state.update { it.copy(goalsListener = st) }
+                if (st == "listening" || st == "unavailable") dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("call.goals_listen", mapOf("state" to st, "reason" to null))
+            } },
+        ) else {
+            listener.stop()
+            if (s.goalsListener != "idle") _state.update { it.copy(goalsListener = "idle") }
+        }
+    }
+
     // ------------------------------------------------------------ lesson materials (round 4 PR 5)
 
     /** Present a material (both see it; either can turn its pages, draw and type on it). The room answers with `material`. */
@@ -1783,6 +1897,7 @@ class CallController(
     /** The screen is gone for good (ViewModel cleared): stop everything. */
     fun dispose() {
         uploadsLoop?.cancel()
+        deps.goalListener?.stop()
         if (!finished) {
             finished = true
             val recorder = deps.recorder

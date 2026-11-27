@@ -35,6 +35,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.jeromeswannack.chineselearning.lab.LabApp
+import dev.jeromeswannack.chineselearning.lab.data.api.callListenSession
+import dev.jeromeswannack.chineselearning.lab.data.api.checkCallGoal
 import dev.jeromeswannack.chineselearning.lab.data.api.CallDetailDto
 import dev.jeromeswannack.chineselearning.lab.data.api.endCall
 import dev.jeromeswannack.chineselearning.lab.data.api.getCall
@@ -100,6 +102,13 @@ class CallViewModel(private val app: LabApp, val callId: String) : ViewModel() {
             layout = layout,
             viewModes = PrefsCallLayoutStore(app.getSharedPreferences("lab-calls", Context.MODE_PRIVATE)),
             chime = { kind -> chimes.play(kind) },
+            // 🎯 Structures to use: the student's own speech (his mic, streamed to Soniox while the call has goals) and the check.
+            goalListener = dev.jeromeswannack.chineselearning.lab.data.calls.CallGoalListener(app.repo.api.http, media.mic, viewModelScope, { app.repo.api.callListenSession() }),
+            checkGoal = { goal, sentence ->
+                runCatching {
+                    app.repo.api.checkCallGoal(callId, dev.jeromeswannack.chineselearning.lab.data.api.GoalCheckBody(goal.name, goal.line, goal.meaning, goal.fixed, sentence)).ok
+                }.getOrNull()
+            },
         ),
         viewModelScope,
     )
@@ -408,6 +417,12 @@ fun CallRoute(nav: LabNav, id: String) {
                 onDismissToast = vm.controller::dismissPresenceToast,
                 onSounds = { on -> vm.controller.setCallSounds(on); nav.app.haptics.tick() },
                 roomNow = vm.controller::roomNow,
+            ),
+            // 🎯 Structures to use (core CallGoals).
+            goals = GoalActions(
+                onAction = { vm.controller.goalsAction(it) },
+                onOpen = { open, how -> vm.controller.setGoalsOpen(open, how) },
+                onSpeak = { text -> vm.speaker.speak(text) },
             ),
             // "Same view" (core CallView): the top bar chip's menu and the invitation.
             view = ViewActions(

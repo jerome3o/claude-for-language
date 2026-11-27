@@ -134,6 +134,9 @@ class CallControllerTest {
         var screenPrepared = 0
         val instances = ArrayList<String>()
         val chimes = ArrayList<dev.jeromeswannack.chineselearning.lab.core.calls.CallChime.Kind>()
+        val listener = FakeGoalListener()
+        val checks = ArrayList<String>()
+        var checkVerdict: Boolean? = true
         val controller = CallController(
             "call1", "me",
             CallDeps(
@@ -152,9 +155,24 @@ class CallControllerTest {
                 viewModes = viewModes,
                 newViewCid = { "cid${++cids}" },
                 chime = { chimes += it },
+                goalListener = listener,
+                checkGoal = { _, sentence -> checks += sentence; checkVerdict },
             ),
             scope.backgroundScope,
         )
+    }
+
+    class FakeGoalListener : dev.jeromeswannack.chineselearning.lab.data.calls.GoalListening {
+        var listening = false
+        var starts = 0
+        var say: (String) -> Unit = {}
+        override fun start(onUtterance: (String) -> Unit, onState: (String) -> Unit) {
+            if (!listening) starts++
+            listening = true
+            say = onUtterance
+            onState("listening")
+        }
+        override fun stop() { listening = false }
     }
 
     private fun peer(id: String, user: String = "u2", state: PeerMediaState = PeerMediaState(mic = true, cam = true), instance: String? = null) = CallPeer(id, user, "王老师", null, state, instance)
@@ -1680,5 +1698,84 @@ class CallControllerTest {
         // The student's actions go to the room (it refuses them); the tutor check is the room's.
         assertTrue(rig.controller.timerAction(dev.jeromeswannack.chineselearning.lab.core.calls.CallTimer.Action.Pause))
         assertEquals("pause", rig.sentOf("timer").last()["action"]!!.jsonObject["kind"]!!.jsonPrimitive.content)
+    }
+
+    // ---------------------------------------------------------------- 🎯 structures to use (core CallGoals)
+
+    private fun goalsFor(student: String, vararg statuses: Pair<String, dev.jeromeswannack.chineselearning.lab.core.calls.CallGoals.Status>, v: Long = 1, checking: String? = null, used: String? = null): dev.jeromeswannack.chineselearning.lab.core.calls.CallGoals.Goals {
+        return dev.jeromeswannack.chineselearning.lab.core.calls.CallGoals.Goals(student, "Jerome", statuses.mapIndexed { i, (name, st) ->
+            dev.jeromeswannack.chineselearning.lab.core.calls.CallGoals.Goal("g$i", name, null, null, null, if (name == "除了…还…") listOf("除了", "还") else listOf("一", "就"), "learned", null, st,
+                if (st == dev.jeromeswannack.chineselearning.lab.core.calls.CallGoals.Status.USED) dev.jeromeswannack.chineselearning.lab.core.calls.CallGoals.Hit(used ?: "", 5, "auto") else null,
+                if (st == dev.jeromeswannack.chineselearning.lab.core.calls.CallGoals.Status.CHECKING) dev.jeromeswannack.chineselearning.lab.core.calls.CallGoals.Heard(checking ?: "", 4) else null, null)
+        }, v, statuses.size.toLong())
+    }
+
+    @Test fun theStudentsPhoneListensSendsWhatItHeardChecksItAndChimesWhenUsed() = runTest(UnconfinedTestDispatcher()) {
+        val rig = liveRig(listOf(peer("c-a")))
+        // The room's list: mine (I am "me", the student) — the sheet opens by itself, the mic is listened to.
+        rig.room.handlers.onMessage(ServerMessage.Goals(goalsFor("me", "除了…还…" to dev.jeromeswannack.chineselearning.lab.core.calls.CallGoals.Status.OPEN, "一…就…" to dev.jeromeswannack.chineselearning.lab.core.calls.CallGoals.Status.OPEN)))
+        runCurrent()
+        val s = rig.controller.state.value
+        assertTrue(s.goalsOpen)
+        assertTrue(s.goalsMine)
+        assertTrue(s.ticksGoals) // no tutor in this room (solo rules): anyone ticks by hand
+        assertTrue(rig.listener.listening)
+        assertEquals("listening", s.goalsListen)
+        // He says a sentence with the words: `heard` goes to the room for that goal only.
+        rig.listener.say("除了中文，我还学日语。")
+        runCurrent()
+        val heard = rig.sentOf("goals").last()["action"]!!.jsonObject
+        assertEquals("heard", heard["kind"]!!.jsonPrimitive.content)
+        assertEquals("g0", heard["id"]!!.jsonPrimitive.content)
+        // The room says it is being checked: one check, then `checked`.
+        rig.room.handlers.onMessage(ServerMessage.Goals(goalsFor("me", "除了…还…" to dev.jeromeswannack.chineselearning.lab.core.calls.CallGoals.Status.CHECKING, "一…就…" to dev.jeromeswannack.chineselearning.lab.core.calls.CallGoals.Status.OPEN, v = 2, checking = "除了中文，我还学日语。")))
+        runCurrent()
+        assertEquals(listOf("除了中文，我还学日语。"), rig.checks)
+        val checked = rig.sentOf("goals").last()["action"]!!.jsonObject
+        assertEquals("checked", checked["kind"]!!.jsonPrimitive.content)
+        assertEquals(true, checked["ok"]!!.jsonPrimitive.content.toBoolean())
+        // The same list again doesn't check twice; used → the goal chime once.
+        rig.room.handlers.onMessage(ServerMessage.Goals(goalsFor("me", "除了…还…" to dev.jeromeswannack.chineselearning.lab.core.calls.CallGoals.Status.CHECKING, "一…就…" to dev.jeromeswannack.chineselearning.lab.core.calls.CallGoals.Status.OPEN, v = 2, checking = "除了中文，我还学日语。")))
+        rig.room.handlers.onMessage(ServerMessage.Goals(goalsFor("me", "除了…还…" to dev.jeromeswannack.chineselearning.lab.core.calls.CallGoals.Status.USED, "一…就…" to dev.jeromeswannack.chineselearning.lab.core.calls.CallGoals.Status.OPEN, v = 3, used = "除了中文，我还学日语。")))
+        runCurrent()
+        assertEquals(1, rig.checks.size)
+        assertEquals(listOf(dev.jeromeswannack.chineselearning.lab.core.calls.CallChime.Kind.GOAL), rig.chimes)
+        assertNotNull(rig.controller.state.value.goalsFlash)
+        // Muted: not listening.
+        rig.controller.toggleMic()
+        runCurrent()
+        assertFalse(rig.listener.listening)
+        assertEquals("muted", rig.controller.state.value.goalsListen)
+        rig.controller.toggleMic()
+        runCurrent()
+        assertTrue(rig.listener.listening)
+        // Everything used: nothing left to listen for.
+        rig.room.handlers.onMessage(ServerMessage.Goals(goalsFor("me", "除了…还…" to dev.jeromeswannack.chineselearning.lab.core.calls.CallGoals.Status.USED, "一…就…" to dev.jeromeswannack.chineselearning.lab.core.calls.CallGoals.Status.USED, v = 4, used = "x")))
+        runCurrent()
+        assertFalse(rig.listener.listening)
+        // No answer from the check counts the words' match.
+        rig.checkVerdict = null
+        rig.room.handlers.onMessage(ServerMessage.Goals(goalsFor("me", "除了…还…" to dev.jeromeswannack.chineselearning.lab.core.calls.CallGoals.Status.USED, "一…就…" to dev.jeromeswannack.chineselearning.lab.core.calls.CallGoals.Status.CHECKING, v = 5, used = "x", checking = "我一到家就睡觉")))
+        runCurrent()
+        assertEquals(true, rig.sentOf("goals").last()["action"]!!.jsonObject["ok"]!!.jsonPrimitive.content.toBoolean())
+    }
+
+    @Test fun theTutorsPhoneNeverListensAndSendsHerActions() = runTest(UnconfinedTestDispatcher()) {
+        val rig = liveRig(listOf(peer("c-a")))
+        rig.room.handlers.onMessage(ServerMessage.Goals(goalsFor("u2", "除了…还…" to dev.jeromeswannack.chineselearning.lab.core.calls.CallGoals.Status.OPEN)))
+        runCurrent()
+        val s = rig.controller.state.value
+        assertFalse(s.goalsOpen)
+        assertFalse(s.goalsMine)
+        assertFalse(rig.listener.listening)
+        assertEquals(0, rig.listener.starts)
+        assertEquals("🎯 0/1", dev.jeromeswannack.chineselearning.lab.core.calls.CallGoals.chipLabel(s.goals))
+        // An utterance reaching a tutor's phone would never be sent.
+        rig.controller.goalUtterance("除了中文，我还学日语。")
+        assertTrue(rig.sentOf("goals").isEmpty())
+        assertTrue(rig.controller.goalsAction(dev.jeromeswannack.chineselearning.lab.core.calls.CallGoals.Action.Add("一…就…")))
+        assertEquals("add", rig.sentOf("goals").last()["action"]!!.jsonObject["kind"]!!.jsonPrimitive.content)
+        rig.controller.setGoalsOpen(true, "chip")
+        assertTrue(rig.controller.state.value.goalsOpen)
     }
 }

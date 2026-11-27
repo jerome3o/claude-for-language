@@ -269,4 +269,18 @@ class CallProtocolTest {
         assertNull(CallProtocol.parseServer("""{"type":"timer","timer":{"id":"x","mode":"egg"}}"""))
         assertEquals("""{"type":"timer","action":{"kind":"reset"}}""", CallProtocol.timer(CallTimer.Action.Reset))
     }
+
+    @Test fun goalsMessages() {
+        val g = """{"student_id":"stu","student_name":"Jerome","v":3,"available":2,"goals":[{"id":"g1","name":"一…就…","fixed":["一","就"],"status":"used","used":{"text":"我一到家就睡觉","at":9,"by":"auto"},"checking":null,"near":null,"source":"learned","last_met":null,"line":null,"meaning":null,"example":null}]}"""
+        val w = assertIs<ServerMessage.Welcome>(CallProtocol.parseServer("""{"type":"welcome","client_id":"c9","peers":[],"board":[],"chat":[],"goals":$g}"""))
+        assertEquals("stu", w.goals?.studentId)
+        assertEquals(CallGoals.Status.USED, w.goals?.goals?.single()?.status)
+        assertNull(assertIs<ServerMessage.Welcome>(CallProtocol.parseServer("""{"type":"welcome","client_id":"c9","peers":[],"board":[],"chat":[]}""")).goals)
+        val m = assertIs<ServerMessage.Goals>(CallProtocol.parseServer("""{"type":"goals","goals":$g,"from":"c1"}"""))
+        assertEquals("c1", m.from)
+        assertEquals(3, m.goals.v)
+        assertNull(CallProtocol.parseServer("""{"type":"goals","goals":null}"""))
+        assertEquals("""{"type":"goals","action":{"kind":"heard","id":"g1","text":"我一到家就睡觉"}}""", CallProtocol.goals(CallGoals.Action.HeardIt("g1", "我一到家就睡觉")))
+        assertEquals("""{"type":"goals","action":{"kind":"move","id":"g1","to":0}}""", CallProtocol.goals(CallGoals.Action.Move("g1", 0)))
+    }
 }

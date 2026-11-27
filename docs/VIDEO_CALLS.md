@@ -885,6 +885,76 @@ the call's menu.
   `parity/fixtures/prepared-activities.ts`), `ui/teaching/PreparedActivitiesSection.kt` (+ controller),
   `ui/calls/PreparedPicker.kt`.
 
+## Structures to use: goals for the conversation (Nov 2026)
+
+Jerome: "a few sentence structures I should be trying to use, that I've had homework for or studied in the last
+couple of weeks, as reminders … over the lesson I should have a goal to use them … it'd be cool if they got ticked
+off when used naturally." Rules in `shared/calls/goals.ts` (Lab `core/…/calls/CallGoals.kt`, parity-tested by
+`parity/fixtures/calls-goals.ts`).
+
+- **Which structures** — the STUDENT of the call (the relationship's non-tutor; the caller in a solo call) and his
+  `learner_structures` (the grammar structures of the mini lessons he finished, `services/learner-structures.ts`,
+  migration 0151). `pickCallGoals`: those met in the last **14 days** and not ticked in an earlier call, newest met
+  first, up to **5**; fewer than **3** → topped up with older ones he hasn't used, then with ones he has. A second
+  call of the same lesson (a dropped connection) carries the first call's list on, ticks included
+  (`initCallGoals`, `services/calls/goals.ts`). No structures → an empty list; the panel says so and anyone can
+  add one by typing a pattern (`parseGoalPattern`: "一…就…", "从 A 的角度来看" — the runs of Chinese are the fixed
+  words).
+- **The room** makes the list on the first join (never in the way of joining: a failure is no list, tried again on
+  the next join), keeps it in storage (`goals`, `welcome.goals`) and runs `reduceGoals` on `goals { action }`
+  messages, broadcasting `goals { goals }` to both: `add` / `remove` / `move` (anyone), `tick` / `untick` (the
+  tutor; solo: anyone), `heard` / `checked` (only the student — the tutor's voice can never tick). On leave / end
+  the list goes to `call_goals` (migration 0159, one row per structure per call).
+- **Where** — its own **panel**, not a stage tile: on Same view a tile would pull the tutor's stage along every time
+  the student looked at his goals. Web: a card over the stage (right side ≥ 640 px, a bottom sheet on phones;
+  `components/calls/CallGoalsPanel.tsx`), opened from the top-bar chip **🎯 1/4** both people see and ⋯ → 🎯
+  Structures to use; it opens by itself for the student once per call (`call-goals-opened:<callId>`). Lab: the same
+  chip and a bottom sheet (`ui/calls/CallGoalsUi.kt`). Each row: the structure big, its line, meaning and the
+  lesson's example (▶ = practice TTS); used → ✓ + the sentence he said + the time into the call ("ticked by
+  Minghui" for a hand tick); "✓ checking…" while the check runs; a near miss keeps its sentence ("Close — not
+  quite the structure").
+- **Auto-tick** (web `hooks/useCallGoals.ts` + `services/calls/goalListener.ts`; Lab `data/calls/GoalListener.kt`):
+  only on the student's OWN device, only while the call is live, a goal is still open (or a near miss) and his
+  mic is on (`goalListenStatus`; muted = not streamed). His mic is streamed to **Soniox real-time** exactly like a
+  study take — a temporary key from `POST /api/transcribe/live { purpose: 'call' }` (a call key allows a
+  30-minute session instead of a take's 7), the key on the connection, `enable_endpoint_detection` — web: its own
+  MediaRecorder on the mic track (webm/Opus, the call's recorder untouched); Lab: a second consumer on the call's
+  `MicTap` (48 kHz PCM). Calls run ~1 h: a new SEGMENT (socket + recorder, fresh key) starts 90 s before the key
+  expires or 25 min in, and the old one is ended (end-of-audio, its last words still arrive) once the new one
+  streams — at most a second is lost. A dropped segment reconnects after 2 / 4 / 8 / 15 / 30 s; 5 failures in a row,
+  no key, or no live provider → "Auto-tick isn't available right now — your tutor can tick them by hand", retried
+  after 2 min. `foldGoalSpeech` cuts the final tokens into utterances (`<end>`, sentence punctuation, 80 characters);
+  an utterance holding a goal's fixed words in order (`matchStructure`: punctuation, spaces, Latin letters ignored,
+  digits read as Chinese, 的 / 得 / 地 one word, ≤ 16 characters between words, ≤ 48 in all, some content of its own)
+  is sent as `heard` → both see "✓ checking…". Then ONE model check — `POST /api/calls/:id/goals/check` (members
+  only; the words must match; the small model through `structuredCall`, forced `judge` tool, thinking off; cost
+  guard `ai`; cached per structure + sentence; E2E_TEST_MODE answers with `fakeStructureCheck` first — a sentence
+  with 随便 is "not the structure") asks whether he really USES the structure in its sense (一 as "one" next to an
+  unrelated 就 is not 一…就…) → `checked { ok }`: ✓ for both with a soft **goal chime** (`CHIME_TONES.goal`, G5 → D6;
+  call sounds off = silent) and the chip flashes — or back to unticked with the sentence kept as a near miss. A check
+  that can't answer (offline, 503) counts the words' match. A check left hanging by a dropped device is re-run on
+  his rejoin; a stale one (45 s) is replaced by the next sentence. Only TEXT goes to the check; no audio goes
+  anywhere new (the live audio goes to Soniox, as study takes do; the call's own recording is unchanged).
+- **Cost** — Soniox real-time is billed per streamed audio minute: about **$0.12 an hour** of the student's unmuted
+  mic (silence included), plus ~2–3 key mints an hour; each check is ~350 tokens in / ~40 out on the small model
+  (≈ $0.0005), a few dozen an hour at most → **≈ $0.13–0.15 per hour of call**. Nothing is streamed once every
+  structure is ticked.
+- **After the call** — `GET /api/calls/:id` returns the lesson's `goals` (`lessonGoals`: a structure used in any call
+  of the lesson stays used) → the review page's **🎯 Structures you used** (used with the sentence, close, not tried;
+  web + Lab); the lesson report's prompt gets a STRUCTURES block and the report carries `structures`
+  (`goalsSummary`); the homework agent's notes get "STRUCTURES THE LEARNER AIMED TO USE" (`goalsNotes`); and the next
+  call's pick prefers the ones he hasn't used (`usedGoalNames` over `call_goals`).
+- **Analytics** — `call.goals_open { how, role, goals }`, `call.goals_tick { by, mine, source }`, `call.goals_add
+  { fixed }`, `call.goals_edit { action }`, `call.goals_listen { state, reason }`, `call.goals_check { ok, cached,
+  answered, ms }` — never the sentence.
+- **Tests** — `shared/calls/goals.test.ts`, `worker/src/durable/__tests__/call-room-goals.test.ts` (welcome, only his
+  speech ticks, the tutor's hand tick, add, saved, the next pick, carried within a lesson, a failing D1 never blocks
+  the join), `worker/src/services/__tests__/call-goals.test.ts` (the check: stand-in first, forced tool, cache; the call
+  key), `frontend/src/services/calls/goalListener.test.ts` (endpoint config, rotation before expiry, reconnect,
+  unavailable), `e2e/tests/call-structure-goals.spec.ts` (two browsers, a stand-in transcript feed:
+  `window.__callGoalsTest` + `__callGoalsSay(text)`), Lab `CallsGoalsParityTest`, `CallProtocolTest.goalsMessages`,
+  `CallControllerTest`, Roborazzi `lab-calls-goals-01…03`.
+
 ## Finding the call (banners, ring, notifications)
 
 The person being called must notice. Every signal comes from ONE list, `GET /api/calls?live=1`,
@@ -1098,4 +1168,5 @@ summary, corrections, card-standard vocabulary). Processing is readiness-driven
 - **Timer, call sounds, my share visible** (round 7, docs/VIDEO_CALLS.md "Round 7"): ONE shared timer per call (`shared/calls/timer.ts`, Lab `CallTimer.kt` parity-tested) — countdown (1 / 2 / 3 / 5 / 10 min or typed) or stopwatch, held by the CallRoom in room time (`timer` messages, `welcome.timer`, storage key `timer`), run by the relationship's tutor only (solo: anyone; `canControlTimer`), the ⏱ pill in the top bar for both (web `components/calls/CallTimerPill.tsx`, Lab `ui/calls/CallTimerUi.kt`), a bell + flash + "Time's up" once per run at zero. Join / leave chimes + "Minghui joined / left" toasts from the presence events (`shared/calls/chime.ts`, Lab `CallChime.kt`: no chime for my own join or their reconnect within 8 s), synthesised tones (WebAudio `services/calls/callSounds.ts`, Lab `data/calls/CallChimePlayer.kt`), ⋯ → 🔔 Call sounds per device. The sharer's own share is VISIBLE by default with Draw / Type on it (`myShareTile` with `shown` + `surface`; a whole screen starts as the card — it would mirror itself; Hide my screen; 🪟 Mini window = the Document PiP)
 - **Screen share sound + no mirror** (docs/VIDEO_CALLS.md "Screen share: sound", `shared/calls/share.ts`, Lab `CallShare.kt` parity-tested): `getDisplayMedia(displayCaptureOptions())` asks for the tab's / system's sound (`suppressLocalAudioPlayback: false`, `systemAudio: 'include'`, never the call's own tab); the sound rides a SECOND audio transceiver (4th m-line, added by renegotiation for a 3-m-line peer) — never mixed into the mic or the recording — played by the viewer's own `<audio>` (`CallAudio`), `state.screen_audio`; no sound (window / macOS screen / Safari / Firefox / the Lab app) → the sharer's note "Sound isn't shared — share a Chrome tab and tick 'Also share tab audio'". The SHARER's screen tile is a compact card (`SharingCard`: You're sharing your screen · ⏹ Stop sharing · ✏️ Draw on it · 👁 Show it here, `myShareTile`) instead of a mirror; the viewer's stage is unchanged
 - **Drawing on a shared screen**: both people draw — the viewer over the other person's share, the sharer on their own screen tile (share bar → ✏️ Draw on it); pens default to a colour per role (`defaultAnnotColor`), **Keep** (`annot_mode`, shared) stops fading. The viewer draws / pings over the other person's share (`components/calls/AnnotationLayer.tsx`, `annot*` room messages, never stored); the sharer sees it on their preview and in a Document PiP mini window on Chrome desktop (`services/calls/annotationPip.ts`) — a browser can't draw on the real screen; the Lab app draws over every app (`ScreenAnnotationOverlay.kt`)
+- **🎯 Structures to use** (docs/VIDEO_CALLS.md "Structures to use", `shared/calls/goals.ts`, Lab `CallGoals.kt` parity-tested): 3–5 structures from the student's mini lessons per call (`services/calls/goals.ts` `initCallGoals`, `call_goals` migration 0159), the room's `goals` messages (`welcome.goals`; add / remove / move anyone, tick / untick the tutor, heard / checked only the student), the chip "🎯 1/4" + panel (`CallGoalsPanel.tsx`, Lab `CallGoalsUi.kt`), auto-tick from the student's own mic over Soniox real-time (`goalListener.ts` / `GoalListener.kt`, `POST /api/transcribe/live { purpose: 'call' }`) + one model check `POST /api/calls/:id/goals/check` (cost guard `ai`); review page / report / homework notes get the summary
 - **Finding the call** (docs/VIDEO_CALLS.md): `shared/calls/alerts.ts` decides the "📹 <name> is calling — Join" banner (Home card, a bar on every normal page — `components/calls/CallAlerts.tsx` in App.tsx —, the student / tutor page, the chat) and the in-app ring; `POST /api/calls` also sends Web Push (`services/push/`, WebCrypto VAPID + aes128gcm; `public/push-sw.js` in the service worker), "Missed video call" when they never joined. `GET /api/push/config`, `POST|DELETE /api/push/subscriptions`, `POST /api/push/test`, `PUT /api/profile/call-alerts { call_alerts: ring|silent }` (Settings → Video call alerts)

@@ -125,7 +125,7 @@ Read the doc before changing a feature; it has the code map, the endpoints and t
 | Recording review ("Needs your ear") | [docs/RECORDING_REVIEW.md](./docs/RECORDING_REVIEW.md) | `shared/recordings/` |
 | Sign-in, sessions, invites, access requests, onboarding (full) | [docs/AUTH.md](./docs/AUTH.md) | `worker/src/services/auth.ts`, `worker/src/services/signup.ts` |
 | MCP server: architecture, OAuth, every tool, tutor MCP Apps, debugging | [docs/MCP.md](./docs/MCP.md) | `mcp-server/src/` |
-| Video calls, board, materials, in-call activities, lessons | [docs/VIDEO_CALLS.md](./docs/VIDEO_CALLS.md) | `worker/src/durable/call-room.ts`, `shared/calls/` |
+| Video calls, board, materials, in-call activities, lessons, 🎯 structures to use | [docs/VIDEO_CALLS.md](./docs/VIDEO_CALLS.md) | `worker/src/durable/call-room.ts`, `shared/calls/` |
 | Group classes (experimental) | [docs/GROUP_CLASSES.md](./docs/GROUP_CLASSES.md) | `shared/group/` |
 | Audio lessons (incl. composed lessons / video-lesson recaps from MCP blocks) + private podcast feed | [docs/AUDIO_LESSONS.md](./docs/AUDIO_LESSONS.md) | `worker/src/services/audio-lessons/`, `shared/audio-lesson/` |
 | Podcasts (Lab only) | [docs/PODCASTS.md](./docs/PODCASTS.md) | `worker/src/services/podcasts/` |

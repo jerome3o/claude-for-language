@@ -120,6 +120,7 @@ for (let k = 0; k < 30; k++) {
   const pick = pickCallGoals(POOL.slice(0, 2 + int(6)).map(([name, fixed]) => ({ name, fixed, last_met: iso(int(20)) })), [], NOW);
   let cur: CallGoals = { student_id: 'stu', student_name: 'Jerome Swannack', goals: goalsFromStructures(pick, newId), v: 1, available: pick.length };
   let now = NOW;
+  const start = JSON.parse(JSON.stringify(cur));
   const steps: unknown[] = [];
   for (let i = 0; i < 16; i++) {
     now += int(5) === 0 ? int(80_000) : int(9_000);
@@ -142,7 +143,7 @@ for (let k = 0; k < 30; k++) {
     if (next) cur = next;
     steps.push({ now, action, by: by.userId, by_name: by.name, allowed, changed: next !== null, goals: cur, heard: goalsHeardIn(sentence, cur.goals).map((x) => x.id), sentence });
   }
-  runs.push({ start: { student_id: 'stu', student_name: 'Jerome Swannack', available: pick.length }, steps });
+  runs.push({ start, steps });
 }
 
 // ---- speech folding
