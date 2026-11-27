@@ -14,3 +14,15 @@ After — More ▸ opens the whole reason in place of the cut line: read once.
 
 ![After: the fix](web-04-after-fix.png)
 After — ✨ Show a fixed version is told the problem and adds his mother's view: 从我妈妈的角度来看，我和我妹妹住得太远了。
+
+## Lab app (Roborazzi, dark)
+
+![Lab: the cut reason line](lab-01-cut-reason.png)
+Collapsed: the headline, the cut reason line, More ▸.
+
+![Lab: More opens in place](lab-02-more-in-place.png)
+More ▸ opens the whole reason in place of the cut line.
+
+![Lab: the server couldn't fix it](lab-03-fix-failed-not-offline.png)
+The server answered 502 (Claude couldn't fix it): "Claude couldn't fix this one — try saying it another way." Before,
+this showed "A fixed version needs a connection — try again when you're online." because HttpException is an IOException.
