@@ -20,8 +20,11 @@ CLAUDE.md keeps the rules in short; this is the full reference.
   `signsInWithCode`). The new desktop app exchanges the code itself and writes the session into the
   page's `localStorage` (`desktop/src/main.ts` `handOverSession`).
 - **`challenge` is required** (Nov 2026): `/api/auth/login` without one (a Lab / desktop build from before the
-  exchange, a stale web bundle) redirects back with `error=update_required` (the splash says "This version of the
-  app is out of date…"); the callback never hands out `session_token` any more. Only the Vite dev server still
+  exchange, a stale web bundle) redirects a NATIVE app back with `error=update_required`; a WEB browser gets
+  `updateRequiredPage` (`services/auth.ts`) — a self-contained page on the API's origin ("This browser has an old
+  copy of the app": Open the app, let it update and reload, then sign in; else clear the site's data). A stale web
+  bundle doesn't know `error=update_required`, so redirecting it back showed an empty red box and a sign-in that
+  looped (27 Nov 2026). The callback never hands out `session_token` any more. Only the Vite dev server still
   reads `?session_token=` (E2E).
 - **Sliding 30-day sessions** (`worker/src/services/auth.ts` `renewSessionIfDue`): a session used with less than
   20 days left is renewed to 30 days from now (one guarded UPDATE, so at most once per ~10 days of use;
