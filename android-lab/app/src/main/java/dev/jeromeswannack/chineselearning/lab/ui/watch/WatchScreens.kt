@@ -30,6 +30,7 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -146,7 +147,12 @@ object WatchTags {
 }
 
 @Composable
-fun WatchListScreen(ui: WatchListUi, actions: WatchListActions, thumbnails: Map<String, ImageBitmap>? = null) {
+fun WatchListScreen(
+    ui: WatchListUi,
+    actions: WatchListActions,
+    /** Screenshots: drawn thumbnails (none fetched); null = YouTube's public ones, cached. */
+    thumbnails: Map<String, ImageBitmap>? = null,
+) {
     LabScreen(title = "📺 Watch", subtitle = "追剧 · Chinese TV with a transcript you can tap", onBack = actions.onBack) {
         ui.notice?.let { item(key = "notice") { InlineNotice(it, kind = NoticeKind.Warning, actionLabel = "OK", onAction = actions.onDismissNotice) } }
         item(key = "paste") { PasteCard(ui, actions) }
@@ -154,7 +160,7 @@ fun WatchListScreen(ui: WatchListUi, actions: WatchListActions, thumbnails: Map<
         item(key = "mine-h") { SectionHeader("My videos") }
         when {
             videos.isNotEmpty() -> items(videos, key = { it.id }) { v ->
-                VideoRow(v, busy = v.id in ui.busy, online = ui.online, actions = actions, preview = thumbnails?.get(v.id))
+                VideoRow(v, busy = v.id in ui.busy, online = ui.online, actions = actions, preview = thumbnails?.get(v.id), load = thumbnails == null)
             }
             ui.list.loading && !ui.list.hasData -> item(key = "loading") { LoadingState(text = "Loading your videos…") }
             else -> item(key = "empty") {
@@ -213,12 +219,12 @@ private fun ShowRow(s: Watch.Show, onClick: () -> Unit) {
 }
 
 @Composable
-private fun VideoRow(v: WatchVideoDto, busy: Boolean, online: Boolean, actions: WatchListActions, preview: ImageBitmap?) {
+private fun VideoRow(v: WatchVideoDto, busy: Boolean, online: Boolean, actions: WatchListActions, preview: ImageBitmap?, load: Boolean) {
     var menu by remember { mutableStateOf(false) }
     LabCard(Modifier.testTag(WatchTags.video(v.id)).bouncyClickable(pressedScale = 0.98f) { actions.onOpen(v.id) }) {
         Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.width(128.dp)) {
-                Thumbnail(v.id, Modifier.fillMaxWidth(), preview)
+                Thumbnail(v.id, Modifier.fillMaxWidth(), preview, load)
                 v.duration_ms?.let {
                     Text(
                         Watch.clock(it), color = Color.White, fontSize = 11.sp,
@@ -257,10 +263,10 @@ private fun VideoRow(v: WatchVideoDto, busy: Boolean, online: Boolean, actions: 
 
 /** YouTube's public thumbnail (the only picture of a video we show), kept in the cache for offline. */
 @Composable
-fun Thumbnail(videoId: String, modifier: Modifier = Modifier, preview: ImageBitmap? = null) {
+fun Thumbnail(videoId: String, modifier: Modifier = Modifier, preview: ImageBitmap? = null, load: Boolean = true) {
     val app = LocalContext.current.applicationContext as? LabApp
     val loaded by produceState<ImageBitmap?>(null, videoId, preview) {
-        if (preview != null || app == null) return@produceState
+        if (preview != null || app == null || !load) return@produceState
         value = withContext(Dispatchers.IO) {
             runCatching {
                 val dir = File(app.cacheDir, "watch-thumbs").apply { mkdirs() }
@@ -370,9 +376,11 @@ fun WatchPlayerScreen(
                         }
                     }
                 } else {
+                    // Phone: the video, then the line card + controls (always in view), then the transcript scrolls.
                     Column(Modifier.fillMaxSize()) {
-                        VideoArea(ui, actions, video, Modifier.padding(horizontal = 0.dp))
-                        Transcript(ui, actions, listState, Modifier.fillMaxSize(), header = true)
+                        VideoArea(ui, actions, video)
+                        Column(Modifier.padding(start = 12.dp, end = 12.dp, top = 10.dp)) { Controls(ui, actions) }
+                        Transcript(ui, actions, listState, Modifier.weight(1f).fillMaxWidth(), header = true)
                     }
                 }
             }
@@ -447,7 +455,7 @@ private fun Controls(ui: WatchPlayerUi, actions: WatchPlayerActions) {
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun Toggles(ui: WatchPlayerUi, actions: WatchPlayerActions) {
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Chip("拼", ui.pinyin, Modifier.width(52.dp), actions.onPinyin)
         Chip("EN", ui.english, Modifier.width(52.dp), actions.onEnglish)
         Chip("⏸ Pause after each line", ui.pauseEachLine, Modifier, actions.onPauseMode)
@@ -589,8 +597,8 @@ private fun Transcript(ui: WatchPlayerUi, actions: WatchPlayerActions, listState
         contentPadding = PaddingValues(start = if (header) 12.dp else 0.dp, end = if (header) 12.dp else 0.dp, top = 10.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        // The header item (controls on a phone) keeps line indexes stable: one item before the lines either way.
-        item(key = "head") { if (header) Controls(ui, actions) else Spacer(Modifier.height(1.dp)) }
+        // One item before the lines (keeps itemIndexOfLine simple).
+        item(key = "head") { Spacer(Modifier.height(1.dp)) }
         items(items, key = { when (it) { is Row_.Line -> "l${it.i}"; is Row_.Gap -> "g${it.startMs}" } }) { r ->
             when (r) {
                 is Row_.Gap -> Text(
