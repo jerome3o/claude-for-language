@@ -108,6 +108,7 @@ import {
   parseOAuthState,
   parseNativeAuthClient,
   authRedirectUrl,
+  updateRequiredPage,
   createAuthCode,
   parseAuthChallenge,
   isVerifiedGoogleEmail,
@@ -322,6 +323,9 @@ app.get('/api/auth/login', (c) => {
   // An app too old to send one is told to update instead of being signed in.
   if (!challenge) {
     const frontendUrl = isSecure ? 'https://chinese-learning-2x9.pages.dev' : 'http://localhost:3000';
+    // A web page from before the code exchange can't show `error=update_required` (an empty red
+    // box and a sign-in that loops): it gets a page of its own on this origin instead.
+    if (!native) return updateRequiredPage(frontendUrl);
     return Response.redirect(authRedirectUrl(frontendUrl, native, { error: 'update_required' }), 302);
   }
   const state = encodeOAuthState(generateState(), inviteToken, native, challenge);
@@ -399,6 +403,7 @@ app.get('/api/auth/callback', async (c) => {
     // /api/auth/login refuses a sign-in without a challenge, so one missing here is a
     // state from before that rule: nothing is created, the app is told to update.
     if (!challenge) {
+      if (!native) return updateRequiredPage(frontendUrl);
       return Response.redirect(redirectTo({ error: 'update_required' }), 302);
     }
 

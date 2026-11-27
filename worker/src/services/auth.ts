@@ -593,6 +593,54 @@ export function authRedirectUrl(
 }
 
 /**
+ * The page a WEB browser gets when its sign-in carries no challenge — i.e. it is running a
+ * copy of the app cached from before the code exchange (Nov 2026). Those old copies don't
+ * know `error=update_required`, so a redirect back to them showed an empty red box and a
+ * sign-in button that looped. This page lives on the API's origin (no service worker of the
+ * app's there), so even the oldest copy shows it. Native apps still get the redirect.
+ */
+export function updateRequiredPage(frontendUrl: string): Response {
+  const app = escapeHtml(frontendUrl);
+  let host = frontendUrl;
+  try { host = new URL(frontendUrl).host; } catch { /* not a URL: show it as given */ }
+  const html = `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Update the app to sign in</title>
+<style>
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#16213e;color:#e8ecf4;font:16px/1.5 system-ui,-apple-system,Roboto,sans-serif}
+main{max-width:28rem;padding:1.5rem}
+h1{font-size:1.4rem;margin:0 0 .75rem}
+ol{padding-left:1.25rem}li{margin:.5rem 0}
+a.button{display:block;text-align:center;background:#fff;color:#1f2937;text-decoration:none;font-weight:600;border-radius:.6rem;padding:.85rem 1rem;margin:1.25rem 0}
+.small{color:#aab4c8;font-size:.9rem}
+</style></head>
+<body><main>
+<h1>This browser has an old copy of the app</h1>
+<p>Sign-in changed, and the copy of 汉语学习 saved in this browser is too old to finish it.</p>
+<ol>
+<li>Tap <strong>Open the app</strong> below and leave it open for up to a minute. It downloads the new version and reloads by itself.</li>
+<li>Then tap <strong>Sign in with Google</strong> again.</li>
+</ol>
+<a class="button" href="${app}/">Open the app</a>
+<p class="small">Still seeing this? Close every tab of the app and open it again. If that doesn't help, clear this site's data in the browser's settings (Site settings → ${escapeHtml(host)} → Clear) and open it again — that is safe if you haven't used the app in this browser before.</p>
+</main></body></html>`;
+  return new Response(html, {
+    status: 200,
+    headers: {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'no-store',
+      'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+      'X-Content-Type-Options': 'nosniff',
+      'Referrer-Policy': 'no-referrer',
+    },
+  });
+}
+
+function escapeHtml(text: string): string {
+  return text.replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch] as string));
+}
+
+/**
  * Where the SPA lives, for redirects and invite URLs. The API and the frontend
  * are on different origins in production, so prefer the caller's Origin (or
  * Referer) and fall back to the deployed Pages URL / local dev server.
