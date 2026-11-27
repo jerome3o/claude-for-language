@@ -129,6 +129,10 @@ object Routes {
     fun podcasts() = "/podcasts"
     fun podcastFeed(url: String) = "/podcasts/feed" + query("url" to url)
     fun podcastEpisode(id: String) = "/podcasts/episodes/${seg(id)}"
+    /** 📺 Watch (docs/WATCH.md): my videos, one video's player, a link shared from YouTube. */
+    fun watch() = "/watch"
+    fun watchVideo(id: String) = "/watch/${seg(id)}"
+    fun watchShare(text: String?) = "/watch/share" + query("text" to text)
     fun strokes(text: String? = null) = "/practice/strokes" + query("text" to text)
 
     // ---- calls (package J) ----

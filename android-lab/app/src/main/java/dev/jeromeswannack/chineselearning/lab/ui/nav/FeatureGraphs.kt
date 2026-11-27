@@ -41,6 +41,7 @@ import dev.jeromeswannack.chineselearning.lab.ui.clips.clipsGraph
 import dev.jeromeswannack.chineselearning.lab.ui.upnext.upNextGraph
 import dev.jeromeswannack.chineselearning.lab.ui.podcasts.podcastsGraph
 import dev.jeromeswannack.chineselearning.lab.ui.phone.phoneGraph
+import dev.jeromeswannack.chineselearning.lab.ui.watch.watchGraph
 
 /**
  * THE registry of screens — one line per feature, nothing else. Each feature registers its
@@ -88,6 +89,7 @@ fun NavGraphBuilder.featureGraphs(nav: LabNav) {
     podcastsGraph(nav)      // "/podcasts", "/podcasts/feed", "/podcasts/episodes/:id" — 🎙 Podcasts (Lab only for now)
     phoneGraph(nav)         // "/phone", "/phone/:id" — 📱 Phone practice (simulated Chinese phone)
     claudeThreadGraph(nav)  // "/chats/claude/:id" (+ /recap) — one screen for every Claude chat (docs/CHAT.md "Claude thread view")
+    watchGraph(nav)         // "/watch", "/watch/share?text=", "/watch/:id" — 📺 Watch (YouTube + a timed transcript)
     // Add yours above this line, one line each.
     placeholderGraph(nav)   // everything else → main app (keep last)
 }
