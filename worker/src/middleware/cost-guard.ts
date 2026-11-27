@@ -8,7 +8,7 @@
  *               answer checks, /api/ai/*, idioms, phone-practice persona chats): 60 a minute;
  *    - `tts`  — /api/practice/tts (mostly R2 hits; the TTS limiter paces real calls): 600 a minute;
  *    - `jobs` — POSTs that start background generation (audio lessons, readers, picture
- *               hunts, quests, podcast episodes, session notes / homework drafts, meme-review
+ *               hunts, quests, podcast episodes, 📺 Watch transcripts, session notes / homework drafts, meme-review
  *               lessons, clips: generate / retry / learn-more): 10 a
  *               minute and 30 an hour (the hour in D1: the bindings only count 10 s / 60 s).
  * 2. A DAILY AI COST CAP per user (`AI_DAILY_COST_CAP_USD`, default $10; "0" / "off" turns
@@ -69,6 +69,9 @@ const JOB_PATHS: RegExp[] = [
   /^\/api\/quests\/[^/]+\/retry$/,
   /^\/api\/podcasts\/episodes$/,
   /^\/api\/podcasts\/episodes\/[^/]+\/(retry|lesson)$/,
+  // 📺 Watch (docs/WATCH.md): a video's transcript (Gemini reads it, Claude translates it).
+  /^\/api\/watch\/videos$/,
+  /^\/api\/watch\/videos\/[^/]+\/retry$/,
   /^\/api\/relationships\/[^/]+\/session-notes$/,
   /^\/api\/relationships\/[^/]+\/session-notes\/[^/]+\/retry$/,
   /^\/api\/calls\/[^/]+\/homework$/,

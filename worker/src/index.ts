@@ -62,6 +62,7 @@ import audioLessonRoutes from './routes/audio-lessons';
 import audioLessonFeedbackRoutes from './routes/audio-lesson-feedback';
 import { podcastPublic, podcastMe } from './routes/podcast';
 import { podcastsRoutes, podcastSourcePublic, handlePodcastQueueMessage } from './routes/podcasts';
+import { watchRoutes, handleWatchQueueMessage } from './routes/watch';
 import { runPictureHuntJob } from './services/picture-hunt';
 import type { QuestDifficulty } from './services/quest';
 import type { QuestWorld } from '@shared/quest';
@@ -782,6 +783,8 @@ app.route('/api', audioLessonFeedbackRoutes); // Feedback while listening — PO
 app.route('/api', podcastMe);
 // Podcasts (docs/PODCASTS.md): subscribe to Chinese podcasts, transcribe an episode into segments (routes/podcasts.ts)
 app.route('/api', podcastsRoutes);
+// 📺 Watch (docs/WATCH.md): YouTube videos with a timed transcript Gemini reads (routes/watch.ts)
+app.route('/api', watchRoutes);
 // Active study time per local day and device: PUT|GET /api/me/study-time (routes/study-time.ts)
 app.route('/api', studyTimeRoutes);
 // Usage analytics: event upload, the opt-out, admin usage questions (routes/analytics.ts)
@@ -6457,6 +6460,18 @@ async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | Ima
       // checkpoints in D1 and re-enqueues itself, so every message is acked.
       for (const message of batch.messages) {
         // Podcast episodes (docs/PODCASTS.md) ride this queue too: transcription jobs and their mini lessons.
+        // 📺 Watch transcripts (docs/WATCH.md) ride it too: Gemini reads the video window by window.
+        const watch = message.body as { kind?: string; videoId?: string };
+        if (watch.kind === 'video_transcript' && watch.videoId) {
+          try {
+            console.log('[Queue] watch transcript', watch.videoId, await handleWatchQueueMessage(env, message.body as never));
+            message.ack();
+          } catch (err) {
+            console.error('[Queue] watch transcript crashed:', watch.videoId, err);
+            message.retry({ delaySeconds: 60 });
+          }
+          continue;
+        }
         const podcast = message.body as { kind?: string; episodeId?: string };
         if (podcast.kind === 'podcast_episode' || podcast.kind === 'podcast_lesson') {
           try {
