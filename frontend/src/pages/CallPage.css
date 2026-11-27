@@ -1315,3 +1315,77 @@
   text-overflow: ellipsis;
   pointer-events: none;
 }
+
+/* ---------- 🎯 structures to use (components/calls/CallGoalsPanel.tsx, shared/calls/goals.ts) */
+.call-goals-chip {
+  flex: none;
+  min-height: 36px;
+  min-width: 36px;
+  padding: 0 0.7rem;
+  border: 1px solid rgba(134, 239, 172, 0.4);
+  border-radius: 999px;
+  background: rgba(34, 197, 94, 0.14);
+  color: #dcfce7;
+  font-size: 0.9rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.call-goals-chip.done { background: #15803d; border-color: #86efac; color: #fff; }
+.call-goals-chip.flash { animation: call-goals-flash 0.45s ease-in-out 6 alternate; }
+@keyframes call-goals-flash { from { box-shadow: 0 0 0 0 rgba(134, 239, 172, 0.9); background: #16a34a; } to { box-shadow: 0 0 0 8px rgba(134, 239, 172, 0); } }
+.call-goals-panel {
+  position: absolute;
+  z-index: 40;
+  left: 0.5rem;
+  right: 0.5rem;
+  bottom: 0.5rem;
+  max-height: 62%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0.8rem 0.9rem 0.9rem;
+  border-radius: 16px;
+  background: rgba(17, 24, 39, 0.97);
+  color: #f3f4f6;
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.55);
+}
+@media (min-width: 640px) {
+  .call-goals-panel { left: auto; right: 0.75rem; top: 0.5rem; bottom: auto; width: min(380px, calc(100% - 1.5rem)); max-height: calc(100% - 1rem); }
+}
+.call-goals-header { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.call-goals-header h2 { font-size: 1.05rem; margin: 0; }
+.call-goals-close { min-width: 44px; min-height: 44px; border: none; background: none; color: #d1d5db; font-size: 1.1rem; cursor: pointer; }
+.call-goals-intro { margin: 0.1rem 0 0.5rem; color: #d1d5db; font-size: 0.875rem; line-height: 1.35; }
+.call-goals-listen { margin: 0 0 0.6rem; font-size: 0.8rem; color: #86efac; }
+.call-goals-listen.muted, .call-goals-listen.unavailable { color: #fcd34d; }
+.call-goals-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.55rem; }
+.call-goal { padding: 0.6rem 0.7rem; border-radius: 12px; background: #1f2937; border: 1px solid #374151; transition: background 0.3s, border-color 0.3s; }
+.call-goal.used { background: rgba(22, 101, 52, 0.45); border-color: #22c55e; }
+.call-goal.checking { border-color: #a3e635; }
+.call-goal-head { display: flex; align-items: center; gap: 0.45rem; }
+.call-goal-mark { flex: none; width: 1.5rem; height: 1.5rem; border-radius: 50%; display: grid; place-items: center; font-weight: 700; color: #9ca3af; border: 2px solid #4b5563; font-size: 0.85rem; }
+.call-goal.used .call-goal-mark { background: #22c55e; border-color: #22c55e; color: #052e16; }
+.call-goal.checking .call-goal-mark { border-color: #a3e635; color: #a3e635; }
+.call-goal-name { flex: 1; font-size: 1.45rem; font-weight: 700; letter-spacing: 0.02em; }
+.call-goal-tools { display: flex; gap: 2px; }
+.call-goal-tools button { min-width: 36px; min-height: 36px; border: none; border-radius: 8px; background: none; color: #9ca3af; cursor: pointer; font-size: 0.95rem; }
+.call-goal-tools button:hover { background: #374151; color: #fff; }
+.call-goal-line { margin-top: 0.2rem; color: #d1d5db; font-size: 0.85rem; }
+.call-goal-meaning { color: #9ca3af; font-size: 0.85rem; }
+.call-goal-example { display: block; width: 100%; margin-top: 0.35rem; padding: 0.35rem 0.5rem; text-align: left; border: none; border-radius: 8px; background: #111827; color: #e5e7eb; font-size: 1rem; cursor: pointer; }
+.call-goal-hit { margin-top: 0.45rem; display: flex; flex-direction: column; gap: 0.1rem; }
+.call-goal-hit-caption { font-size: 0.78rem; font-weight: 700; color: #86efac; }
+.call-goal-hit.checking .call-goal-hit-caption { color: #d9f99d; animation: call-goals-pulse 1s ease-in-out infinite alternate; }
+.call-goal-hit.near .call-goal-hit-caption { color: #fcd34d; font-weight: 600; }
+@keyframes call-goals-pulse { from { opacity: 0.55; } to { opacity: 1; } }
+.call-goal-said { font-size: 1.05rem; color: #fff; }
+.call-goal-hit.near .call-goal-said { color: #e5e7eb; }
+.call-goal-foot { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.4rem; }
+.call-goal-source { flex: 1; font-size: 0.72rem; color: #6b7280; }
+.call-goal-tick, .call-goal-untick { min-height: 36px; padding: 0 0.75rem; border-radius: 999px; border: 1px solid #22c55e; background: none; color: #86efac; font-weight: 600; cursor: pointer; }
+.call-goal-untick { border-color: #4b5563; color: #d1d5db; }
+.call-goals-add { display: flex; gap: 0.4rem; margin-top: 0.7rem; }
+.call-goals-add input { flex: 1; min-width: 0; min-height: 44px; padding: 0 0.7rem; border-radius: 10px; border: 1px solid #4b5563; background: #0b0f14; color: #f9fafb; font-size: 1rem; }
+.call-goals-add button { min-height: 44px; padding: 0 1rem; border-radius: 10px; border: none; background: #2563eb; color: #fff; font-weight: 600; cursor: pointer; }
+.call-goals-add button:disabled { opacity: 0.5; cursor: default; }
+.call-goals-problem { margin: 0.4rem 0 0; color: #fca5a5; font-size: 0.8rem; }

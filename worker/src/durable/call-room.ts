@@ -94,7 +94,13 @@ import {
   sanitizeTimer,
   sanitizeTimerAction,
   type CallTimer,
+  mayActOnGoals,
+  reduceGoals,
+  sanitizeCallGoals,
+  sanitizeGoalsAction,
+  type CallGoals,
 } from '@shared/calls';
+import { initCallGoals, saveCallGoals } from '../services/calls/goals';
 import { markCallEnded, saveRoomSnapshot } from '../services/calls/store';
 import { markCallMessageEnded } from '../services/chat/system';
 import { broadcastMessageUpdated } from '../services/chat/messages';
@@ -331,12 +337,12 @@ export class CallRoom extends DurableObject<Env> {
   }
 
   /** The call's relationship and lesson (asked once). */
-  private callMeta: { id: string; relationship_id: string | null; lesson_id: string | null } | null = null;
-  private async meta(): Promise<{ id: string; relationship_id: string | null; lesson_id: string | null } | null> {
+  private callMeta: { id: string; relationship_id: string | null; lesson_id: string | null; created_by: string } | null = null;
+  private async meta(): Promise<{ id: string; relationship_id: string | null; lesson_id: string | null; created_by: string } | null> {
     if (this.callMeta) return this.callMeta;
     const callId = await this.ctx.storage.get<string>('callId');
     if (!callId) return null;
-    const row = await this.env.DB.prepare('SELECT id, relationship_id, lesson_id FROM calls WHERE id = ?').bind(callId).first<{ id: string; relationship_id: string | null; lesson_id: string | null }>();
+    const row = await this.env.DB.prepare('SELECT id, relationship_id, lesson_id, created_by FROM calls WHERE id = ?').bind(callId).first<{ id: string; relationship_id: string | null; lesson_id: string | null; created_by: string }>();
     this.callMeta = row ?? null;
     return this.callMeta;
   }
@@ -795,6 +801,7 @@ export class CallRoom extends DurableObject<Env> {
       shown: (await this.ctx.storage.get<ShownState | null>('shown')) ?? null,
       view: (await this.ctx.storage.get<SharedView | null>('view')) ?? null,
       timer: sanitizeTimer(await this.ctx.storage.get<CallTimer | null>('timer')),
+      goals: await this.goals(),
     });
     this.broadcast({ type: 'peer_joined', peer: this.peerOf(attachment) }, server);
     return new Response(null, { status: 101, webSocket: client });
@@ -1114,6 +1121,10 @@ export class CallRoom extends DurableObject<Env> {
         await this.timerAction(ws, a, msg.action);
         return;
       }
+      case 'goals': {
+        await this.goalsAction(ws, a, msg.action);
+        return;
+      }
       case 'state': {
         const s = msg.state;
         if (!s || typeof s !== 'object') return;
@@ -1197,6 +1208,81 @@ export class CallRoom extends DurableObject<Env> {
     this.broadcast({ type: 'timer', timer: next, server_time: now });
     if (action.kind === 'set') await this.logRoom(`${a.name} set a ${next?.mode === 'countdown' ? `${minutesLabel(next.duration_ms)} countdown` : 'stopwatch'}`, a);
     else if (action.kind === 'clear') await this.logRoom(`${a.name} took the timer away`, a);
+  }
+
+  // ---------------------------------------------------------------- 🎯 structures to use
+
+  /** Asked once per room instance (a failed first try is tried again on the next join). */
+  private goalsCache: CallGoals | null | undefined = undefined;
+
+  /**
+   * The call's structures list (shared/calls/goals.ts): made on the first join from the student's
+   * mini lessons (services/calls/goals.ts) and kept in storage. Never in the way of joining: any
+   * failure → null (no list), tried again on the next join.
+   */
+  private goalsLoading: Promise<CallGoals | null> | null = null;
+  private async goals(): Promise<CallGoals | null> {
+    if (this.goalsCache !== undefined) return this.goalsCache;
+    // Both people joining at once must get the SAME list (ids), so one load at a time.
+    if (!this.goalsLoading) this.goalsLoading = this.loadGoals().finally(() => { this.goalsLoading = null; });
+    return this.goalsLoading;
+  }
+
+  private async loadGoals(): Promise<CallGoals | null> {
+    try {
+      if ((await this.ctx.storage.get<boolean>('goalsInit')) === true) {
+        this.goalsCache = sanitizeCallGoals(await this.ctx.storage.get('goals'));
+        return this.goalsCache;
+      }
+      const m = await this.meta();
+      if (!m) return null;
+      const made = await initCallGoals(this.env.DB, m, await this.tutor(), Date.now());
+      await this.ctx.storage.put({ goals: made, goalsInit: true });
+      this.goalsCache = made;
+      return made;
+    } catch (err) {
+      console.error('[call-room] structures list failed:', err instanceof Error ? err.message : err);
+      return null;
+    }
+  }
+
+  /** Add / remove / move (anyone), tick / untick (the tutor), heard / checked (the student's own speech). */
+  private async goalsAction(ws: WebSocket, a: Attachment, raw: unknown): Promise<void> {
+    const action = sanitizeGoalsAction(raw);
+    if (!action) return;
+    const cur = await this.goals();
+    if (!cur) return;
+    if (!mayActOnGoals(action, a.userId, await this.tutor(), cur.student_id)) {
+      this.send(ws, { type: 'error', message: action.kind === 'tick' || action.kind === 'untick' ? 'Only the tutor can tick structures by hand' : 'Only the student’s own speech ticks a structure' });
+      this.send(ws, { type: 'goals', goals: cur });
+      return;
+    }
+    const next = reduceGoals(cur, action, { userId: a.userId, name: a.name }, Date.now(), () => crypto.randomUUID());
+    if (!next) {
+      // Refused / stale (a check for a sentence already replaced): the sender catches up.
+      if (action.kind === 'heard' || action.kind === 'checked') this.send(ws, { type: 'goals', goals: cur });
+      return;
+    }
+    this.goalsCache = next;
+    await this.ctx.storage.put('goals', next);
+    this.broadcast({ type: 'goals', goals: next, from: a.clientId, name: a.name });
+    const g = next.goals.find((x) => 'id' in action && x.id === action.id);
+    if (action.kind === 'checked' && g?.status === 'used') await this.logRoom(`${a.name} used ${g.name}`, a);
+    else if (action.kind === 'tick' && g) await this.logRoom(`${a.name} ticked ${g.name}`, a);
+    else if (action.kind === 'add') await this.logRoom(`${a.name} added a structure`, a);
+  }
+
+  /** The list → D1 (call_goals), on leave / end (a few rows; written whole each time). Never throws. */
+  private async saveGoals(): Promise<void> {
+    try {
+      if ((await this.ctx.storage.get<boolean>('goalsInit')) !== true) return;
+      const goals = sanitizeCallGoals(await this.ctx.storage.get('goals'));
+      const m = await this.meta();
+      if (!goals || !m) return;
+      await saveCallGoals(this.env.DB, { callId: m.id, lessonId: m.lesson_id, relationshipId: m.relationship_id }, goals);
+    } catch (err) {
+      console.error('[call-room] structures save failed:', err instanceof Error ? err.message : err);
+    }
   }
 
   /** The tutor stops the other person's screen share: their device stops capturing; everyone hears they no longer share. */
@@ -1303,6 +1389,7 @@ export class CallRoom extends DurableObject<Env> {
     await this.persistNow();
     await this.saveMaterialAnnots();
     await this.keepActivity(await this.activity());
+    await this.saveGoals();
     const callId = await this.ctx.storage.get<string>('callId');
     if (!callId) return;
     await this.load();

@@ -20,6 +20,7 @@ import { getCall, getParticipants } from './store';
 import { assemblePiece, getPiece, listPieces } from './recording';
 import { transcribeAudio, pickTranscriber } from './transcribe';
 import { writeCallReport, writeReport } from './report';
+import { lessonGoals } from './goals';
 import { advanceLessonProcessing, getLesson, lessonCalls, lessonMaterial } from './lessons';
 import { prepareAfterLesson, runPrepareJob } from '../prepared-activities/run';
 
@@ -98,6 +99,7 @@ export async function processLessonReport(env: Env, lessonId: string): Promise<v
       title: m.title,
       startedAt: m.startedAt,
       callCount: ended.length,
+      goals: await lessonGoals(env.DB, ended.map((c) => c.id)).catch(() => []),
     }, participants);
     await env.DB
       .prepare(`UPDATE call_lessons SET summary_json = ?, processing_status = 'done', processing_error = NULL, report_call_ids = ? WHERE id = ?`)

@@ -19,7 +19,7 @@ import kotlin.math.sin
 object CallChime {
     const val PEER_LEAVE_GRACE_MS = 8_000L
 
-    enum class Kind(val wire: String) { JOIN("join"), LEAVE("leave"), TIMER("timer") }
+    enum class Kind(val wire: String) { JOIN("join"), LEAVE("leave"), TIMER("timer"), GOAL("goal") }
 
     data class Peer(val clientId: String, val name: String, val here: Boolean, val leftAt: Long?, val announcedLeft: Boolean)
 
@@ -92,6 +92,8 @@ object CallChime {
         Kind.JOIN to listOf(Tone(659.25, 0, 380, 0.16), Tone(830.61, 140, 520, 0.16)),
         Kind.LEAVE to listOf(Tone(523.25, 0, 380, 0.1), Tone(440.0, 160, 520, 0.1)),
         Kind.TIMER to listOf(Tone(880.0, 0, 700, 0.2), Tone(659.25, 260, 700, 0.2), Tone(880.0, 520, 1100, 0.2)),
+        // 🎯 A structure was used (CallGoals): a soft, bright fifth up (G5 → D6).
+        Kind.GOAL to listOf(Tone(783.99, 0, 260, 0.12), Tone(1174.66, 110, 420, 0.12)),
     )
 
     const val CHIME_ATTACK_MS = 12

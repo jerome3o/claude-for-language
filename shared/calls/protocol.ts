@@ -15,6 +15,7 @@ import type { BoardPageMeta } from './pages';
 import type { ShowView, ShownState } from './follow';
 import type { SharedView, StageView, ViewMode } from './view';
 import type { CallTimer, CallTimerAction } from './timer';
+import type { CallGoals, CallGoalsAction } from './goals';
 
 export interface CallPeer {
   client_id: string;
@@ -131,6 +132,11 @@ export type ClientMessage =
   | { type: 'stop_share' }
   /** The call timer (./timer.ts): set / start / pause / reset / clear — the tutor only (solo: anyone). */
   | { type: 'timer'; action: CallTimerAction }
+  /**
+   * 🎯 Structures to use (./goals.ts): add / remove / move (anyone), tick / untick (the tutor),
+   * heard / checked (the student's own device, from his speech). The room answers `goals` to everyone.
+   */
+  | { type: 'goals'; action: CallGoalsAction }
   | { type: 'state'; state: PeerMediaState }
   | { type: 'ping'; t: number }
   /** I'm leaving (the call goes on for the other person): I stop counting as present at once. */
@@ -178,6 +184,8 @@ export type ServerMessage =
       view?: SharedView | null;
       /** The call timer (./timer.ts; absent / null = none), in room time — `server_time` / pongs give the offset. */
       timer?: CallTimer | null;
+      /** 🎯 Structures to use in this call (./goals.ts; absent from an older room, null = none could be made). */
+      goals?: CallGoals | null;
     }
   | { type: 'peer_joined'; peer: CallPeer }
   | { type: 'peer_left'; client_id: string }
@@ -220,6 +228,8 @@ export type ServerMessage =
   | { type: 'share_stopped'; by: string; name: string }
   /** The call timer after a change (null = taken away). `server_time`: the room's clock when it was sent. */
   | { type: 'timer'; timer: CallTimer | null; server_time: number }
+  /** The structures list after a change. `from` = the client whose message caused it. */
+  | { type: 'goals'; goals: CallGoals; from?: string; name?: string }
   | { type: 'pong'; t: number; server_time: number }
   | { type: 'ended'; by: string }
   | { type: 'replaced' }

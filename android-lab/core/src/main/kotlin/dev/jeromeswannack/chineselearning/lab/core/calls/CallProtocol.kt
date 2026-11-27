@@ -59,6 +59,8 @@ object CallProtocol {
             view = CallView.parseShared(o["view"]),
             // The call timer (core CallTimer; absent / null = none), in room time.
             timer = CallTimer.parse(o["timer"]),
+            // 🎯 Structures to use (core CallGoals; absent / null = none).
+            goals = CallGoals.parse(o["goals"]),
         )
         "text" -> o.str("from")?.let { from -> ServerMessage.Text(from, (o["ops"] as? JsonArray)?.mapNotNull { CallTextDoc.sanitizeOp(it) }.orEmpty(), o.str("page")) }
         "text_cursor" -> parseCursor(o)?.let { ServerMessage.TextCursorMsg(it, o.str("page")) }
@@ -107,6 +109,8 @@ object CallProtocol {
             is JsonNull -> ServerMessage.Timer(null, o.long("server_time") ?: 0)
             else -> CallTimer.parse(t)?.let { ServerMessage.Timer(it, o.long("server_time") ?: 0) }
         }
+        // 🎯 The structures list after a change (core CallGoals); [from] = the client whose message caused it.
+        "goals" -> CallGoals.parse(o["goals"])?.let { ServerMessage.Goals(it, o.str("from")) }
         else -> null
     } }
 
@@ -203,6 +207,9 @@ object CallProtocol {
     fun stopShare(): String = CallFollow.stopShareMessage()
     /** The call timer, the tutor only (solo: anyone): set / start / pause / reset / clear (core CallTimer). */
     fun timer(action: CallTimer.Action): String = CallTimer.actionMessage(action)
+
+    /** 🎯 Structures to use: add / remove / move (anyone), tick / untick (the tutor), heard / checked (the student's own device). */
+    fun goals(action: CallGoals.Action): String = CallGoals.actionMessage(action)
     fun leave(): String = buildJsonObject { put("type", "leave") }.toString()
 
     private fun JsonObject.str(k: String): String? = (this[k] as? JsonPrimitive)?.takeIf { it.isString }?.content
@@ -265,6 +272,8 @@ sealed interface ServerMessage {
         val view: CallView.SharedView? = null,
         /** The call timer (core CallTimer; null = none), in room time. */
         val timer: CallTimer.Timer? = null,
+        /** 🎯 Structures to use in this call (core CallGoals; null = none / an older room). */
+        val goals: CallGoals.Goals? = null,
     ) : ServerMessage
     /** [page] = the board page the ops belong to (null from an older room). */
     data class Text(val from: String, val ops: List<TextOp>, val page: String? = null) : ServerMessage
@@ -311,4 +320,6 @@ sealed interface ServerMessage {
     data class ShareStopped(val by: String, val name: String) : ServerMessage
     /** The call timer after a change (null = taken away); [serverTime] = the room's clock when sent. */
     data class Timer(val timer: CallTimer.Timer?, val serverTime: Long) : ServerMessage
+    /** 🎯 The structures list after a change; [from] = the client whose message caused it. */
+    data class Goals(val goals: CallGoals.Goals, val from: String? = null) : ServerMessage
 }

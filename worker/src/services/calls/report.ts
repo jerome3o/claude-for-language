@@ -8,7 +8,7 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import { CARD_STANDARD, cardTextProblems } from '@shared/cards/standard';
-import { mergeTranscript, transcriptToText, type BoardItem, type CallChatMessage } from '@shared/calls';
+import { goalsNotes, goalsSummary, mergeTranscript, transcriptToText, type BoardItem, type CallChatMessage, type CallGoal, type GoalsSummary } from '@shared/calls';
 import type { Env } from '../../types';
 import type { CallParticipant, CallRow } from './store';
 
@@ -41,6 +41,8 @@ export interface CallReport {
   vocabulary: CallReportWord[];
   corrections: CallReportCorrection[];
   follow_ups: string[];
+  /** 🎯 Structures he aimed to use in the lesson (shared/calls/goals.ts) — what he used, came close to, didn't try. */
+  structures?: GoalsSummary;
   model: string;
   generated_at: string;
 }
@@ -90,6 +92,8 @@ export interface ReportSource {
   startedAt: number | null;
   /** How many calls the lesson was (the report says so when it is more than one). */
   callCount?: number;
+  /** 🎯 The structures the student aimed to use (ticked live from his speech, or by the tutor). */
+  goals?: CallGoal[];
 }
 
 /** The report, or null when there is nothing to write about (or no API key). */
@@ -123,6 +127,8 @@ export async function writeReport(env: Env, src: ReportSource, participants: Cal
   const startMs = src.startedAt ?? segments[0]?.start_ms ?? 0;
   const transcript = trimMiddle(transcriptToText(segments, names, startMs, { translations: true }), MAX_TRANSCRIPT_CHARS);
   const chatText = chat.map((m) => `${names[m.user_id] || m.name}: ${m.text}`).join('\n');
+  const structures = src.goals?.length ? goalsSummary(src.goals) : null;
+  const structureNotes = structures ? goalsNotes(structures) : '';
 
   const system = `You review a recorded 1:1 Mandarin Chinese lesson between a tutor and a learner and write the learner's lesson report.
 
@@ -144,7 +150,7 @@ Lesson title: ${src.title || '(none)'}
 
 TRANSCRIPT (time from the start of the lesson; translations in brackets where the recogniser gave one):
 ${transcript || '(no speech was transcribed)'}
-${sharedNotes ? `\nSHARED NOTES (typed together on the board during the lesson):\n${sharedNotes.slice(0, 20_000)}\n` : ''}${chatText ? `\nIN-CALL CHAT:\n${chatText}` : ''}${boardText.length ? `\nWRITTEN ON THE WHITEBOARD:\n${boardText.join('\n')}` : ''}`;
+${sharedNotes ? `\nSHARED NOTES (typed together on the board during the lesson):\n${sharedNotes.slice(0, 20_000)}\n` : ''}${chatText ? `\nIN-CALL CHAT:\n${chatText}` : ''}${boardText.length ? `\nWRITTEN ON THE WHITEBOARD:\n${boardText.join('\n')}` : ''}${structureNotes ? `\nSTRUCTURES THE LEARNER AIMED TO USE (from his recent mini lessons; ticked live when he used one — mention them in the summary and suggest the untried ones as follow-ups):\n${structureNotes}` : ''}`;
 
   const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
   const response = await client.messages.create({
@@ -203,7 +209,8 @@ ${sharedNotes ? `\nSHARED NOTES (typed together on the board during the lesson):
   });
   const toolUse = response.content.find((c) => c.type === 'tool_use');
   if (!toolUse || toolUse.type !== 'tool_use') throw new Error('Claude returned no report');
-  return normalizeReport(toolUse.input as Partial<CallReport>, MODEL);
+  const report = normalizeReport(toolUse.input as Partial<CallReport>, MODEL);
+  return structures ? { ...report, structures } : report;
 }
 
 const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '');

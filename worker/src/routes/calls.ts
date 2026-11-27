@@ -19,6 +19,8 @@
  *   POST   /calls/:id/process                         "Process now": close stale pieces, retry failures, redo the report
  *   POST   /calls/:id/flashcards                      { deck_id? (or a source deck ref "source:practice") | deck_name?, words: [...] } → notes made from the report
  *   POST   /calls/:id/gloss                           { text, direction?: zh|en } → zh { pinyin, english } / en { chinese, pinyin } — the text board's tab-complete (cached)
+ *   POST   /calls/:id/goals/check                     { name, line?, meaning?, fixed, sentence } → { ok, reason, cached } — 🎯 is the structure really
+ *                                                     used in this sentence? (services/calls/goals.ts; cost guard `ai`)
  *   GET    /calls/:id/ws?ticket=                      WebSocket into the CallRoom
  */
 
@@ -41,6 +43,8 @@ import {
 import { closePiece, forceClosePieces, listPieces, registerPiece, storeChunk } from '../services/calls/recording';
 import { advanceCallProcessing, reprocessCall } from '../services/calls/processing';
 import { listCallActivities } from '../services/calls/activities';
+import { checkStructureUse, lessonGoals } from '../services/calls/goals';
+import { matchStructure } from '@shared/calls';
 import { lessonRecapMaterial } from '../services/calls/recap';
 import { advanceLessonProcessing, afterCallDeleted, lessonMaterial, lessonProcessingStatus, reportIsCurrent } from '../services/calls/lessons';
 import { createJoinTicket, verifyJoinTicket } from '../services/calls/ticket';
@@ -132,7 +136,7 @@ calls.get('/calls/:id', async (c) => {
     // other, shared/calls/lessons.ts): transcript, recordings, board, chat and the one report.
     const material = call.lesson_id ? await lessonMaterial(c.env.DB, call.lesson_id) : null;
     const lessonCallIds = material ? material.calls.map((x) => x.id) : [call.id];
-    const [participants, pieces, segments, activities] = await Promise.all([
+    const [participants, pieces, segments, activities, goals] = await Promise.all([
       getParticipants(c.env.DB, call),
       listPieces(c.env.DB, ...lessonCallIds),
       material
@@ -142,6 +146,7 @@ calls.get('/calls/:id', async (c) => {
             .bind(call.id)
             .all(),
       listCallActivities(c.env.DB, lessonCallIds).catch(() => []),
+      lessonGoals(c.env.DB, lessonCallIds).catch(() => []),
     ]);
     const { board_json, chat_json, summary_json, board_text, diagnostics_json, ...rest } = call;
     const lessonReport = material?.lesson.summary_json ?? null;
@@ -178,6 +183,8 @@ calls.get('/calls/:id', async (c) => {
       report: lessonReport ? (JSON.parse(lessonReport) as CallReport) : summary_json ? (JSON.parse(summary_json) as CallReport) : null,
       /** In-call activities played in the lesson (shared/call-activities), oldest first. */
       activities,
+      /** 🎯 Structures the student aimed to use in the lesson (shared/calls/goals.ts), with what he said. */
+      goals,
       pieces: await Promise.all(pieces.map(async (p) => ({
         id: p.id,
         call_id: p.call_id,
@@ -423,6 +430,41 @@ calls.post('/calls/:id/gloss', async (c) => {
   } catch (error) {
     if (error instanceof StructuredCallError) return c.json({ error: 'No suggestion right now' }, error.retryable ? 503 : 502);
     return errorResponse(c, error, 'No suggestion right now');
+  }
+});
+
+/**
+ * 🎯 Structures to use (shared/calls/goals.ts): the student's device heard a structure's fixed words in
+ * order in what he said; one small model call says whether he really used the structure in its sense.
+ * Members of the call only (remembered per isolate like the gloss); the words must match (no general
+ * Chinese checker); cached per structure + sentence. 503 when no model can answer — the device then
+ * counts the words' match.
+ */
+const goalMembers = new Map<string, number>();
+calls.post('/calls/:id/goals/check', async (c) => {
+  try {
+    const user = c.get('user');
+    if (!user) return c.json({ error: 'Unauthorized' }, 401);
+    const callId = c.req.param('id');
+    const memberKey = `${callId}:${user.id}`;
+    if ((goalMembers.get(memberKey) ?? 0) < Date.now()) {
+      await requireCall(c.env.DB, callId, user.id);
+      goalMembers.set(memberKey, Date.now() + 5 * 60_000);
+      if (goalMembers.size > 5_000) goalMembers.delete(goalMembers.keys().next().value as string);
+    }
+    const body = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
+    const str = (v: unknown, max: number) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, max) : '');
+    const name = str(body.name, 60);
+    const sentence = str(body.sentence, 160);
+    const fixed = Array.isArray(body.fixed) ? body.fixed.filter((w): w is string => typeof w === 'string' && w.trim() !== '').map((w) => w.trim().slice(0, 12)).slice(0, 6) : [];
+    if (!name || !sentence || fixed.length === 0) return c.json({ error: 'Send the structure (name, fixed words) and the sentence' }, 400);
+    if (!matchStructure(sentence, fixed)) return c.json({ ok: false, reason: 'The structure’s words aren’t all in the sentence.', cached: false });
+    if (!c.env.ANTHROPIC_API_KEY && c.env.E2E_TEST_MODE !== 'true') return c.json({ error: 'Checks are not configured' }, 503);
+    const result = await checkStructureUse(c.env, { name, line: str(body.line, 200) || null, meaning: str(body.meaning, 200) || null, fixed, sentence });
+    return c.json(result);
+  } catch (error) {
+    if (error instanceof StructuredCallError) return c.json({ error: 'No answer right now' }, error.retryable ? 503 : 502);
+    return errorResponse(c, error, 'No answer right now');
   }
 });
 

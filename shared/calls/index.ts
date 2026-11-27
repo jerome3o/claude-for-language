@@ -17,3 +17,4 @@ export * from './view';
 export * from './share';
 export * from './timer';
 export * from './chime';
+export * from './goals';

@@ -7,7 +7,7 @@
  *                                  Gemini (services/take-transcription.ts). The device sends
  *                                  `live_error` (why its live stream gave nothing) and
  *                                  `client`, logged so a broken live path is visible.
- *   POST /transcribe/live        → a LiveTranscriptionSession: a temporary Soniox key
+ *   POST /transcribe/live        { purpose?: 'take' | 'call' } → a LiveTranscriptionSession: a temporary Soniox key
  *                                  for the signed-in user, or { provider: 'upload' }
  *   GET  /admin/transcription    → admin: which providers are configured (booleans only)
  */
@@ -60,7 +60,9 @@ transcription.post('/transcribe/live', async (c) => {
   const user = c.get('user');
   if (!user) return c.json({ error: 'Unauthorized' }, 401);
   try {
-    const session = await mintLiveSession(c.env, user.id);
+    // `{ purpose: 'call' }`: a video call's structure listener (one long session per key).
+    const body = await c.req.json<{ purpose?: unknown }>().catch(() => ({} as { purpose?: unknown }));
+    const session = await mintLiveSession(c.env, user.id, fetch, body.purpose === 'call' ? 'call' : 'take');
     c.header('Cache-Control', 'no-store');
     return c.json(session);
   } catch (err) {

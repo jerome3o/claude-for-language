@@ -23,7 +23,7 @@ import { BoardSnapshot } from '../components/calls/Whiteboard';
 import { CallHomeworkSection } from '../components/calls/CallHomeworkSection';
 import { getRelationship } from '../api/client';
 import { getMyRoleInRelationship } from '../types';
-import { formatOffset, groupTurns, type TranscriptSegment } from '@shared/calls';
+import { formatOffset, goalsSummary, groupTurns, type TranscriptSegment } from '@shared/calls';
 import type { CallDetail, CallProcessingStatus, CallReportWord } from '../types/calls';
 import './CallPage.css';
 import './CallReviewPage.css';
@@ -358,6 +358,36 @@ export function CallReviewPage() {
             )}
           </>
         )}
+
+        {(detail.goals ?? []).length > 0 && (() => {
+          const sum = goalsSummary(detail.goals ?? []);
+          return (
+            <section className="detail-section cr-section" data-testid="review-goals">
+              <h2>🎯 Structures you used</h2>
+              <p className="cr-muted">{sum.used.length} of {(detail.goals ?? []).length} used in the conversation — the ones not used yet come first in the next call.</p>
+              <ul className="cr-goals">
+                {sum.used.map((u) => (
+                  <li key={u.name} className="used">
+                    <span className="cr-goal-name" lang="zh">✓ {u.name}</span>
+                    {u.text ? <span className="cr-goal-said" lang="zh">“{u.text}”</span> : <span className="cr-muted">ticked by your tutor</span>}
+                  </li>
+                ))}
+                {sum.near.map((n) => (
+                  <li key={n.name} className="near">
+                    <span className="cr-goal-name" lang="zh">○ {n.name}</span>
+                    <span className="cr-muted">Close, not quite: <span lang="zh">“{n.text}”</span></span>
+                  </li>
+                ))}
+                {sum.not_tried.map((n) => (
+                  <li key={n} className="untried">
+                    <span className="cr-goal-name" lang="zh">○ {n}</span>
+                    <span className="cr-muted">Not tried yet</span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          );
+        })()}
 
         {iAmTutor && relId && (
           <CallHomeworkSection

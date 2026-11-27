@@ -296,6 +296,32 @@ private fun CallReviewContent(ui: CallReviewUi, actions: CallReviewActions) {
             }
         }
 
+        // 🎯 Structures he aimed to use: what he used (with the sentence), came close to, didn't try (core CallGoals).
+        val goals = dev.jeromeswannack.chineselearning.lab.core.calls.CallGoals.parse(kotlinx.serialization.json.JsonObject(mapOf("goals" to d.goals)))?.goals.orEmpty()
+        if (goals.isNotEmpty()) {
+            val sum = dev.jeromeswannack.chineselearning.lab.core.calls.CallGoals.summary(goals)
+            item { SectionHeader("🎯 Structures you used") }
+            item(key = "goals") {
+                LabCard(Modifier.testTag("review-goals")) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("${sum.used.size} of ${goals.size} used in the conversation — the ones not used yet come first in the next call.", color = Lab.colors.muted, style = MaterialTheme.typography.bodySmall)
+                        sum.used.forEach { (name, text, _) ->
+                            Text("✓ $name", color = dev.jeromeswannack.chineselearning.lab.ui.theme.Palette.Good, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                            Text(if (text.isNotEmpty()) "“$text”" else "ticked by your tutor", color = if (text.isNotEmpty()) Lab.colors.ink else Lab.colors.muted, style = MaterialTheme.typography.bodyMedium)
+                        }
+                        sum.near.forEach { (name, text) ->
+                            Text("○ $name", color = Lab.colors.ink, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                            Text("Close, not quite: “$text”", color = Lab.colors.muted, style = MaterialTheme.typography.bodyMedium)
+                        }
+                        sum.notTried.forEach { name ->
+                            Text("○ $name", color = Lab.colors.ink, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                            Text("Not tried yet", color = Lab.colors.muted, style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
+                }
+            }
+        }
+
         // In-call activities played in the lesson: title, score, one line per round.
         if (d.activities.isNotEmpty()) {
             item { SectionHeader("In-call activities") }

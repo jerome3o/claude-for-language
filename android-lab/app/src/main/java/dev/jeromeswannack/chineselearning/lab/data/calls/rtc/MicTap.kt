@@ -19,6 +19,10 @@ import org.webrtc.audio.JavaAudioDeviceModule
  * again as soon as WebRTC's samples come back (never two captures fighting over the mic for long).
  */
 class MicTap {
+    /** The call recorder. */
+    @Volatile private var recorder: ((ShortArray) -> Unit)? = null
+    /** 🎯 The structure listener (data/calls/GoalListener.kt): the student's speech, streamed while the call has goals. */
+    @Volatile private var listener: ((ShortArray) -> Unit)? = null
     @Volatile private var consumer: ((ShortArray) -> Unit)? = null
     @Volatile private var lastWebRtcAt = 0L
     private var webrtcConverter: Pair<Pair<Int, Int>, PcmTo48kMono>? = null
@@ -27,9 +31,26 @@ class MicTap {
     /** Starts delivering the mic to [onPcm] (on the audio threads — keep it quick); null stops. */
     @Synchronized
     fun setConsumer(onPcm: ((ShortArray) -> Unit)?) {
-        consumer = onPcm
-        if (onPcm != null && thread == null) thread = Thread(::fallbackLoop, "call-mic-fallback").also { it.start() }
-        if (onPcm == null) { thread?.interrupt(); thread = null }
+        recorder = onPcm
+        rewire()
+    }
+
+    /** A second consumer (the structure listener), independent of the recorder; null stops it. */
+    @Synchronized
+    fun setListener(onPcm: ((ShortArray) -> Unit)?) {
+        listener = onPcm
+        rewire()
+    }
+
+    private fun rewire() {
+        val r = recorder
+        val l = listener
+        consumer = when {
+            r != null && l != null -> { pcm -> r(pcm); runCatching { l(pcm) } }
+            else -> r ?: l
+        }
+        if (consumer != null && thread == null) thread = Thread(::fallbackLoop, "call-mic-fallback").also { it.start() }
+        if (consumer == null) { thread?.interrupt(); thread = null }
     }
 
     /** JavaAudioDeviceModule.SamplesReadyCallback. */

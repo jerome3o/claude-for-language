@@ -144,6 +144,8 @@ data class CallDetailDto(
     val diagnostics: List<CallDiagDto> = emptyList(),
     /** In-call activities played in the lesson (shared/call-activities), oldest first (absent from an older server). */
     val activities: List<CallActivityDto> = emptyList(),
+    /** 🎯 Structures the student aimed to use in the lesson (shared/calls/goals.ts CallGoal JSON; parse with core CallGoals). */
+    val goals: JsonArray = JsonArray(emptyList()),
 )
 
 /** One in-call activity's record (worker services/calls/activities.ts `CallActivityResult`); [summary] = core ActivitySummary. */
@@ -246,6 +248,15 @@ data class BoardGlossDto(val pinyin: String = "", val english: String = "", val 
  */
 suspend fun Api.glossBoardText(id: String, text: String, direction: String): BoardGlossDto =
     post("${callPath(id)}/gloss", BoardGlossBody(text, direction))
+
+@Serializable
+data class GoalCheckBody(val name: String, val line: String? = null, val meaning: String? = null, val fixed: List<String>, val sentence: String)
+
+@Serializable
+data class GoalCheckDto(val ok: Boolean = true, val reason: String = "", val cached: Boolean = false)
+
+/** 🎯 Is the structure really used in what he said (one small model check; 503 = no answer → count the words' match)? */
+suspend fun Api.checkCallGoal(id: String, body: GoalCheckBody): GoalCheckDto = post("${callPath(id)}/goals/check", body)
 
 /** Homework is made once per LESSON: an existing (not failed / cancelled) job for any of its calls comes back with `existing`. */
 suspend fun Api.makeCallHomework(id: String): CallHomeworkResultDto = post("${callPath(id)}/homework", CallHomeworkRequest())

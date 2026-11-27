@@ -1,5 +1,7 @@
 package dev.jeromeswannack.chineselearning.lab.ui.calls
 
+import dev.jeromeswannack.chineselearning.lab.core.calls.CallGoals
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -216,6 +218,8 @@ data class CallActions(
     val view: ViewActions = ViewActions(),
     /** The call timer, "… joined / left" toasts and call sounds (CallTimerUi.kt). */
     val timer: TimerActions = TimerActions(),
+    /** 🎯 Structures to use (CallGoalsUi.kt). */
+    val goals: GoalActions = GoalActions(),
 )
 
 /** Screenshots: where the shared-screen drawing tools start (round 4). */
@@ -749,6 +753,8 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
                 }
                 // The call timer (core CallTimer): both see it; the tutor runs it.
                 CallTimerPill(s.timer, s.runsTimer, flashing = s.timeUp != null, roomNow = actions.timer.roomNow) { timerSheet = true; actions.onTick() }
+                // 🎯 Structures to use (core CallGoals): both see the count; the sheet lists them.
+                CallGoalsChip(s.goals, flashing = s.goalsFlash != null) { actions.goals.onOpen(!s.goalsOpen, "chip"); actions.onTick() }
                 // "Same view" (core CallView): what both see, and the way out.
                 ViewChip(s.viewMode) { viewMenu = true; actions.onTick() }
             }
@@ -873,6 +879,9 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
                 onMode = { actions.onTick(); actions.view.onMode(it) },
                 onBring = { actions.onTick(); actions.view.onBring() },
             ), close = { viewMenu = false })
+        }
+        if (s.goalsOpen && s.goals != null) LabBottomSheet(onDismiss = { actions.goals.onOpen(false, "chip") }, title = CallGoals.GOALS_TITLE) {
+            CallGoalsSheet(s, actions.goals.copy(onAction = { actions.onTick(); actions.goals.onAction(it) }))
         }
         if (timerSheet) LabBottomSheet(onDismiss = { timerSheet = false }, title = "Timer") {
             CallTimerSheet(s.timer, s.runsTimer, s.myUserId, actions.timer.copy(onAction = { actions.onTick(); actions.timer.onAction(it) }), close = { timerSheet = false })
@@ -1057,6 +1066,11 @@ fun CallMoreMenu(s: CallState, info: CallScreenInfo, actions: CallActions, close
     // In-call activities: two-person mini lessons played together.
     NavRow("🎲", "Activities", desc = s.activity?.let { "Now: ${it.spec.title}" } ?: "Describe & guess, role-play, quiz, dictation… — together", onClick = { close(); actions.onOpenActivities() })
     RowDivider()
+    // 🎯 Structures to use (core CallGoals): the student's goals for this call.
+    if (s.goals != null) {
+        NavRow("🎯", "Structures to use", desc = CallGoals.chipAria(s.goals), onClick = { close(); actions.goals.onOpen(true, "menu") })
+        RowDivider()
+    }
     // The call timer (core CallTimer): the tutor runs it; both see it in the top bar.
     if (s.runsTimer) {
         NavRow("⏱", "Timer", desc = "Count down a test, or time something — you both see it", onClick = { close(); actions.timer.onOpenTimer() })
