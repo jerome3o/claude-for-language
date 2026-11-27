@@ -157,6 +157,9 @@ export const DELETE_STEPS: Array<{ label: string; sql: string }> = [
   { label: 'podcast_subscriptions', sql: `DELETE FROM podcast_subscriptions WHERE user_id = ?1` },
   { label: 'podcast_episode_users', sql: `DELETE FROM podcast_episode_users WHERE user_id = ?1` },
   { label: 'podcast_episodes_unlinked', sql: `UPDATE podcast_episodes SET requested_by = NULL WHERE requested_by = ?1` },
+  // 📺 Watch (docs/WATCH.md): his video list goes; the shared transcripts stay (detached).
+  { label: 'watch_video_users', sql: `DELETE FROM watch_video_users WHERE user_id = ?1` },
+  { label: 'watch_videos_unlinked', sql: `UPDATE watch_videos SET requested_by = NULL WHERE requested_by = ?1` },
   { label: 'decks', sql: `DELETE FROM decks WHERE user_id = ?1` },
 
   // Readers.

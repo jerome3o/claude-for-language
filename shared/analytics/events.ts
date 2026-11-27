@@ -346,6 +346,14 @@ export const ANALYTICS_EVENTS = {
   'podcast.add_card': e('lessons', 'Added words from a podcast segment as cards (count = cards made, existing = words already in a deck).', ['count', 'existing']),
   'podcast.make_lesson': e('lessons', 'Asked for a mini lesson made from a stretch of a podcast episode (docs/PODCASTS.md; from = the first segment).', ['from']),
   'podcast.lesson_created': e('lessons', 'A mini lesson was written from a podcast episode (exercises, segments it was written from).', ['exercises', 'segments'], { server: true }),
+  'watch.add': e('lessons', '📺 Watch: added a YouTube video (docs/WATCH.md; shared = someone had already added it, status = its transcript\'s then, source = paste / share / show).', ['shared', 'status', 'source'], { server: true }),
+  'watch.open': e('lessons', '📺 Watch: opened a video\'s player (status = the transcript\'s, offline = no connection, lines = lines so far).', ['status', 'offline', 'lines']),
+  'watch.line': e('lessons', '📺 Watch: a line control (action = prev / replay / next / tap — a line in the transcript).', ['action']),
+  'watch.speed': e('lessons', '📺 Watch: changed the playback speed (speed = 1 / 0.75 / 0.5).', ['speed']),
+  'watch.pause_mode': e('lessons', '📺 Watch: turned "Pause after each line" on or off.', ['on']),
+  'watch.listen_first': e('lessons', '📺 Watch: turned listen-first (hide the Chinese) on or off.', ['on']),
+  'watch.reveal': e('lessons', '📺 Watch: revealed the next part of the line in listen-first mode (step = hanzi / pinyin / english / listen).', ['step']),
+  'watch.retry': e('lessons', '📺 Watch: retried a failed transcript.', [], { server: true }),
 
   // ── lessons ────────────────────────────────────────────────────────────
   'lesson.start': e('lessons', 'Started a mini lesson run (mode full / revision).', ['source', 'exercises', 'mode']),
@@ -496,6 +504,7 @@ export const ANALYTICS_EVENTS = {
   'server.audio_lesson_built': e('server', 'An audio lesson finished rendering.', ['format', 'minutes', 'clips'], { server: true }),
   'server.podcast_transcribed': e('server', 'A podcast episode finished transcribing, or failed (docs/PODCASTS.md; stage = where it failed).', ['ok', 'stage', 'minutes', 'segments'], { server: true }),
   'server.podcast_feed_fetched': e('server', "A podcast app fetched a user's private audio-lesson feed.", ['items'], { server: true }),
+  'server.watch_transcribed': e('server', '📺 Watch: a video\'s transcript was finished, or failed (docs/WATCH.md; stage = where it failed, chunks = windows read, skipped = windows given up on).', ['ok', 'stage', 'minutes', 'lines', 'chunks', 'skipped'], { server: true }),
   'server.homework_assigned': e('server', 'Homework assignments were written for a student.', ['kind', 'mode', 'count'], { server: true }),
   'server.ai_call': e('server', 'One model call: model, tokens and an estimated cost.', ['provider', 'model', 'input_tokens', 'output_tokens', 'cache_read_tokens', 'cache_write_tokens', 'cost_usd', 'status', 'route'], { server: true }),
   'server.claude_turn': e('server', 'One Claude chat reply (surface = ask, coach, coach_ask or discuss): model_tier sonnet, opus or haiku, total_ms of the whole agent loop, first_token_ms when streamed (Claude threads), inline = a thread reply started in the request that asked (false = the watchdog / a retry on coach-reply-queue; absent for the synchronous routes), model rounds, input tokens (uncached incl. cache writes), cache reads / writes.', ['surface', 'model_tier', 'first_token_ms', 'inline', 'total_ms', 'input_tokens', 'output_tokens', 'cache_read_tokens', 'cache_write_tokens', 'rounds', 'route'], { server: true }),

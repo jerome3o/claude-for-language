@@ -14,6 +14,8 @@ export interface SegmentBatchRequest {
   before: string[];
   podcastTitle: string | null;
   episodeTitle: string;
+  /** The first line of the request instead of "Podcast: … — episode: …" (📺 Watch: the video). */
+  label?: string;
 }
 
 export interface SegmentBatchResult {
@@ -32,7 +34,7 @@ The transcript comes from speech recognition: it can have small slips, missing p
 Translate every segment you are given, by its number. The segments before are context only.`;
 
 export function segmentBatchUser(req: SegmentBatchRequest): string {
-  const parts: string[] = [`Podcast: ${req.podcastTitle ?? 'unknown'} — episode: ${req.episodeTitle}`];
+  const parts: string[] = [req.label ?? `Podcast: ${req.podcastTitle ?? 'unknown'} — episode: ${req.episodeTitle}`];
   if (req.before.length) parts.push(`Context — the segments just before (do not translate):\n${req.before.join('\n')}`);
   parts.push(
     `Translate these ${req.segments.length} segments:\n${req.segments.map((s) => `[${s.i}] ${s.speaker ? `(speaker ${s.speaker}) ` : ''}${s.text}`).join('\n')}`,
@@ -71,13 +73,14 @@ export function checkSegmentBatch(req: SegmentBatchRequest, raw: unknown): Omit<
   return { items: req.segments.map((s) => ({ i: s.i, english: got.get(s.i)! })) };
 }
 
-export function anthropicSegmentTranslate(apiKey: string): SegmentTranslate {
+/** `system` replaces the podcast system prompt (📺 Watch translates a TV drama's lines with the same call). */
+export function anthropicSegmentTranslate(apiKey: string, opts: { system?: string } = {}): SegmentTranslate {
   return async (req) => {
     let usage = { input_tokens: 0, output_tokens: 0 };
     const out = await structuredCall({
       apiKey,
       model: STORY_TRANSLATE_MODEL,
-      system: SEGMENT_SYSTEM,
+      system: opts.system ?? SEGMENT_SYSTEM,
       user: segmentBatchUser(req),
       tool: TOOL,
       maxTokens: Math.min(16_000, 600 + req.segments.length * 120),

@@ -94,6 +94,9 @@ const QuestsPage = lazy(() => import('./pages/QuestsPage').then(m => ({ default:
 const QuestPlayPage = lazy(() => import('./pages/QuestPlayPage').then(m => ({ default: m.QuestPlayPage })));
 const IdiomsPage = lazy(() => import('./pages/IdiomsPage').then(m => ({ default: m.IdiomsPage })));
 const IdiomPage = lazy(() => import('./pages/IdiomPage').then(m => ({ default: m.IdiomPage })));
+const WatchPage = lazy(() => import('./pages/WatchPage').then(m => ({ default: m.WatchPage })));
+const WatchPlayerPage = lazy(() => import('./pages/WatchPlayerPage').then(m => ({ default: m.WatchPlayerPage })));
+const WatchSharePage = lazy(() => import('./pages/WatchSharePage').then(m => ({ default: m.WatchSharePage })));
 // 📱 Phone practice (docs/PHONE_PRACTICE.md): the simulated apps live only in these chunks.
 const PhonePracticePage = lazy(() => import('./pages/PhonePracticePage').then(m => ({ default: m.PhonePracticePage })));
 const PhoneScenarioPage = lazy(() => import('./pages/PhoneScenarioPage').then(m => ({ default: m.PhoneScenarioPage })));
@@ -665,6 +668,10 @@ function AppRoutes() {
       {/* 🎬 Clips (experimental, docs/CLIPS.md): the vertical feed — immersive, its own chrome. */}
       <Route path="/clips" element={<ProtectedRoute><ErrorBoundary fallbackTitle="Couldn't load clips"><ClipsPage /></ErrorBoundary></ProtectedRoute>} />
       <Route path="/clips/:id" element={<ProtectedRoute><ErrorBoundary fallbackTitle="Couldn't load clips"><ClipsPage /></ErrorBoundary></ProtectedRoute>} />
+      {/* 📺 Watch (docs/WATCH.md): my videos + add one; the share target; the player (immersive, its own chrome). */}
+      <Route path="/watch" element={<ProtectedRoute><Header /><WatchPage /></ProtectedRoute>} />
+      <Route path="/watch/share" element={<ProtectedRoute><Header /><WatchSharePage /></ProtectedRoute>} />
+      <Route path="/watch/:id" element={<ProtectedRoute><ErrorBoundary fallbackTitle="Couldn't load this video"><WatchPlayerPage /></ErrorBoundary></ProtectedRoute>} />
       {/* 📱 Phone practice (docs/PHONE_PRACTICE.md): the task list, and one task on the simulated phone (immersive, its own chrome). */}
       <Route path="/phone" element={<ProtectedRoute><Header /><PhonePracticePage /></ProtectedRoute>} />
       <Route path="/phone/:id" element={<ProtectedRoute><ErrorBoundary fallbackTitle="Couldn't load this task"><PhoneScenarioPage /></ErrorBoundary></ProtectedRoute>} />

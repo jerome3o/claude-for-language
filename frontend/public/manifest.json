@@ -27,6 +27,11 @@
   "categories": ["education"],
   "lang": "en",
   "orientation": "any",
+  "share_target": {
+    "action": "/watch/share",
+    "method": "GET",
+    "params": { "title": "title", "text": "text", "url": "url" }
+  },
   "shortcuts": [
     {
       "name": "Study",

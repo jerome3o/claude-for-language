@@ -144,6 +144,7 @@ fun MoreScreen(ui: MoreUi, actions: MoreActions, extraRows: List<@Composable () 
                         row("📱", "Phone practice", "手机练习 · Real-life tasks on a simulated Chinese phone", Routes.phone()),
                         row("📜", "成语 Idioms (beta)", "The story behind each idiom, and how to use it", Routes.idioms()),
                         row("🌀", "梗 Meme review · prototype", "What the Chinese internet said this month — with real sources", Routes.memeReview()),
+                        row("📺", "Watch", "追剧 · Chinese TV on YouTube with a tappable transcript", Routes.watch()),
                     ),
                 )
             }
@@ -166,6 +167,7 @@ fun MoreScreen(ui: MoreUi, actions: MoreActions, extraRows: List<@Composable () 
                         add(row("🎬", "Clips (beta)", "Short vertical clips on your words — double-tap to dig deeper", Routes.clips()))
                         add(row("🎧", "Audio lessons", "Listen on the train, or fall asleep to slow Chinese", Routes.audioLessons()))
                         add(row("🎙", "Podcasts", "Real Chinese podcasts, a sentence at a time", Routes.podcasts()))
+                        add(row("📺", "Watch", "追剧 · Chinese TV on YouTube with a tappable transcript", Routes.watch()))
                         add(row("📹", "Video calls (beta)", "Live lessons with a whiteboard, then a transcript", Routes.calls()))
                     },
                 )

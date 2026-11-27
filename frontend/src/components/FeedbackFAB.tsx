@@ -150,7 +150,7 @@ export function FeedbackFAB() {
   if (takeLocked) return null;
   // A video call fills the screen and has its own controls where the FAB would sit; so does the homework pass,
   // and a chat (its 🎤 / Send button is in that corner).
-  if (/^\/(calls|homework|audio-lessons|group-class)\/[^/]+\/?$/.test(location.pathname)) return null;
+  if (/^\/(calls|homework|audio-lessons|group-class|watch)\/[^/]+\/?$/.test(location.pathname)) return null;
   if (/^\/connections\/[^/]+\/chat\/[^/]+\/?$/.test(location.pathname)) return null;
   // 📝 The reader word recap: a pass like the homework one, Got it sits in that corner.
   if (/^\/readers\/[^/]+\/recap\/?$/.test(location.pathname)) return null;

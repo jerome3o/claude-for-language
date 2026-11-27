@@ -120,6 +120,20 @@
             </intent-filter>
         </activity>
 
+        <!-- 📺 Watch: Share a video from the YouTube app → "Watch (Lab)" → /watch/share?text=… (only the shared text, parsed there). -->
+        <activity
+            android:name=".shell.ShareToWatchActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:label="@string/shell_share_watch_label"
+            android:theme="@android:style/Theme.NoDisplay">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
+
         <!-- Card notification actions: Show answer / Again / Good / Easy / Next card. -->
         <receiver android:name=".shell.ShellActionReceiver" android:exported="false" />
 

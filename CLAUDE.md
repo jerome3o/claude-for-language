@@ -129,6 +129,7 @@ Read the doc before changing a feature; it has the code map, the endpoints and t
 | Group classes (experimental) | [docs/GROUP_CLASSES.md](./docs/GROUP_CLASSES.md) | `shared/group/` |
 | Audio lessons (incl. composed lessons / video-lesson recaps from MCP blocks) + private podcast feed | [docs/AUDIO_LESSONS.md](./docs/AUDIO_LESSONS.md) | `worker/src/services/audio-lessons/`, `shared/audio-lesson/` |
 | Podcasts (Lab only) | [docs/PODCASTS.md](./docs/PODCASTS.md) | `worker/src/services/podcasts/` |
+| 📺 Watch (追剧): Chinese TV on YouTube with a timed transcript Gemini reads from the video — line by line, tap a word | [docs/WATCH.md](./docs/WATCH.md) | `shared/watch/`, `worker/src/services/watch/`, `frontend/src/pages/WatchPlayerPage.tsx` |
 | Clips · Idioms · Phone practice · Meme review · VR | [docs/CLIPS.md](./docs/CLIPS.md) · [docs/IDIOMS.md](./docs/IDIOMS.md) · [docs/PHONE_PRACTICE.md](./docs/PHONE_PRACTICE.md) · [docs/MEME_REVIEW.md](./docs/MEME_REVIEW.md) · [docs/VR.md](./docs/VR.md) | `shared/clips/`, `shared/idioms/`, `shared/phone/`, `shared/meme-review/`, `shared/vr/` |
 | 🥽 VR worlds (语言世界): the world contract, task language, helper library, physics, building a new world | [docs/VR_WORLDS.md](./docs/VR_WORLDS.md) | `shared/vr-worlds/`, `frontend/src/vr/worlds/` |
 | Handwriting / stroke order | [docs/STROKE_ORDER.md](./docs/STROKE_ORDER.md) | `shared/strokes/` |

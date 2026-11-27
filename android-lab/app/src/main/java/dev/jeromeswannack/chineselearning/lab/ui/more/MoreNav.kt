@@ -55,5 +55,5 @@ fun NavGraphBuilder.moreGraph(nav: LabNav) {
 private val MORE_PATHS = listOf(
     Routes.DECKS, Routes.SETTINGS, Routes.profile(), Routes.CONNECTIONS, Routes.LIBRARY, Routes.readers(), Routes.calls(), Routes.coach(), Routes.chatsCompose(), Routes.analyze(),
     Routes.lessons(), Routes.claudeChats(), Routes.strokes(), Routes.quests(), Routes.pictureHunts(), Routes.audioLessons(), Routes.homework(), Routes.tutorNotes(), Routes.lessonNotes(),
-    Routes.catalogue(), Routes.duplicateFinder(), Routes.sentenceCoverage(), Routes.admin(),
+    Routes.catalogue(), Routes.watch(), Routes.duplicateFinder(), Routes.sentenceCoverage(), Routes.admin(),
 )
