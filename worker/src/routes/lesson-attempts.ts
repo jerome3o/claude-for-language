@@ -3,7 +3,7 @@
  * helpers that need the server. Mounted under /api after the auth middleware.
  *
  *   POST /lessons/sentence-feedback                      Claude grades a sentence_making answer: right / needs_work / wrong (cached; 503 retryable / 502)
- *   POST /lessons/sentence-fix                           ✨ Show a fixed version: his sentence minimally fixed (cached; on tap only)
+ *   POST /lessons/sentence-fix                           ✨ Show a fixed version: his sentence fixed for what the check found (`problem`; cached; on tap only; 502 when no fix)
  *   POST /lessons/answer-check                           Claude checks a self-assessed answer (translate / listen_translate; cached; the model answer itself → no call)
  *                                                        and a free-speaking transcript (oral_expression / speak; never short-circuited)
  *   POST /lessons/answer-check/ask                       💬 Ask about this: a short follow-up about that answer
@@ -31,7 +31,7 @@ import * as q from '../db/lesson-attempt-queries';
 import { storeAudio } from '../services/audio';
 import { checkMadeSentence, fixMadeSentence, type SentenceMakingInput } from '../services/sentence-making';
 import { fakeSentenceMakingClient } from '../services/sentence-making-fake';
-import { pickSentenceCheckInput } from '@shared/lesson/sentenceCheck';
+import { pickSentenceCheckInput, SENTENCE_FIX_FAILED } from '@shared/lesson/sentenceCheck';
 import { spokenCheckAnswer } from '@shared/cards/answer';
 import { checkLessonAnswer, askAboutAnswer, type AskTurn } from '../services/answer-check';
 import { fakeAnswerCheckClient } from '../services/answer-check-fake';
@@ -58,14 +58,14 @@ function sentenceMakingDeps(env: Env) {
 }
 
 /** The body → the input (a SPOKEN sentence scrubbed of the recogniser's punctuation), or the problems. */
-async function sentenceInput(c: Context<AppEnv>): Promise<{ input: SentenceMakingInput } | { problems: string[] }> {
+async function sentenceInput(c: Context<AppEnv>): Promise<{ input: SentenceMakingInput; body: Record<string, unknown> } | { problems: string[] }> {
   const body = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
   const picked = pickSentenceCheckInput(body);
   if ('problems' in picked) return picked;
   const input = body.input === 'spoken' || body.input === 'edited' || body.input === 'typed' ? body.input : undefined;
   const sentence = spokenCheckAnswer(picked.input.sentence, input);
   if (!sentence) return { problems: ['sentence is required'] };
-  return { input: { ...picked.input, sentence, ...(input ? { input } : {}) } };
+  return { input: { ...picked.input, sentence, ...(input ? { input } : {}) }, body };
 }
 
 lessonAttempts.post('/lessons/sentence-feedback', async (c) => {
@@ -84,7 +84,11 @@ lessonAttempts.post('/lessons/sentence-feedback', async (c) => {
   }
 });
 
-/** ✨ Show a fixed version: his sentence with the smallest edits that fix it (cached per exercise + sentence). */
+/**
+ * ✨ Show a fixed version: his sentence with the smallest edits that fix what the check found (cached per exercise +
+ * sentence). `problem` = the app's copy of the check's verdict, used only as prompt text and only when the server has no
+ * cached check of the same sentence. A model that only re-punctuates his sentence → 502 (not retryable).
+ */
 lessonAttempts.post('/lessons/sentence-fix', async (c) => {
   const deps = sentenceMakingDeps(c.env);
   if (!deps) return c.json({ error: 'Claude isn’t set up on this server.', retryable: false }, 503);
@@ -92,10 +96,10 @@ lessonAttempts.post('/lessons/sentence-fix', async (c) => {
   if ('problems' in picked) return c.json({ error: picked.problems.join('; '), problems: picked.problems }, 400);
   const started = Date.now();
   try {
-    const { fix, cached } = await fixMadeSentence(c.env.DB, picked.input, deps);
+    const { fix, cached } = await fixMadeSentence(c.env.DB, picked.input, deps, picked.body.problem);
     return c.json({ fix, cached, ms: Date.now() - started });
   } catch (error) {
-    return structuredFailure(c, error, 'sentence fix');
+    return structuredFailure(c, error, 'sentence fix', SENTENCE_FIX_FAILED);
   }
 });
 
@@ -107,11 +111,11 @@ function answerCheckDeps(env: Env) {
   return env.ANTHROPIC_API_KEY ? { apiKey: env.ANTHROPIC_API_KEY } : null;
 }
 
-function structuredFailure(c: Context<AppEnv>, error: unknown, what: string) {
+function structuredFailure(c: Context<AppEnv>, error: unknown, what: string, declined = 'Claude couldn’t check this one.') {
   console.error(`[lesson] ${what} failed:`, error);
   const retryable = !(error instanceof StructuredCallError) || error.retryable;
   return c.json(
-    { error: retryable ? 'Claude is busy right now — try again in a moment.' : 'Claude couldn’t check this one.', retryable },
+    { error: retryable ? 'Claude is busy right now — try again in a moment.' : declined, retryable },
     retryable ? 503 : 502,
   );
 }

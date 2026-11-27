@@ -32,6 +32,7 @@ import dev.jeromeswannack.chineselearning.lab.core.SentenceCheck
 import dev.jeromeswannack.chineselearning.lab.core.SentenceFeedback
 import dev.jeromeswannack.chineselearning.lab.core.SentenceFix
 import dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics
+import dev.jeromeswannack.chineselearning.lab.data.api.isOffline
 import dev.jeromeswannack.chineselearning.lab.ui.fx.ConfettiBurst
 import dev.jeromeswannack.chineselearning.lab.ui.kit.VoiceTextField
 import dev.jeromeswannack.chineselearning.lab.ui.study.AnswerDiffView
@@ -64,7 +65,8 @@ fun SentenceVerdictLine(f: SentenceFeedback, words: List<String>, tag: String = 
     var more by remember(f) { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth().testTag(tag).semantics { contentDescription = "${v.label}: ${v.headline}" }, verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Text("${v.icon} ${v.headline}", Modifier.testTag("$tag-headline"), color = dev.jeromeswannack.chineselearning.lab.ui.study.ResultColors.ink(v.state), fontWeight = FontWeight.Bold, fontSize = if (compact) 15.sp else 17.sp)
-        if (v.reason.isNotEmpty()) Text(v.reason, Modifier.testTag("$tag-reason"), color = Lab.colors.muted, fontSize = 14.sp)
+        // More ▸ opens the fuller text in place of a reason line it already holds (never the line, then all of it again).
+        if (v.reason.isNotEmpty() && !(more && v.moreIncludesReason)) Text(v.reason, Modifier.testTag("$tag-reason"), color = Lab.colors.muted, fontSize = 14.sp)
         if (v.more.isNotEmpty()) {
             if (more) Text(v.more, Modifier.testTag("$tag-full"), color = Lab.colors.muted, fontSize = 14.sp)
             else Text(
@@ -111,6 +113,7 @@ fun SentenceCheckPanel(
     val lastView = last?.feedback?.takeIf { last.state == "done" }?.let { SentenceCheck.view(it, words) }
     val currentText = if (lastView != null) last.text else sentence
     val currentInput = if (lastView != null) last.input else input
+    val currentFeedback = if (lastView != null) last.feedback!! else feedback
     val current = lastView ?: first
     val solved = current.right
     val busy = last?.state == "checking"
@@ -128,7 +131,8 @@ fun SentenceCheckPanel(
                 "done" to env.sentenceFeedback(words, task, text, source)
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
-                (if (e is java.io.IOException) "offline" else "error") to null
+                // Only a real network failure is "offline"; a server error (HttpException) is "Claude couldn't".
+                (if (e.isOffline()) "offline" else "error") to null
             }
             if (n - 1 < retries.size) retries[n - 1] = retries[n - 1].copy(state = state, feedback = fb)
             val result = fb?.let { SentenceCheck.view(it, words).grade } ?: state
@@ -143,16 +147,18 @@ fun SentenceCheckPanel(
     fun showFix() {
         val forText = currentText
         val forInput = currentInput
+        // The fix is told what the check found wrong (a problem of meaning has no small edit to find on its own).
+        val problem = SentenceCheck.fixProblem(currentFeedback, words)
         fix = SentenceFixState(forText, "loading")
         val started = System.currentTimeMillis()
         scope.launch {
             fix = try {
-                val r = env.sentenceFix(words, task, forText, forInput)
+                val r = env.sentenceFix(words, task, forText, forInput, problem)
                 Analytics.track("lesson.sentence_fix_shown", mapOf("result" to "shown", "ms" to System.currentTimeMillis() - started, "cached" to false))
                 SentenceFixState(forText, "done", r)
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
-                val offline = e is java.io.IOException
+                val offline = e.isOffline()
                 Analytics.track("lesson.sentence_fix_shown", mapOf("result" to if (offline) "offline" else "failed", "ms" to System.currentTimeMillis() - started, "cached" to false))
                 SentenceFixState(forText, if (offline) "offline" else "failed")
             }

@@ -7,12 +7,13 @@
  *   🎤 Try again   ✨ Show a fixed version                           ← needs_work / wrong only, nothing pre-made
  *
  * 🎤 Try again: a new sentence (say it or type it), checked the same way, in place, as often as he likes — practice
- * only, the first result is the one that counts. ✨ Show a fixed version: on tap, HIS sentence fixed with minimal edits,
- * lined up with it (the slim answer diff), ▶ + pinyin, then 🎤 Say it (checked on the device, like Say it again).
+ * only, the first result is the one that counts. ✨ Show a fixed version: on tap, HIS sentence fixed with minimal edits
+ * for what the check found (its problem goes with the request), lined up with it (the slim answer diff), ▶ + pinyin,
+ * then 🎤 Say it (checked on the device, like Say it again). Only a real network failure says "needs a connection".
  */
 import { useEffect, useRef, useState } from 'react';
 import {
-  sentenceCheckView, SENTENCE_FIX_FAILED, SENTENCE_FIX_LABEL, SENTENCE_FIX_OFFLINE, SENTENCE_FIXING_LINE, SENTENCE_MORE_LABEL,
+  sentenceCheckView, sentenceFixProblem, SENTENCE_FIX_FAILED, SENTENCE_FIX_LABEL, SENTENCE_FIX_OFFLINE, SENTENCE_FIXING_LINE, SENTENCE_MORE_LABEL,
   SENTENCE_RETRY_NOTE, SENTENCE_RETRY_OFFLINE, SENTENCE_SAY_FIX_LABEL, SENTENCE_SHOW_FIX_LABEL, SENTENCE_TRY_AGAIN_LABEL,
   type SentenceFeedback, type SentenceFix, type SentenceGrade,
 } from '@shared/lesson/sentenceCheck';
@@ -46,7 +47,8 @@ export function SentenceVerdictLine({ feedback, words, testId = 'sentence-feedba
         <span className="sentence-verdict-icon" aria-label={v.label}>{v.icon}</span>{' '}
         <span className="sentence-verdict-headline" data-testid={`${testId}-headline`}>{v.headline}</span>
       </p>
-      {v.reason && (
+      {/* More ▸ opens the fuller text in place of a reason line it already holds (never the line, then all of it again). */}
+      {v.reason && !(more && v.more && v.moreIncludesReason) && (
         <p className="sentence-verdict-reason" data-testid={`${testId}-reason`}>
           {v.reason}
           {v.more && !more && (
@@ -97,7 +99,9 @@ export function SentenceCheckPanel({ feedback, sentence, input, words, task, spe
   const first = sentenceCheckView(feedback, words);
   const last = retries[retries.length - 1];
   // The sentence being worked on: the latest one Claude has checked, else his first.
-  const current = last && last.state === 'done' && last.feedback ? { text: last.text, input: last.input, view: sentenceCheckView(last.feedback, words) } : { text: sentence, input, view: first };
+  const current = last && last.state === 'done' && last.feedback
+    ? { text: last.text, input: last.input, feedback: last.feedback, view: sentenceCheckView(last.feedback, words) }
+    : { text: sentence, input, feedback, view: first };
   const solved = current.view.right;
   const busy = last?.state === 'checking';
 
@@ -133,7 +137,8 @@ export function SentenceCheckPanel({ feedback, sentence, input, words, task, spe
     const target = current;
     setFix({ for: target.text, state: 'loading' });
     const started = Date.now();
-    fixMadeSentence(words, task, target.text, target.input).then(
+    // The fix is told what the check found wrong (a problem of meaning has no small edit to find on its own).
+    fixMadeSentence(words, task, target.text, target.input, sentenceFixProblem(target.feedback, words)).then(
       (r) => {
         if (!live.current) return;
         setFix({ for: target.text, state: 'done', fix: r.fix });

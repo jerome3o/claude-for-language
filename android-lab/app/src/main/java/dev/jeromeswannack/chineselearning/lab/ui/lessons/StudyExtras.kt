@@ -158,10 +158,10 @@ fun rememberExerciseEnv(app: LabApp, preview: Boolean = false, prefetch: Boolean
             if (!app.online.value) throw java.io.IOException("offline")
             app.repo.api.sentenceFeedback(words, task, sentence, input)
         },
-        sentenceFix = { words, task, sentence, input ->
+        sentenceFix = { words, task, sentence, input, problem ->
             if (!app.online.value) throw java.io.IOException("offline")
             dev.jeromeswannack.chineselearning.lab.data.lessons.SentenceFixCache.get(words, task, sentence, input) {
-                app.repo.api.sentenceFix(words, task, sentence, input)
+                app.repo.api.sentenceFix(words, task, sentence, input, problem)
             }
         },
         answerCheck = { input -> app.repo.api.checkLessonAnswer(input, app.cache, app.online.value) },

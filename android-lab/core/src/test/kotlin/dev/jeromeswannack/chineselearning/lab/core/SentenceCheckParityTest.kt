@@ -5,6 +5,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.int
@@ -107,9 +108,29 @@ class SentenceCheckParityTest {
             assertEquals(want["headline"].str, v.headline, ctx)
             assertEquals(want["reason"].str, v.reason, ctx)
             assertEquals(want["more"].str, v.more, ctx)
+            assertEquals(want["moreIncludesReason"]!!.jsonPrimitive.boolean, v.moreIncludesReason, ctx)
             assertEquals(want["fixable"]!!.jsonPrimitive.boolean, v.fixable, ctx)
             assertEquals(want["right"]!!.jsonPrimitive.boolean, v.right, ctx)
             assertEquals(want["downgraded"]!!.jsonPrimitive.boolean, v.downgraded, ctx)
+        }
+    }
+
+    @Test
+    fun moreInPlaceAndTheFixProblem() {
+        val f = fixture()
+        for (e in f["moreIncludes"]!!.jsonArray) {
+            val o = e.jsonObject
+            assertEquals(o["out"]!!.jsonPrimitive.boolean, SentenceCheck.moreIncludesReason(o["more"].str!!, o["reason"].str!!), o.toString())
+        }
+        for (e in f["fixProblems"]!!.jsonArray) {
+            val o = e.jsonObject
+            val fb = json.decodeFromJsonElement(SentenceFeedback.serializer(), o["feedback"]!!)
+            assertEquals(o["out"].str, SentenceCheck.fixProblem(fb, o["words"]!!.strings()), o.toString())
+        }
+        for (e in f["cleanProblems"]!!.jsonArray) {
+            val o = e.jsonObject
+            val raw = o["raw"]?.takeIf { it is JsonPrimitive && it.isString }?.jsonPrimitive?.content
+            assertEquals(o["out"].str, SentenceCheck.cleanFixProblem(raw), o.toString())
         }
     }
 

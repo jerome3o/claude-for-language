@@ -177,3 +177,71 @@ test('a paused spoken take is checked as one utterance: 我不知道。 我妹�
   });
   expect(typed.sentence).toBe('我本来要去健身房，可是后来下雨了。');
 });
+
+/**
+ * Jerome (Nov 2026), 从…的角度: 从我妈妈的角度来看我和我妹妹住在很远的地方 is needs work for MEANING (no view of hers).
+ * Its reason is too long for one line: More ▸ opens the whole of it IN PLACE of the cut line (read once). ✨ Show a fixed
+ * version used to come back "needs a connection" while online — the fixer, not told the problem, handed his sentence
+ * back re-punctuated (the stand-in does the same without the problem); now the fix is told it and adds her view.
+ */
+test('从…的角度: More opens the reason in place; the fix is told the problem and comes back', async ({ page, request }) => {
+  const email = `sentence-angle-${Date.now()}-${Math.floor(Math.random() * 1e6)}@test.e2e`;
+  const { session_token: token } = await api<{ session_token: string }>(request, '/api/test/auth', { method: 'POST', data: { email, name: 'Jerome' } });
+  const angle = {
+    title: '角度 · Point of view',
+    icon: '👀',
+    sections: [{
+      exercises: [
+        {
+          type: 'sentence_making',
+          words: [{ hanzi: '角度', pinyin: 'jiǎodù', english: 'angle; point of view' }],
+          task: 'Say how someone in your family sees something.',
+          example: { hanzi: '从老师的角度来看，这个问题很简单。', pinyin: 'Cóng lǎoshī de jiǎodù lái kàn, zhège wèntí hěn jiǎndān.', english: 'From the teacher’s point of view, this question is easy.' },
+        },
+        { type: 'note', title: 'Done', body: 'That was the last one.' },
+      ],
+    }],
+  };
+  const created = await api<{ lesson: { id: string } } | { id: string }>(request, '/api/custom-lessons', { method: 'POST', token, data: { spec: angle } });
+  const id = 'lesson' in created ? created.lesson.id : created.id;
+
+  await page.goto(`/lessons/${id}/play?from=lessons_page&session_token=${token}`);
+  await expect(page.getByText('Say how someone in your family sees something.')).toBeVisible({ timeout: 30_000 });
+  await typeInto(page, 'lesson-voice', '从我妈妈的角度来看我和我妹妹住在很远的地方');
+
+  await expect(page.getByTestId('sentence-feedback')).toHaveAttribute('data-grade', 'needs_work', { timeout: 15_000 });
+  await expect(page.getByTestId('sentence-feedback-headline')).toHaveText('从…的角度 used right — unclear what the angle reveals');
+  await expect(page.getByTestId('sentence-feedback-reason')).toHaveText(/thinks or feels…/);
+  await page.mouse.move(0, 0);
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/web-04-cut-reason.png`, fullPage: true });
+
+  // More ▸: the whole reason in place of the cut line — never the line and then all of it again.
+  await page.getByTestId('sentence-feedback-more').click();
+  await expect(page.getByTestId('sentence-feedback-reason')).toHaveCount(0);
+  await expect(page.getByTestId('sentence-feedback-full')).toContainText('only states where you live');
+  await expect(page.getByText(/should lead to what she thinks or feels/)).toHaveCount(1);
+  await page.mouse.move(0, 0);
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/web-05-more-in-place.png`, fullPage: true });
+
+  // ✨ Show a fixed version: the request carries the problem; the fix adds her view.
+  const fixRequest = page.waitForRequest((r) => r.url().includes('/api/lessons/sentence-fix'));
+  await page.getByTestId('sentence-show-fix').click();
+  expect(JSON.parse((await fixRequest).postData() ?? '{}').problem).toMatch(/unclear what the angle reveals/);
+  await expect(page.getByTestId('sentence-fix-expected')).toContainText('住得太远了', { timeout: 15_000 });
+  await expect(page.getByTestId('sentence-fix-offline')).toHaveCount(0);
+  await page.mouse.move(0, 0);
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/web-06-angle-fix.png`, fullPage: true });
+});
+
+test('a fixer that only re-punctuates: 502, not retryable, "couldn’t fix" — never a busy 503', async ({ request }) => {
+  const email = `sentence-nofix-${Date.now()}-${Math.floor(Math.random() * 1e6)}@test.e2e`;
+  const { session_token: token } = await api<{ session_token: string }>(request, '/api/test/auth', { method: 'POST', data: { email, name: 'Jerome' } });
+  // No check on the server and no problem sent: the stand-in hands his sentence back re-punctuated, every try.
+  const res = await request.fetch(`${API}/api/lessons/sentence-fix`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', Authorization: `Bearer ${token}` },
+    data: JSON.stringify({ words: ['角度'], sentence: '从我妈妈的角度来看我和我妹妹住在很远的地方', input: 'spoken' }),
+  });
+  expect(res.status()).toBe(502);
+  expect(await res.json()).toEqual({ error: 'Claude couldn’t fix this one — try saying it another way.', retryable: false });
+});

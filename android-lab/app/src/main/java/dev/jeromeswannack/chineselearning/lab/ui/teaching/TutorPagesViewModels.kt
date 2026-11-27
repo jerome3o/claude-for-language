@@ -14,6 +14,7 @@ import dev.jeromeswannack.chineselearning.lab.data.api.logLesson
 import dev.jeromeswannack.chineselearning.lab.data.api.studentHistory
 import dev.jeromeswannack.chineselearning.lab.data.api.studentInsights
 import dev.jeromeswannack.chineselearning.lab.data.api.studentSummaries
+import dev.jeromeswannack.chineselearning.lab.data.api.isOffline
 import dev.jeromeswannack.chineselearning.lab.data.api.userMessage
 import dev.jeromeswannack.chineselearning.lab.data.api.writeStudentSummary
 import dev.jeromeswannack.chineselearning.lab.data.platform.CachedResource
@@ -48,7 +49,7 @@ private class ReportLoader(private val app: LabApp, private val vm: ViewModel, p
             job = vm.viewModelScope.launch {
                 attempt { app.repo.api.studentInsights(relId, from, to) }
                     .onSuccess { state.value = Loadable(it, updatedAt = System.currentTimeMillis()) }
-                    .onFailure { state.value = Loadable(error = it.userMessage(), offline = it is java.io.IOException) }
+                    .onFailure { state.value = Loadable(error = it.userMessage(), offline = it.isOffline()) }
             }
             return
         }

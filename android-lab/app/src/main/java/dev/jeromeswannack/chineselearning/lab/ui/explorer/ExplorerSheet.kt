@@ -50,6 +50,7 @@ import dev.jeromeswannack.chineselearning.lab.core.explorer.ExplorerStack
 import dev.jeromeswannack.chineselearning.lab.core.explorer.RelatedWords
 import dev.jeromeswannack.chineselearning.lab.data.api.CharRecordDto
 import dev.jeromeswannack.chineselearning.lab.data.api.CharWordDto
+import dev.jeromeswannack.chineselearning.lab.data.api.isOffline
 import dev.jeromeswannack.chineselearning.lab.data.api.userMessage
 import dev.jeromeswannack.chineselearning.lab.data.chars.CharDict
 import dev.jeromeswannack.chineselearning.lab.data.chars.WordDict
@@ -490,10 +491,9 @@ private fun WordViewHost(item: ExplorerItem.Word, controller: ExplorerController
                 WordMore.Done(env.explain(hanzi, ui.explainSentence, r.pinyin.ifBlank { null }, r.english.ifBlank { null }))
             } catch (e: CancellationException) {
                 throw e
-            } catch (e: java.io.IOException) {
-                WordMore.Offline
             } catch (e: Exception) {
-                WordMore.Error(e.userMessage())
+                // A server error (HttpException is an IOException too) is "couldn't", never "offline".
+                if (e.isOffline()) WordMore.Offline else WordMore.Error(e.userMessage())
             }
             update { it.copy(more = more) }
         }

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   guardSentenceGrade, namesProblem, normalizeSentenceFeedback, normalizeSentenceFix, pickSentenceCheckInput, problemClause,
   sentenceCheckCacheText, sentenceCheckView, needsWorkHeadline, legacyGrade, SENTENCE_RIGHT_HEADLINE, SENTENCE_MISSING_WORD_HEADLINE,
+  moreIncludesReason, sentenceFixProblem, cleanSentenceFixProblem, SentenceFixRejected, SENTENCE_FIX_PROBLEM_MAX,
 } from './sentenceCheck';
 import { normalizeAnswerCheck, pickAnswerCheckInput, punctuationComplaint } from './answerCheck';
 import { scrubSpokenTranscript, spokenCheckAnswer } from '../cards/answer';
@@ -70,11 +71,64 @@ describe('the coherence guard', () => {
   });
 });
 
+describe('the reason is read once (More ▸ in place of a cut line)', () => {
+  const ANGLE = { words: ['角度'], sentence: '从我妈妈的角度来看我和我妹妹住在很远的地方', input: 'spoken' };
+  const REASON = 'From your mother’s point of view should lead to what she thinks or feels, but 我和我妹妹住在很远的地方 only states where you live.';
+  const raw = { grade: 'needs_work', headline: '从…的角度 used right — unclear what the angle reveals', reason: REASON, more: 'Add her view, e.g. 她觉得我们住得太远了.', fixable: true, uses_all_words: true };
+
+  it('Jerome\'s 从…的角度 check: the line is cut, More holds all of it → More opens in its place', () => {
+    const fb = normalizeSentenceFeedback(raw, ANGLE);
+    expect(fb.reason).toBe('From your mother’s point of view should lead to what she thinks or feels…');
+    const v = sentenceCheckView(fb, ANGLE.words);
+    expect(v.more.startsWith(REASON)).toBe(true);
+    expect(v.moreIncludesReason).toBe(true);
+    // Idempotent: the stored check reads the same.
+    expect(sentenceCheckView(fb, ANGLE.words)).toEqual(v);
+  });
+
+  it('a reason More doesn\'t hold stays where it is', () => {
+    const v = sentenceCheckView(normalizeSentenceFeedback({ ...raw, reason: 'Say what she thinks.' }, ANGLE), ANGLE.words);
+    expect(v.reason).toBe('Say what she thinks.');
+    expect(v.moreIncludesReason).toBe(false);
+  });
+
+  it('moreIncludesReason: the "…", spacing and case aside; an empty line never', () => {
+    expect(moreIncludesReason('The second clause just states another plan.', 'the second   clause…')).toBe(true);
+    expect(moreIncludesReason('abc', '')).toBe(false);
+    expect(moreIncludesReason('abc', '…')).toBe(false);
+    expect(moreIncludesReason('abc', 'xyz')).toBe(false);
+  });
+
+  it('the fix is told the problem, each line once', () => {
+    const fb = normalizeSentenceFeedback(raw, ANGLE);
+    const problem = sentenceFixProblem(fb, ANGLE.words);
+    expect(problem.startsWith('从…的角度 used right — unclear what the angle reveals From your mother’s point of view')).toBe(true);
+    expect(problem.split('should lead to what she thinks').length).toBe(2); // once
+    expect(problem).toContain('她觉得我们住得太远了');
+    expect(sentenceFixProblem({ verdict: 'correct', grade: 'right', headline: 'Natural and correct', uses_all_words: true, comment: '' }, [])).toBe('');
+    expect(cleanSentenceFixProblem(' a \n b ')).toBe('a b');
+    expect([...cleanSentenceFixProblem('从'.repeat(700))]).toHaveLength(SENTENCE_FIX_PROBLEM_MAX);
+    expect(cleanSentenceFixProblem(42)).toBe('');
+  });
+});
+
 describe('the fix, the input, the cache', () => {
   it('a fix is Chinese and not his own sentence', () => {
     expect(normalizeSentenceFix({ hanzi: '我本来要去健身房，可是后来去学中文了。', english: 'x' }, BENLAI.sentence).hanzi).toBe('我本来要去健身房，可是后来去学中文了。');
-    expect(() => normalizeSentenceFix({ hanzi: '我本来要去健身馆 但是我学中文' }, BENLAI.sentence)).toThrow();
-    expect(() => normalizeSentenceFix({ hanzi: 'hello' }, BENLAI.sentence)).toThrow();
+    expect(() => normalizeSentenceFix({ hanzi: '我本来要去健身馆 但是我学中文' }, BENLAI.sentence)).toThrow(SentenceFixRejected);
+    expect(() => normalizeSentenceFix({ hanzi: 'hello' }, BENLAI.sentence)).toThrow(SentenceFixRejected);
+  });
+
+  it('re-punctuating his sentence is not a fix (Jerome\'s 从…的角度, Nov 2026)', () => {
+    const said = '从我妈妈的角度来看我和我妹妹住在很远的地方';
+    try {
+      normalizeSentenceFix({ hanzi: '从我妈妈的角度来看，我和我妹妹住在很远的地方。' }, said);
+      throw new Error('accepted');
+    } catch (e) {
+      expect(e).toBeInstanceOf(SentenceFixRejected);
+      expect((e as SentenceFixRejected).kind).toBe('same');
+    }
+    expect(normalizeSentenceFix({ hanzi: '从我妈妈的角度来看，我和我妹妹住得太远了。' }, said).hanzi).toBe('从我妈妈的角度来看，我和我妹妹住得太远了。');
   });
 
   it('input + cache text (punctuation aside, versioned)', () => {

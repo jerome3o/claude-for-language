@@ -160,9 +160,16 @@ suspend fun Api.deleteCustomLesson(id: String): Unit = delete("/api/custom-lesso
 suspend fun Api.sentenceFeedback(words: List<String>, task: String?, sentence: String, input: String? = null): SentenceFeedback =
     post<SentenceFeedbackBody, SentenceFeedbackDto>("/api/lessons/sentence-feedback", SentenceFeedbackBody(words, task, sentence, input)).feedback
 
-/** ✨ Show a fixed version: his sentence minimally fixed (cached on the server per exercise + sentence). */
-suspend fun Api.sentenceFix(words: List<String>, task: String?, sentence: String, input: String? = null): dev.jeromeswannack.chineselearning.lab.core.SentenceFix =
-    post<SentenceFeedbackBody, SentenceFixDto>("/api/lessons/sentence-fix", SentenceFeedbackBody(words, task, sentence, input)).fix
+/** The fix request: the check's request + [problem] (what the check found wrong — prompt text for the fixer). */
+@Serializable
+data class SentenceFixBody(val words: List<String>, val task: String?, val sentence: String, val input: String? = null, val problem: String? = null)
+
+/**
+ * ✨ Show a fixed version: his sentence minimally fixed for [problem] (core SentenceCheck.fixProblem; cached on the
+ * server per exercise + sentence). A 502 = Claude couldn't fix it (HttpException — not "offline").
+ */
+suspend fun Api.sentenceFix(words: List<String>, task: String?, sentence: String, input: String? = null, problem: String? = null): dev.jeromeswannack.chineselearning.lab.core.SentenceFix =
+    post<SentenceFixBody, SentenceFixDto>("/api/lessons/sentence-fix", SentenceFixBody(words, task, sentence, input, problem?.takeIf { it.isNotBlank() })).fix
 
 suspend fun Api.practiceTts(text: String, speed: Double?, voiceId: String?): PracticeTtsDto =
     post("/api/practice/tts", PracticeTtsBody(text, speed, voiceId))

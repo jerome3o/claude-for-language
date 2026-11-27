@@ -73,8 +73,11 @@ class ExerciseEnv(
     val picture: ((key: String?, prompt: String) -> kotlinx.coroutines.flow.Flow<dev.jeromeswannack.chineselearning.lab.data.lessons.LessonPicture>)? = null,
     /** Claude's grade of a made sentence (input = spoken | edited | typed); throws when it can't (offline: IOException, busy). */
     val sentenceFeedback: suspend (words: List<String>, task: String?, sentence: String, input: String?) -> SentenceFeedback = { _, _, _, _ -> throw java.io.IOException("offline") },
-    /** ✨ Show a fixed version of a made sentence; throws when it can't (offline: IOException). */
-    val sentenceFix: suspend (words: List<String>, task: String?, sentence: String, input: String?) -> dev.jeromeswannack.chineselearning.lab.core.SentenceFix = { _, _, _, _ -> throw java.io.IOException("offline") },
+    /**
+     * ✨ Show a fixed version of a made sentence, told [problem] (what the check found — core SentenceCheck.fixProblem);
+     * throws when it can't (offline: a plain IOException; the server's refusal: HttpException — `isOffline()` tells them apart).
+     */
+    val sentenceFix: suspend (words: List<String>, task: String?, sentence: String, input: String?, problem: String) -> dev.jeromeswannack.chineselearning.lab.core.SentenceFix = { _, _, _, _, _ -> throw java.io.IOException("offline") },
     /** Claude's check of a self-assessed answer (device cache, then the API); throws when there is none (AnswerCheckViews.kt). */
     val answerCheck: AnswerCheckFn = { throw dev.jeromeswannack.chineselearning.lab.data.api.AnswerCheckUnavailable("offline", offline = true) },
     /** A "which sentence is wrong?" choice's correction for an older lesson (device cache, then the API); throws offline / busy (core ChoiceMistake). */

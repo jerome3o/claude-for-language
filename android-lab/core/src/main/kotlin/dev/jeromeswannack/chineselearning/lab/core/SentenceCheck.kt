@@ -11,7 +11,7 @@ import java.util.Locale
  */
 object SentenceCheck {
     const val CHECK_VERSION = 2
-    const val FIX_VERSION = 1
+    const val FIX_VERSION = 2
     val GRADES = listOf("right", "needs_work", "wrong")
 
     const val TRY_AGAIN_LABEL = "Try again"
@@ -141,6 +141,8 @@ object SentenceCheck {
         val headline: String,
         val reason: String,
         val more: String,
+        /** Port of `moreIncludesReason`: once opened, More ▸ shows [more] IN PLACE of the reason (it holds it). */
+        val moreIncludesReason: Boolean,
         val fixable: Boolean,
         val right: Boolean,
         val downgraded: Boolean,
@@ -148,6 +150,28 @@ object SentenceCheck {
 
     private fun same(a: String, b: String) =
         NoteSearch.jsTrim(COLLAPSE.replace(a, " ")).lowercase(Locale.ROOT) == NoteSearch.jsTrim(COLLAPSE.replace(b, " ")).lowercase(Locale.ROOT)
+
+    private fun key(t: String) = NoteSearch.jsTrim(COLLAPSE.replace(t, " ")).lowercase(Locale.ROOT)
+    private val TRAILING_ELLIPSIS = Regex("…$")
+
+    /** Port of moreIncludesReason(): does [more] already say the reason line (its "…", spacing and case aside)? */
+    fun moreIncludesReason(more: String, reason: String): Boolean {
+        val stem = NoteSearch.jsTrim(TRAILING_ELLIPSIS.replace(key(reason), ""))
+        return stem.isNotEmpty() && key(more).contains(stem)
+    }
+
+    /** Port of SENTENCE_FIX_PROBLEM_MAX. */
+    const val FIX_PROBLEM_MAX = 600
+
+    /** Port of cleanSentenceFixProblem(): spacing collapsed, at most [FIX_PROBLEM_MAX] characters. */
+    fun cleanFixProblem(raw: String?): String = cpTake(NoteSearch.jsTrim(COLLAPSE.replace(raw ?: "", " ")), FIX_PROBLEM_MAX)
+
+    /** Port of sentenceFixProblem(): what the check found wrong, each line once — sent with ✨ Show a fixed version. */
+    fun fixProblem(f: SentenceFeedback, words: List<String>): String {
+        val v = view(f, words)
+        if (v.right) return ""
+        return cleanFixProblem(listOf(v.headline, if (v.moreIncludesReason) "" else v.reason, v.more).filter { it.isNotEmpty() }.joinToString(" "))
+    }
 
     /** Port of sentenceCheckView(): a check (v2, or v1) → what to show. Idempotent on a normalised check. */
     fun view(f: SentenceFeedback, words: List<String>): View {
@@ -179,11 +203,14 @@ object SentenceCheck {
         if (reason0.isNotEmpty() && !same(reason0, reasonLine)) pushMore(reason0)
         pushMore(more0)
         val c = chip(grade)
+        val reasonShown = if (same(reasonLine, headLine)) "" else reasonLine
+        val moreText = fuller.joinToString(" ")
         return View(
             grade = grade, icon = c.icon, tone = c.tone, label = c.label, state = resultState(grade),
             headline = headLine,
-            reason = if (same(reasonLine, headLine)) "" else reasonLine,
-            more = fuller.joinToString(" "),
+            reason = reasonShown,
+            more = moreText,
+            moreIncludesReason = moreText.isNotEmpty() && moreIncludesReason(moreText, reasonShown),
             fixable = grade != "right" && f.fixable != false,
             right = grade == "right",
             downgraded = downgraded,

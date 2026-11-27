@@ -12,7 +12,8 @@ import Anthropic from '@anthropic-ai/sdk';
  *   max_tokens with default thinking is how the coach's first reply broke.
  * - stop_reason checked: 'max_tokens' means the tool input is cut off, so the
  *   next attempt gets double the budget; 'refusal' is reported as such.
- * - validate() runs on the parsed input; a bad shape is retried like any error.
+ * - validate() runs on the parsed input; a bad shape is retried like any error — with `repair`, the retry also sees
+ *   its own answer and why it was refused (a tool_result marked as an error), so it doesn't hand back the same thing.
  * - Every failure except a request we built wrongly (400/401/403/404) is
  *   retried; the last attempt goes to a fallback model (Haiku), so an overloaded
  *   or failing primary model still yields an answer.
@@ -20,7 +21,8 @@ import Anthropic from '@anthropic-ai/sdk';
  */
 
 export class StructuredCallError extends Error {
-  constructor(message: string, public readonly retryable: boolean) {
+  /** `last` = the last attempt's own error (e.g. what validate() threw), for callers that answer differently by it. */
+  constructor(message: string, public readonly retryable: boolean, public readonly last?: unknown) {
     super(message);
   }
 }
@@ -37,6 +39,11 @@ export interface StructuredCallOptions<T> {
   maxTokens: number;
   /** Throw to reject the shape (it is retried); return the cleaned value. */
   validate: (input: unknown) => T;
+  /**
+   * validate() refused an answer: the note to send back with it (as the tool's error result) so the next attempt
+   * knows why — null / undefined = retry the plain request instead.
+   */
+  repair?: (error: unknown, input: unknown) => string | null | undefined;
   attempts?: number;
   timeoutMs?: number;
   /** The SDK's own retries per attempt (default 1). 0 for a call that must answer fast or not at all. */
@@ -61,6 +68,8 @@ export async function structuredCall<T>(opts: StructuredCallOptions<T>): Promise
   const client = opts.client ?? new Anthropic({ apiKey: opts.apiKey, timeout: opts.timeoutMs ?? 45_000, maxRetries: opts.maxRetries ?? 1 });
   let maxTokens = opts.maxTokens;
   let lastError: unknown;
+  // The conversation sent: the request, then (after a refused answer with a repair note) that answer + why.
+  let messages: Anthropic.MessageParam[] = [{ role: 'user', content: opts.user }];
 
   for (let attempt = 0; attempt < attempts; attempt++) {
     if (attempt > 0) await sleep(400 * attempt);
@@ -74,7 +83,7 @@ export async function structuredCall<T>(opts: StructuredCallOptions<T>): Promise
         system: opts.system,
         tools: [opts.tool],
         tool_choice: { type: 'tool', name: opts.tool.name },
-        messages: [{ role: 'user', content: opts.user }],
+        messages,
       });
       if (response.stop_reason === 'max_tokens') {
         maxTokens = Math.min(maxTokens * 2, 16_000);
@@ -86,7 +95,19 @@ export async function structuredCall<T>(opts: StructuredCallOptions<T>): Promise
       if (response.usage) opts.onUsage?.({ input_tokens: response.usage.input_tokens ?? 0, output_tokens: response.usage.output_tokens ?? 0 }, model);
       const toolUse = response.content.find((b) => b.type === 'tool_use');
       if (!toolUse || toolUse.type !== 'tool_use') throw new Error('Claude returned no structured answer');
-      return opts.validate(toolUse.input);
+      try {
+        return opts.validate(toolUse.input);
+      } catch (invalid) {
+        const note = opts.repair?.(invalid, toolUse.input);
+        if (note) {
+          messages = [
+            { role: 'user', content: opts.user },
+            { role: 'assistant', content: [{ type: 'tool_use', id: toolUse.id, name: toolUse.name, input: toolUse.input }] },
+            { role: 'user', content: [{ type: 'tool_result', tool_use_id: toolUse.id, is_error: true, content: note }] },
+          ];
+        }
+        throw invalid;
+      }
     } catch (error) {
       lastError = error;
       if (error instanceof StructuredCallError && !error.retryable) throw error;
@@ -101,5 +122,5 @@ export async function structuredCall<T>(opts: StructuredCallOptions<T>): Promise
   }
 
   const message = lastError instanceof Error ? lastError.message : String(lastError);
-  throw new StructuredCallError(message, !isFatalApiError(lastError));
+  throw new StructuredCallError(message, !isFatalApiError(lastError), lastError);
 }

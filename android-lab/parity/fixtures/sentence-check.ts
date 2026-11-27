@@ -9,7 +9,7 @@ import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   explanationClauses, guardSentenceGrade, legacyGrade, namesProblem, needsWorkHeadline, problemClause, sentenceCheckView, sentenceGradeChip,
-  sentenceLine, targetWordsPhrase, SENTENCE_GRADES,
+  sentenceLine, targetWordsPhrase, SENTENCE_GRADES, moreIncludesReason, sentenceFixProblem, cleanSentenceFixProblem, normalizeSentenceFeedback,
   SENTENCE_TRY_AGAIN_LABEL, SENTENCE_SHOW_FIX_LABEL, SENTENCE_FIX_LABEL, SENTENCE_SAY_FIX_LABEL, SENTENCE_MORE_LABEL, SENTENCE_EXAMPLE_TOGGLE,
   SENTENCE_FIXING_LINE, SENTENCE_FIX_OFFLINE, SENTENCE_FIX_FAILED, SENTENCE_RETRY_OFFLINE, SENTENCE_RETRY_NOTE, SENTENCE_SELF_CHECK,
   SENTENCE_SELF_CHECK_HANDWRITTEN, SENTENCE_RIGHT_HEADLINE, SENTENCE_MISSING_WORD_HEADLINE, SENTENCE_WRONG_HEADLINE,
@@ -49,11 +49,31 @@ const FEEDBACKS: SentenceFeedback[] = [
   { verdict: 'correct', grade: 'bogus' as never, headline: 'x', uses_all_words: true, comment: 'y' },
 ];
 
+/** Jerome's 从…的角度 check (Nov 2026): the reason cut on its line, `more` holding the whole of it — More ▸ opens in place. */
+const ANGLE_REASON = 'From your mother’s point of view should lead to what she thinks or feels, but 我和我妹妹住在很远的地方 only states where you live.';
+const ANGLE_STORED = normalizeSentenceFeedback(
+  { grade: 'needs_work', headline: '从…的角度 used right — unclear what the angle reveals', reason: ANGLE_REASON, more: 'Add her view, e.g. 她觉得我们住得太远了.', fixable: true, uses_all_words: true },
+  { words: ['角度'], sentence: '从我妈妈的角度来看我和我妹妹住在很远的地方', input: 'spoken' },
+);
+FEEDBACKS.push(
+  ANGLE_STORED,
+  { verdict: 'minor', grade: 'needs_work', headline: 'x used right — one thing', reason: ANGLE_REASON, more: `${ANGLE_REASON} And more.`, fixable: true, uses_all_words: true, comment: '' },
+  { verdict: 'minor', grade: 'needs_work', headline: 'x used right — one thing', reason: 'FROM YOUR MOTHER’S point   of view…', more: ANGLE_REASON, fixable: true, uses_all_words: true, comment: '' },
+  { verdict: 'minor', grade: 'needs_work', headline: 'x used right — one thing', reason: 'Short.', more: 'Not the same at all.', fixable: true, uses_all_words: true, comment: '' },
+);
+
 const views = FEEDBACKS.flatMap((f) => WORDS.map((words) => ({ feedback: f, words, view: sentenceCheckView(f, words) })));
 const guard = SENTENCE_GRADES.flatMap((g) => [true, false].flatMap((u) => [[], ['Nice.'], ['Nice.', 'Also 健身馆 is usually 健身房.'], [JEROME]].map((lines) => ({ grade: g, uses: u, lines, out: guardSentenceGrade(g, lines, u) }))));
 const legacy = ['correct', 'minor', 'incorrect', 'x', null].flatMap((v) => [true, false].map((u) => ({ verdict: v, uses: u, out: legacyGrade(v, u) })));
 const lineCuts = [...LINES, 'The second clause just states another plan rather than an actual interrupting event, so it should show what really happened.', 'x'.repeat(130), 'word '.repeat(40), '一二三。四五六', ' a   b  c ']
   .flatMap((t) => [110, 30, 12].map((max) => ({ text: t, max, out: sentenceLine(t, max) })));
+
+const moreIncludes = [
+  [ANGLE_REASON, 'From your mother’s point of view should lead to what she thinks or feels…'], ['abc def', 'ABC…'], ['abc', ''], ['abc', '…'],
+  ['', 'abc'], ['a  b   c', 'a b c'], ['本来…要 used right', '本来…要'], ['x', 'y'], ['the second clause', 'The second clause…'],
+].map(([more, reason]) => ({ more, reason, out: moreIncludesReason(more, reason) }));
+const fixProblems = FEEDBACKS.flatMap((f) => WORDS.slice(0, 2).map((words) => ({ feedback: f, words, out: sentenceFixProblem(f, words) })));
+const cleanProblems = [null, 42, '', '  a \n b  ', 'x'.repeat(700), '从'.repeat(650)].map((raw) => ({ raw, out: cleanSentenceFixProblem(raw) }));
 
 const SPOKEN = [
   '我不知道。 我妹妹有，不有新电脑。', '我有 3.5 块，好吗？', '我喜欢 coffee，你呢？', "I don't know, maybe.", '他说"好"。', '这个牛角包 3块多元',
@@ -89,5 +109,5 @@ writeFileSync(join(OUT, 'sentence-check.json'), JSON.stringify({
   chips: SENTENCE_GRADES.map((g) => ({ grade: g, ...sentenceGradeChip(g) })),
   phrases: WORDS.map((w) => ({ words: w, phrase: targetWordsPhrase(w), headline: needsWorkHeadline(w) })),
   problems: LINES.map((t) => ({ text: t, names: namesProblem(t), clause: problemClause(t), clauses: explanationClauses(t) })),
-  guard, legacy, lineCuts, views, scrub, complaints, normalized,
+  guard, legacy, lineCuts, views, scrub, complaints, normalized, moreIncludes, fixProblems, cleanProblems,
 }, null, 1));
