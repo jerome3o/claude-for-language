@@ -62,15 +62,18 @@ export async function checkMadeSentence(
   return { feedback: r.feedback, cached: !!r.cached, ms: r.ms };
 }
 
-/** ✨ Show a fixed version: his sentence minimally fixed. Cached per (exercise, sentence) on the device for the session. */
+/**
+ * ✨ Show a fixed version: his sentence minimally fixed for `problem` (what the check found — `sentenceFixProblem`).
+ * Cached per (exercise, sentence) on the device for the session.
+ */
 const fixCache = new Map<string, SentenceFix>();
 export async function fixMadeSentence(
-  words: string[], task: string | undefined, sentence: string, input?: SentenceInputMode | null,
+  words: string[], task: string | undefined, sentence: string, input?: SentenceInputMode | null, problem?: string,
 ): Promise<{ fix: SentenceFix; cached: boolean }> {
   const key = sentenceCheckCacheText({ words, task, sentence: spokenCheckAnswer(sentence, input) }, 'fix');
   const hit = fixCache.get(key);
   if (hit) return { fix: hit, cached: true };
-  const r = await postSentence<{ fix: SentenceFix; cached?: boolean }>('/lessons/sentence-fix', { words, task, sentence, input: input ?? undefined });
+  const r = await postSentence<{ fix: SentenceFix; cached?: boolean }>('/lessons/sentence-fix', { words, task, sentence, input: input ?? undefined, problem: problem || undefined });
   fixCache.set(key, r.fix);
   return { fix: r.fix, cached: !!r.cached };
 }

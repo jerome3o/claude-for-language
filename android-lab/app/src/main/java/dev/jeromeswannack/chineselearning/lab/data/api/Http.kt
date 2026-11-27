@@ -140,6 +140,18 @@ fun HttpException.problems(): List<String> {
     }
 }
 
+/**
+ * A real "no connection" failure. [HttpException] and [UnauthorizedException] extend IOException but are the SERVER's
+ * answer (Claude busy / declined, signed out) — never "offline"; an [AnswerCheckUnavailable] says which it is. Use this,
+ * not `is IOException`, wherever a failure picks between "needs a connection" and "couldn't".
+ */
+fun Throwable.isOffline(): Boolean = when (this) {
+    is HttpException, is UnauthorizedException -> false
+    is AnswerCheckUnavailable -> offline
+    is IOException -> true
+    else -> false
+}
+
 /** A sentence to show in an InlineNotice for any failure — never a stack trace. */
 fun Throwable.userMessage(): String = when (this) {
     is UnauthorizedException -> "You’re signed out — tap Sign in on the banner at the top."

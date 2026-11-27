@@ -15,7 +15,8 @@
  *    never "used" (→ `wrong`). Applied by the worker before it answers AND by both apps on what they get
  *    (`sentenceCheckView`), so an older cached answer can't show green over a correction either.
  * 3. **Slim** — one headline line, at most one short reason line, the fuller text only behind "More ▸" when it adds
- *    something. No corrected sentence in the first call (fast): a `fixable` flag only.
+ *    something; when that text holds the reason (a cut "…" line), More ▸ opens it IN PLACE of the reason line, so the
+ *    reason is never read twice (`moreIncludesReason`). No corrected sentence in the first call (fast): a `fixable` flag only.
  * 4. **Iterate** — 🎤 Try again (a new sentence, re-checked the same way, practice only) and ✨ Show a fixed version
  *    (a second small call that fixes HIS sentence with minimal edits, cached per exercise + sentence).
  *
@@ -28,7 +29,8 @@ import type { LessonSentence } from './types';
 
 /** v1 = correct / minor / incorrect + comment + a corrected sentence; v2 = the grades, headline, reason, fixable. */
 export const SENTENCE_CHECK_VERSION = 2;
-export const SENTENCE_FIX_VERSION = 1;
+/** v2 = the fix is told what the check found wrong (a fix made without it may only re-punctuate). */
+export const SENTENCE_FIX_VERSION = 2;
 /** The exercise type a check / fix is cached under (the answer checks' table, `lesson_answer_checks`). */
 export const SENTENCE_CHECK_CACHE_TYPE = 'sentence_making';
 export const SENTENCE_FIX_CACHE_TYPE = 'sentence_making_fix';
@@ -217,6 +219,11 @@ export interface SentenceCheckView {
   reason: string;
   /** The fuller text behind "More ▸" ('' = nothing more to say). */
   more: string;
+  /**
+   * `more` already holds the reason line's text (the line is a cut of it, or Claude repeated it there): once opened,
+   * More ▸ shows `more` IN PLACE of the reason — the full text once, never the cut line and then the whole of it again.
+   */
+  moreIncludesReason: boolean;
   /** ✨ Show a fixed version is offered. */
   fixable: boolean;
   /** Counts as right (the exercise's score). */
@@ -226,6 +233,13 @@ export interface SentenceCheckView {
 }
 
 const same = (a: string, b: string) => a.replace(/\s+/g, ' ').trim().toLowerCase() === b.replace(/\s+/g, ' ').trim().toLowerCase();
+
+/** Does `more` already say the reason line (cut or not — its "…" aside; spacing and case aside)? */
+export function moreIncludesReason(more: string, reason: string): boolean {
+  const key = (t: string) => t.replace(/\s+/g, ' ').trim().toLowerCase();
+  const stem = key(reason).replace(/…$/u, '').trim();
+  return stem.length > 0 && key(more).includes(stem);
+}
 
 /**
  * A check (v2, or a v1 one from an older server / attempt) → what to show. Idempotent: the view of a normalised
@@ -262,6 +276,8 @@ export function sentenceCheckView(f: SentenceFeedback, words: readonly string[])
   if (reason0 && !same(reason0, reasonLine)) pushMore(reason0);
   pushMore(more0);
   const chip = sentenceGradeChip(grade);
+  const reasonShown = same(reasonLine, headLine) ? '' : reasonLine;
+  const moreText = fuller.join(' ');
   return {
     grade,
     icon: chip.icon,
@@ -269,8 +285,9 @@ export function sentenceCheckView(f: SentenceFeedback, words: readonly string[])
     state: sentenceResultState(grade),
     label: chip.label,
     headline: headLine,
-    reason: same(reasonLine, headLine) ? '' : reasonLine,
-    more: fuller.join(' '),
+    reason: reasonShown,
+    more: moreText,
+    moreIncludesReason: !!moreText && moreIncludesReason(moreText, reasonShown),
     fixable: grade !== 'right' && f.fixable !== false,
     right: grade === 'right',
     downgraded,
@@ -330,15 +347,42 @@ export function normalizeSentenceFeedback(raw: unknown, input: { words: readonly
   return out;
 }
 
+/** Why a fix_sentence answer isn't a fix: no Chinese, or his own sentence back (only the punctuation changed). */
+export class SentenceFixRejected extends Error {
+  constructor(readonly kind: 'invalid' | 'same') {
+    super(kind === 'same' ? 'The fix is the same sentence' : 'Invalid sentence fix from AI');
+  }
+}
+
+/** The most a check's problem may add to the fix's prompt (the client's copy is only ever prompt text). */
+export const SENTENCE_FIX_PROBLEM_MAX = 600;
+
 /**
- * The fix_sentence tool's input → the fix (throws when it isn't one: no Chinese, or his own sentence back — the call
- * is retried). Pinyin / English are optional.
+ * What the check found wrong, for ✨ Show a fixed version's prompt: the headline, the reason and the fuller text, each
+ * said once (`moreIncludesReason`). '' for a right sentence. Both apps send it with the request; the server prefers
+ * its own cached check of the same sentence.
+ */
+export function sentenceFixProblem(f: SentenceFeedback, words: readonly string[]): string {
+  const v = sentenceCheckView(f, words);
+  if (v.right) return '';
+  const parts = [v.headline, v.moreIncludesReason ? '' : v.reason, v.more].filter(Boolean);
+  return cleanSentenceFixProblem(parts.join(' '));
+}
+
+/** Request text → the problem line (spacing collapsed, at most SENTENCE_FIX_PROBLEM_MAX); '' when it isn't text. */
+export function cleanSentenceFixProblem(raw: unknown): string {
+  return str(raw, SENTENCE_FIX_PROBLEM_MAX);
+}
+
+/**
+ * The fix_sentence tool's input → the fix (throws SentenceFixRejected when it isn't one: no Chinese, or his own
+ * sentence back — the call is retried with the reason). Pinyin / English are optional.
  */
 export function normalizeSentenceFix(raw: unknown, sentence: string): SentenceFix {
   const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
   const hanzi = str(r.hanzi, SENTENCE_CHECK_LIMITS.sentence);
-  if (!hanzi || !/\p{Script=Han}/u.test(hanzi)) throw new Error('Invalid sentence fix from AI');
-  if (withoutPunctuation(digitsToHanzi(hanzi)) === withoutPunctuation(digitsToHanzi(sentence))) throw new Error('The fix is the same sentence');
+  if (!hanzi || !/\p{Script=Han}/u.test(hanzi)) throw new SentenceFixRejected('invalid');
+  if (withoutPunctuation(digitsToHanzi(hanzi)) === withoutPunctuation(digitsToHanzi(sentence))) throw new SentenceFixRejected('same');
   const out: SentenceFix = { hanzi };
   const pinyin = str(r.pinyin, SENTENCE_CHECK_LIMITS.sentence * 6);
   const english = str(r.english, SENTENCE_CHECK_LIMITS.sentence);

@@ -73,6 +73,7 @@ import dev.jeromeswannack.chineselearning.lab.core.SentenceMakingExercise
 import dev.jeromeswannack.chineselearning.lab.core.SentenceCheck
 import dev.jeromeswannack.chineselearning.lab.core.AnswerKey
 import dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics
+import dev.jeromeswannack.chineselearning.lab.data.api.isOffline
 import dev.jeromeswannack.chineselearning.lab.core.WriteHandwritingExercise
 import dev.jeromeswannack.chineselearning.lab.core.WriteTypedExercise
 import dev.jeromeswannack.chineselearning.lab.core.WritingCue
@@ -155,7 +156,7 @@ fun SentenceMakingView(
                 Analytics.track("lesson.sentence_verdict", mapOf("verdict" to v.grade, "downgraded" to v.downgraded, "ms" to System.currentTimeMillis() - started, "cached" to false, "input" to (given ?: "typed")))
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
-                val offline = e is java.io.IOException
+                val offline = e.isOffline()
                 offlineNote = "Claude can’t check it right now — compare with the example."
                 exampleOpen = true
                 Analytics.track("lesson.sentence_verdict", mapOf("verdict" to if (offline) "offline" else "error", "downgraded" to false, "ms" to System.currentTimeMillis() - started, "cached" to false, "input" to (given ?: "typed")))

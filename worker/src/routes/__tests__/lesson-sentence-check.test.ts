@@ -74,4 +74,32 @@ describe('POST /api/lessons/sentence-fix', () => {
     expect(r.json.cached).toBe(false);
     expect((await post('/lessons/sentence-fix', BENLAI)).json.cached).toBe(true);
   });
+
+  // Jerome, Nov 2026: 从我妈妈的角度来看我和我妹妹住在很远的地方 graded needs_work for meaning; ✨ Show a fixed version
+  // never came — the fixer, not told the problem, handed his sentence back re-punctuated, and the app said "offline".
+  const ANGLE = { words: ['角度'], sentence: '从我妈妈的角度来看我和我妹妹住在很远的地方', input: 'spoken' };
+
+  it('a problem of meaning: the fix reads the check made first and addresses it', async () => {
+    const db = await createSqliteD1();
+    const post = client({ DB: db, E2E_TEST_MODE: 'true' } as unknown as Env);
+    const check = await post('/lessons/sentence-feedback', ANGLE);
+    expect(check.json.feedback.grade).toBe('needs_work');
+    const r = await post('/lessons/sentence-fix', ANGLE);
+    expect(r.status).toBe(200);
+    expect(r.json.fix.hanzi).toBe('从我妈妈的角度来看，我和我妹妹住得太远了。');
+  });
+
+  it('no check on the server: the app\'s copy of the problem is used', async () => {
+    const post = client({ DB: await createSqliteD1(), E2E_TEST_MODE: 'true' } as unknown as Env);
+    const r = await post('/lessons/sentence-fix', { ...ANGLE, problem: '从…的角度 used right — unclear what the angle reveals' });
+    expect(r.status).toBe(200);
+    expect(r.json.fix.hanzi).toBe('从我妈妈的角度来看，我和我妹妹住得太远了。');
+  });
+
+  it('a model that only re-punctuates → 502, not retryable, with the human line (never a 503 "busy")', async () => {
+    const post = client({ DB: await createSqliteD1(), E2E_TEST_MODE: 'true' } as unknown as Env);
+    const r = await post('/lessons/sentence-fix', ANGLE);
+    expect(r.status).toBe(502);
+    expect(r.json).toEqual({ error: 'Claude couldn’t fix this one — try saying it another way.', retryable: false });
+  });
 });

@@ -5,7 +5,11 @@
  * - `checkMadeSentence` — the grade (right · needs_work · wrong), ONE headline, at most one short reason, a
  *   `fixable` flag. Fast (the learner is mid-lesson): the small model through structuredCall (forced tool, thinking
  *   off, a short budget), the coherence guard applied to whatever comes back. NO corrected sentence here.
- * - `fixMadeSentence` — ✨ Show a fixed version, only on tap: HIS sentence with the smallest edits that fix it.
+ * - `fixMadeSentence` — ✨ Show a fixed version, only on tap: HIS sentence with the smallest edits that fix THE PROBLEM
+ *   THE CHECK FOUND — told what it is (the cached check of the same sentence, else the app's copy of it), because a
+ *   problem of meaning ("unclear what the angle reveals") has no small edit to find on its own: without it the model
+ *   handed his sentence back re-punctuated, both models, every time (Nov 2026). A fix that is still his sentence goes
+ *   back with why; after that, a non-retryable failure (502), never a "busy" 503 the apps retry in vain.
  *
  * Both are cached for everyone in `lesson_answer_checks` by SHA-256 of `sentenceCheckCacheText` (the words, the
  * task, his sentence without punctuation): the same sentence for the same exercise is never asked twice.
@@ -14,12 +18,12 @@
 
 import type Anthropic from '@anthropic-ai/sdk';
 import {
-  normalizeSentenceFeedback, normalizeSentenceFix, sentenceCheckCacheText,
-  SENTENCE_CHECK_CACHE_TYPE, SENTENCE_CHECK_VERSION, SENTENCE_FIX_CACHE_TYPE, SENTENCE_FIX_VERSION,
+  cleanSentenceFixProblem, normalizeSentenceFeedback, normalizeSentenceFix, sentenceCheckCacheText, sentenceFixProblem,
+  SentenceFixRejected, SENTENCE_FIX_FAILED, SENTENCE_CHECK_CACHE_TYPE, SENTENCE_CHECK_VERSION, SENTENCE_FIX_CACHE_TYPE, SENTENCE_FIX_VERSION,
   type SentenceCheckInput, type SentenceFeedback, type SentenceFix,
 } from '@shared/lesson/sentenceCheck';
 import { applyYiBuToneChanges } from '@shared/pinyin/toneChange';
-import { structuredCall } from './structured-call';
+import { structuredCall, StructuredCallError } from './structured-call';
 import { HAIKU_MODEL, SONNET_MODEL } from './models';
 import { appPinyin } from './answer-check';
 
@@ -76,7 +80,10 @@ const CHECK_TOOL = {
   },
 };
 
-export const SENTENCE_FIX_SYSTEM = `A Chinese learner made their own sentence with some target words, and it needs a fix. Fix THEIR sentence with the SMALLEST edits that make it natural and make it hang together: keep their idea, their words and their structure wherever you can (e.g. 我本来要去健身馆，但是我学中文。 → 我本来要去健身房，可是后来去学中文了。). Keep every target word. Give the fixed sentence in simplified characters, its English, and pinyin with tone marks.
+export const SENTENCE_FIX_SYSTEM = `A Chinese learner made their own sentence with some target words, and a check found a problem with it (you are told what). Fix THEIR sentence so that problem is gone, with the SMALLEST edits that do it: keep their idea, their words and their structure wherever you can, and keep every target word.
+- The fix must address the problem you are given. When it is about MEANING — the sentence doesn't hang together, a clause doesn't follow, it states a fact without saying what the target words set up (e.g. 从我妈妈的角度来看 followed by no view of hers) — ADD or change the words that are missing (what the mother thinks, what actually happened…), keeping the rest of their sentence. Example: 我本来要去健身馆，但是我学中文。 → 我本来要去健身房，可是后来去学中文了。
+- Changing only punctuation or spacing is NOT a fix: the words must change.
+- Give the fixed sentence in simplified characters, its English, and pinyin with tone marks.
 
 ${SPOKEN_SENTENCE_RULE}
 Answer with the fix_sentence tool.`;
@@ -102,13 +109,21 @@ export interface SentenceMakingDeps {
   client?: Pick<Anthropic, 'messages'>;
 }
 
-function userTurn(input: SentenceMakingInput): string {
+function userTurn(input: SentenceMakingInput, problem?: string): string {
   const spoken = input.input === 'spoken' || input.input === 'edited';
   return [
     `Target words: ${input.words.join('、')}`,
     input.task ? `Task: ${input.task}` : null,
     `The learner's sentence${spoken ? ' (SPOKEN — speech-recognition transcript, punctuation removed)' : ''}: ${input.sentence.trim()}`,
+    problem !== undefined ? `What the check found wrong: ${problem || '(not given — make it natural and make it hang together)'}` : null,
   ].filter(Boolean).join('\n');
+}
+
+/** The repair note when a fix_sentence answer was refused (its tool result, marked as an error). */
+export function sentenceFixRepairNote(error: unknown, problem: string): string | null {
+  if (!(error instanceof SentenceFixRejected)) return null;
+  if (error.kind === 'invalid') return 'That is not a fixed sentence: give the whole fixed sentence in simplified Chinese characters.';
+  return `That is the learner's own sentence again — only the punctuation or spacing changed, so it fixes nothing. Change the WORDS so the problem is gone${problem ? `: ${problem}` : ''}. Keep their words and every target word; add what is missing.`;
 }
 
 async function sha256(text: string): Promise<string> {
@@ -116,21 +131,29 @@ async function sha256(text: string): Promise<string> {
   return Array.from(new Uint8Array(bytes), (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
+/** One cached JSON (`lesson_answer_checks`) or null; a failure is only logged. */
+async function readCached<T>(db: D1Database | null | undefined, kind: 'check' | 'fix', input: SentenceMakingInput): Promise<T | null> {
+  if (!db) return null;
+  const version = kind === 'check' ? SENTENCE_CHECK_VERSION : SENTENCE_FIX_VERSION;
+  try {
+    const hash = await sha256(sentenceCheckCacheText(input, kind));
+    const row = await db.prepare('SELECT check_json FROM lesson_answer_checks WHERE hash = ? AND version = ?').bind(hash, version).first<{ check_json: string }>();
+    return row ? JSON.parse(row.check_json) as T : null;
+  } catch (error) {
+    console.warn('[sentence-making] cache read failed:', error instanceof Error ? error.message : error);
+    return null;
+  }
+}
+
 /** Read / write one cached JSON (`lesson_answer_checks`); a failure is only logged. */
 async function cached<T>(
   db: D1Database | null | undefined, kind: 'check' | 'fix', input: SentenceMakingInput, make: () => Promise<T>, verdictOf: (v: T) => string,
-): Promise<{ value: T; cached: boolean; raw?: unknown }> {
+): Promise<{ value: T; cached: boolean }> {
   const type = kind === 'check' ? SENTENCE_CHECK_CACHE_TYPE : SENTENCE_FIX_CACHE_TYPE;
   const version = kind === 'check' ? SENTENCE_CHECK_VERSION : SENTENCE_FIX_VERSION;
   const hash = await sha256(sentenceCheckCacheText(input, kind));
-  if (db) {
-    try {
-      const row = await db.prepare('SELECT check_json FROM lesson_answer_checks WHERE hash = ? AND version = ?').bind(hash, version).first<{ check_json: string }>();
-      if (row) return { value: JSON.parse(row.check_json) as T, cached: true, raw: JSON.parse(row.check_json) };
-    } catch (error) {
-      console.warn('[sentence-making] cache read failed:', error instanceof Error ? error.message : error);
-    }
-  }
+  const hit = await readCached<T>(db, kind, input);
+  if (hit) return { value: hit, cached: true };
   const value = await make();
   if (db) {
     try {
@@ -167,28 +190,57 @@ export async function checkMadeSentence(
   return { feedback, cached: r.cached };
 }
 
+/**
+ * What the check found wrong with this sentence: the server's own cached check of the same input (the check always
+ * runs first), else the app's copy (`clientProblem` — prompt text only, never trusted for anything else), else ''.
+ */
+export async function sentenceProblemFor(db: D1Database | null | undefined, input: SentenceMakingInput, clientProblem?: unknown): Promise<string> {
+  const check = await readCached<SentenceFeedback>(db, 'check', input);
+  if (check) {
+    try {
+      const problem = sentenceFixProblem(normalizeSentenceFeedback(check, input), input.words);
+      if (problem) return problem;
+    } catch {
+      // An unreadable cached check: fall through to the app's copy.
+    }
+  }
+  return cleanSentenceFixProblem(clientProblem);
+}
+
 export async function fixMadeSentence(
   db: D1Database | null | undefined,
   input: SentenceMakingInput,
   deps: SentenceMakingDeps,
-): Promise<{ fix: SentenceFix; cached: boolean }> {
+  clientProblem?: unknown,
+): Promise<{ fix: SentenceFix; cached: boolean; problem: string }> {
+  const problem = await sentenceProblemFor(db, input, clientProblem);
   const r = await cached(db, 'fix', input, async () => {
-    const fix = await structuredCall({
-      apiKey: deps.apiKey,
-      model: HAIKU_MODEL,
-      fallbackModel: SONNET_MODEL,
-      system: SENTENCE_FIX_SYSTEM,
-      user: userTurn(input),
-      tool: FIX_TOOL,
-      maxTokens: 400,
-      attempts: 2,
-      timeoutMs: 20_000,
-      validate: (raw) => normalizeSentenceFix(raw, input.sentence),
-      client: deps.client,
-    });
+    let fix: SentenceFix;
+    try {
+      fix = await structuredCall({
+        apiKey: deps.apiKey,
+        model: HAIKU_MODEL,
+        fallbackModel: SONNET_MODEL,
+        system: SENTENCE_FIX_SYSTEM,
+        user: userTurn(input, problem),
+        tool: FIX_TOOL,
+        maxTokens: 400,
+        attempts: 3,
+        timeoutMs: 20_000,
+        validate: (raw) => normalizeSentenceFix(raw, input.sentence),
+        repair: (error) => sentenceFixRepairNote(error, problem),
+        client: deps.client,
+      });
+    } catch (error) {
+      // Every attempt answered, and none was a fix: asking again won't help (502, not a retryable 503).
+      if (error instanceof StructuredCallError && error.last instanceof SentenceFixRejected) {
+        throw new StructuredCallError(SENTENCE_FIX_FAILED, false, error.last);
+      }
+      throw error;
+    }
     // The model's pinyin through the 一 / 不 rule; the app's own when it gave none.
     const pinyin = fix.pinyin ? applyYiBuToneChanges(fix.hanzi, fix.pinyin) : appPinyin(fix.hanzi);
     return pinyin ? { ...fix, pinyin } : fix;
   }, () => 'fix');
-  return { fix: r.value, cached: r.cached };
+  return { fix: r.value, cached: r.cached, problem };
 }

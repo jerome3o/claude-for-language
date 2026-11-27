@@ -20,6 +20,7 @@ import androidx.compose.foundation.background
 import androidx.compose.ui.unit.dp
 import com.github.takahirom.roborazzi.captureRoboImage
 import dev.jeromeswannack.chineselearning.lab.core.LessonSentence
+import dev.jeromeswannack.chineselearning.lab.core.SentenceCheck
 import dev.jeromeswannack.chineselearning.lab.core.LessonWord
 import dev.jeromeswannack.chineselearning.lab.core.SentenceFeedback
 import dev.jeromeswannack.chineselearning.lab.core.SentenceFix
@@ -71,10 +72,11 @@ class SentenceVerdictScreenshots : LabScreenshotTest() {
     fun jeromesSentenceIsNeedsWorkThenIterates() {
         val checks = ArrayDeque(listOf(oldCheck, right))
         var fixes = 0
+        var problemSent = ""
         val env = ExerciseEnv(
             random = Random(7),
             sentenceFeedback = { _, _, _, _ -> checks.removeFirst() },
-            sentenceFix = { _, _, _, _ -> fixes++; fix },
+            sentenceFix = { _, _, _, _, problem -> fixes++; problemSent = problem; fix },
         )
         var correct: Boolean? = null
         screen { ExerciseView(benlai, env, null) { c, _, _ -> correct = c } }
@@ -93,6 +95,9 @@ class SentenceVerdictScreenshots : LabScreenshotTest() {
         compose.onAllNodesWithTag(SentenceCheckTags.SHOW_FIX).onFirst().performClick()
         compose.mainClock.advanceTimeBy(800)
         assertEquals(1, fixes)
+        // The fix is told what the check found wrong.
+        assertTrue(problemSent.startsWith("本来 and 要 used right — one thing to fix"), problemSent)
+        assertTrue(problemSent.contains("should show what really happened"), problemSent)
         assertTrue(compose.onAllNodesWithTag(SentenceCheckTags.FIX).fetchSemanticsNodes().isNotEmpty())
         assertTrue(compose.onAllNodesWithTag(LessonFeedbackTags.sayAgain("fix")).fetchSemanticsNodes().isNotEmpty())
         // 🎤 Try again → right (practice only).
@@ -109,6 +114,56 @@ class SentenceVerdictScreenshots : LabScreenshotTest() {
         compose.onAllNodesWithText("Continue").onLast().performClick()
         compose.mainClock.advanceTimeBy(300)
         assertEquals(false, correct) // the first grade counts: needs work is not right first time
+    }
+
+    /** Jerome's 从…的角度 sentence (Nov 2026): a problem of MEANING, its reason too long for one line. */
+    private val angle = SentenceMakingExercise(
+        words = listOf(LessonWord("角度", "jiǎodù", "angle; point of view")),
+        task = "Say how someone in your family sees something.",
+        example = LessonSentence("从老师的角度来看，这个问题很简单。", "Cóng lǎoshī de jiǎodù lái kàn, zhège wèntí hěn jiǎndān.", "From the teacher's point of view, this question is easy."),
+    )
+    private val angleSaid = "从我妈妈的角度来看我和我妹妹住在很远的地方"
+    /** As the server stores it: the reason cut on one line, `more` = the whole reason + a second point. */
+    private val angleCheck = SentenceFeedback(
+        verdict = "minor", usesAllWords = true, comment = "", grade = "needs_work",
+        headline = "从…的角度 used right — unclear what the angle reveals",
+        reason = "From your mother’s point of view should lead to what she thinks or feels…",
+        more = "From your mother’s point of view should lead to what she thinks or feels, but 我和我妹妹住在很远的地方 only states where you live. Add her view, e.g. 她觉得我们住得太远了.",
+        fixable = true,
+    )
+
+    private fun fixFailure(error: Exception): Pair<Boolean, Boolean> {
+        val env = ExerciseEnv(sentenceFix = { _, _, _, _, _ -> throw error })
+        screen { SentenceMakingView(angle, env, { _, _ -> }, SentenceMakingPreview(angleSaid, source = "spoken", feedback = angleCheck)) }
+        compose.onAllNodesWithTag(SentenceCheckTags.SHOW_FIX).onFirst().performClick()
+        compose.mainClock.advanceTimeBy(800)
+        val offline = compose.onAllNodesWithText(SentenceCheck.FIX_OFFLINE).fetchSemanticsNodes().isNotEmpty()
+        val failed = compose.onAllNodesWithText(SentenceCheck.FIX_FAILED).fetchSemanticsNodes().isNotEmpty()
+        return offline to failed
+    }
+
+    /** The server answered (502: Claude couldn't fix it) — HttpException is an IOException, but it is NOT "offline". */
+    @Test fun aServerErrorIsNotOffline() {
+        val (offline, failed) = fixFailure(dev.jeromeswannack.chineselearning.lab.data.HttpException(502, "Bad Gateway", "{\"error\":\"Claude couldn’t fix this one\",\"retryable\":false}"))
+        assertTrue(failed && !offline)
+        compose.onRoot().captureRoboImage("screenshots/sentence-verdict-06-fix-failed-dark.png")
+    }
+
+    @Test fun aNetworkErrorIsOffline() {
+        val (offline, failed) = fixFailure(java.io.IOException("Unable to resolve host"))
+        assertTrue(offline && !failed)
+    }
+
+    /** More ▸ opens the whole reason IN PLACE of its cut line: read once, not the line and then all of it again. */
+    @Test fun moreOpensInPlaceOfACutReason() {
+        screen { SentenceMakingView(angle, ExerciseEnv(), { _, _ -> }, SentenceMakingPreview(angleSaid, source = "spoken", feedback = angleCheck)) }
+        assertTrue(compose.onAllNodesWithTag("${SentenceCheckTags.VERDICT}-reason").fetchSemanticsNodes().isNotEmpty())
+        compose.onRoot().captureRoboImage("screenshots/sentence-verdict-07-cut-reason-dark.png")
+        compose.onAllNodesWithTag("${SentenceCheckTags.VERDICT}-more").onFirst().performClick()
+        compose.mainClock.advanceTimeBy(300)
+        assertTrue(compose.onAllNodesWithTag("${SentenceCheckTags.VERDICT}-reason").fetchSemanticsNodes().isEmpty())
+        assertEquals(1, compose.onAllNodesWithText("should lead to what she thinks or feels", substring = true).fetchSemanticsNodes().size)
+        compose.onRoot().captureRoboImage("screenshots/sentence-verdict-08-more-in-place-dark.png")
     }
 
     @Test fun needsWork() {

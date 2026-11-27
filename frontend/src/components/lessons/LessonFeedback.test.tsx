@@ -19,10 +19,12 @@ vi.mock('../../services/answerCheck', () => ({
 }));
 let resolveSentence: ((v: unknown) => void) | null = null;
 let resolveFix: ((v: unknown) => void) | null = null;
+let rejectFix: ((e: unknown) => void) | null = null;
+let fixArgs: unknown[] = [];
 vi.mock('../../api/lessonPractice', () => ({
   checkMadeSentence: () => new Promise((r) => { resolveSentence = r; }),
-  fixMadeSentence: () => new Promise((r) => { resolveFix = r; }),
-  FeedbackUnavailable: class extends Error { offline = false; },
+  fixMadeSentence: (...args: unknown[]) => { fixArgs = args; return new Promise((r, j) => { resolveFix = r; rejectFix = j; }); },
+  FeedbackUnavailable: class extends Error { constructor(m: string, readonly offline = false) { super(m); } },
 }));
 const track = vi.fn();
 vi.mock('../../services/analytics', () => ({ track: (...a: unknown[]) => track(...a) }));
@@ -160,5 +162,34 @@ describe('lesson answer feedback', () => {
     expect(track).toHaveBeenCalledWith('lesson.sentence_retry', { result: 'right', try: 1, input: 'spoken' });
     await act(async () => (q('lesson-continue') as HTMLButtonElement).click());
     expect(onNext).toHaveBeenCalledWith(false, expect.objectContaining({ text: '我本来要去健身馆但是我学中文' }));
+  });
+
+  // Jerome, Nov 2026 (从…的角度): the reason was cut with "…" and More repeated all of it; ✨ said "needs a connection"
+  // when the server had answered that Claude couldn't fix it.
+  const ANGLE_CHECK = {
+    verdict: 'minor', grade: 'needs_work', uses_all_words: true, fixable: true, comment: '',
+    headline: '从…的角度 used right — unclear what the angle reveals',
+    reason: 'From your mother’s point of view should lead to what she thinks or feels…',
+    more: 'From your mother’s point of view should lead to what she thinks or feels, but 我和我妹妹住在很远的地方 only states where you live. Add her view, e.g. 她觉得我们住得太远了.',
+  } as const;
+
+  it('sentence making: More ▸ opens the whole reason in place of its cut line; the fix is sent the problem; a server refusal is not "offline"', async () => {
+    const { SentenceCheckPanel } = await import('./SentenceCheck');
+    const { FeedbackUnavailable } = await import('../../api/lessonPractice');
+    await act(async () => root.render(
+      <SentenceCheckPanel feedback={ANGLE_CHECK} sentence="从我妈妈的角度来看我和我妹妹住在很远的地方" input="spoken" words={['角度']} speak={() => {}} onExample={() => {}} />,
+    ));
+    expect(q('sentence-feedback-reason')?.textContent).toContain('thinks or feels…');
+    await act(async () => (q('sentence-feedback-more') as HTMLButtonElement).click());
+    expect(q('sentence-feedback-reason')).toBeNull();
+    expect(q('sentence-feedback-full')?.textContent).toBe(ANGLE_CHECK.more);
+    expect(host.textContent!.split('should lead to what she thinks').length).toBe(2); // read once
+
+    await act(async () => (q('sentence-show-fix') as HTMLButtonElement).click());
+    expect(String(fixArgs[4])).toMatch(/^从…的角度 used right — unclear what the angle reveals From your mother’s point of view/);
+    await act(async () => rejectFix!(new FeedbackUnavailable('Claude couldn’t fix this one — try saying it another way.')));
+    expect(q('sentence-fix')?.getAttribute('data-state')).toBe('failed');
+    expect(q('sentence-fix-offline')).toBeNull();
+    expect(track).toHaveBeenCalledWith('lesson.sentence_fix_shown', expect.objectContaining({ result: 'failed' }));
   });
 });

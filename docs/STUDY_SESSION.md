@@ -1387,7 +1387,10 @@ too cluttered, and without having to wait a long time." Rules: `shared/lesson/se
   target word is wrong. Applied by the worker AND by both apps on what they get (`sentenceCheckView`), so an older cached
   check or a stored attempt can't show green over a correction either.
 - **Slim and fast**: ONE coloured headline (icon + colour, never colour alone; no box — #751), at most one short reason
-  line, the fuller text behind "More ▸" only when it adds something. The first call is the small model through
+  line, the fuller text behind "More ▸" only when it adds something. **The reason is read once**: when the fuller text
+  already holds the reason line (the line was cut with "…", or Claude repeated it there — the view's
+  `moreIncludesReason`), More ▸ opens it IN PLACE of the reason line (Jerome, Nov 2026: the cut line and then
+  the whole reason again below it). The first call is the small model through
   `structuredCall` (forced tool, thinking off, 500 tokens, 20 s; cached for everyone in `lesson_answer_checks` by
   `sentenceCheckCacheText`, version `SENTENCE_CHECK_VERSION` = 2) and returns NO corrected sentence — only a `fixable` flag.
 - **Scored**: only right counts as right first time; needs_work comes back in the lesson's retry round / revision, like the
@@ -1397,15 +1400,35 @@ too cluttered, and without having to wait a long time." Rules: `shared/lesson/se
     its grade; right → felt + a small burst, the actions go). Practice only: the exercise's recorded first grade never
     changes. Offline: "Claude can't check it offline — compare it with the example." and the example opens (the self-check).
   - **✨ Show a fixed version** — only on tap, `POST /api/lessons/sentence-fix`: HIS sentence with the smallest edits
-    (我本来要去健身房，可是后来去学中文了。), cached per (words + task, his sentence) on the server and the device; shown as
-    "Fixed" vs "You said" with the slim answer diff (▶ + pinyin + English), then **🎤 Say it** — the fixed sentence
-    practised and checked on the device like Say it again. Offline: "A fixed version needs a connection…".
+    that fix **what the check found** (我本来要去健身房，可是后来去学中文了。), cached per (words + task, his sentence) on the
+    server and the device (`SENTENCE_FIX_VERSION` = 2); shown as "Fixed" vs "You said" with the slim answer diff (▶ +
+    pinyin + English), then **🎤 Say it** — the fixed sentence practised and checked on the device like Say it again.
+    - **The fixer is told the problem** (Jerome, Nov 2026: 从我妈妈的角度来看我和我妹妹住在很远的地方 for 从…的角度 was
+      needs_work for MEANING — "unclear what the angle reveals" —, and he never got a fix: told only "smallest edits, keep
+      their words", both models handed his sentence back with punctuation added, which is refused as "the same
+      sentence"). The server reads its own cached check of the same sentence (`lesson_answer_checks`, the check always
+      runs first) and turns it into one line (`sentenceFixProblem`: headline + reason + more, each said once); without
+      one it uses the app's copy — both apps send `problem` (the same function; Lab `SentenceCheck.fixProblem`), used only
+      as prompt text, capped at 600 characters. The prompt says the fix must address it, may ADD the missing part (what
+      the mother thinks, what actually happened) while keeping his words and every target word, and that changing only
+      punctuation is not a fix.
+    - **A refused answer goes back with why** (`structuredCall`'s `repair`: the model's answer + an error tool_result —
+      "only the punctuation changed… Change the WORDS so the problem is gone: <problem>"); three tries (small model,
+      again with the repair, then the larger one). Still no fix → **502, not retryable**, "Claude couldn't fix this one —
+      try saying it another way." (never a 503 "busy" the apps retry in vain).
+    - **Only a real network failure says "needs a connection"**: the web sets `offline` only when the browser is offline
+      or the request never reached the server; the Lab uses `Throwable.isOffline()` (`data/api/Http.kt`) — its
+      `HttpException` / `UnauthorizedException` extend IOException, and `is IOException` had turned the server's 502
+      into "A fixed version needs a connection" while he was online. The same helper now decides Try again's check, the
+      sentence check itself, the explorer's "More about this word" and the tutor's custom-range insights.
 - **Decluttered**: while Claude grades, the unrelated example stays folded under "Example sentence ▸" (shown at once for a
   handwritten answer or offline); once Claude's grade is in, the self-check line "Is your sentence grammatical, and does
   it use every word?" and its Got it / Not quite go — Continue stays.
 - Analytics: `lesson.sentence_verdict { verdict, downgraded, ms, cached, input }`, `lesson.sentence_fix_shown { result, ms,
   cached }`, `lesson.sentence_retry { result, try, input }`. E2E stand-in `services/sentence-making-fake.ts` (本来…要 +
-  健身馆 → needs_work + its fix; the paused 不知道 / 有没有 take → needs_work on 有不有 only). Other exercises don't use
+  健身馆 → needs_work + its fix; the paused 不知道 / 有没有 take → needs_work on 有不有 only; 从…的角度 → needs_work for
+  meaning with a reason long enough to be cut, whose fix comes only when the request carries the problem — without it the
+  stand-in re-punctuates his sentence, like the real models did, and the route answers 502). Other exercises don't use
   `sentence-feedback` (speak / oral_expression go through the speaking check).
 
 

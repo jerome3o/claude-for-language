@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import type Anthropic from '@anthropic-ai/sdk';
-import { checkMadeSentence, fixMadeSentence, SENTENCE_CHECK_SYSTEM, SENTENCE_FIX_SYSTEM } from '../sentence-making';
+import { checkMadeSentence, fixMadeSentence, sentenceFixRepairNote, SENTENCE_CHECK_SYSTEM, SENTENCE_FIX_SYSTEM } from '../sentence-making';
+import { StructuredCallError } from '../structured-call';
 import { fakeSentenceMakingClient } from '../sentence-making-fake';
-import { normalizeSentenceFeedback } from '@shared/lesson/sentenceCheck';
+import { normalizeSentenceFeedback, SentenceFixRejected, SENTENCE_FIX_FAILED } from '@shared/lesson/sentenceCheck';
 
 function fakeClient(inputs: unknown[], name = 'check_sentence') {
   const calls: Array<Record<string, any>> = [];
@@ -53,6 +54,9 @@ describe('sentence making check', () => {
     expect(SENTENCE_CHECK_SYSTEM).toMatch(/ONE continuous utterance/);
     expect(SENTENCE_CHECK_SYSTEM).toMatch(/never judge them/);
     expect(SENTENCE_FIX_SYSTEM).toMatch(/SMALLEST edits/);
+    expect(SENTENCE_FIX_SYSTEM).toMatch(/must address the problem/);
+    expect(SENTENCE_FIX_SYSTEM).toMatch(/only punctuation or spacing is NOT a fix/);
+    expect(SENTENCE_FIX_SYSTEM).toMatch(/ADD or change the words that are missing/);
   });
 
   it('Jerome\'s 本来…要 sentence: a green verdict over a correction becomes needs_work', async () => {
@@ -97,6 +101,15 @@ describe('sentence making check', () => {
   });
 });
 
+const ANGLE = { words: ['角度'], sentence: '从我妈妈的角度来看我和我妹妹住在很远的地方', input: 'spoken' as const };
+const ANGLE_CHECK = {
+  grade: 'needs_work', headline: '从…的角度 used right — unclear what the angle reveals',
+  reason: 'From your mother’s point of view should lead to what she thinks or feels, but 我和我妹妹住在很远的地方 only states where you live.',
+  fixable: true, uses_all_words: true,
+};
+const REPUNCTUATED = { hanzi: '从我妈妈的角度来看，我和我妹妹住在很远的地方。', english: 'x' };
+const FIXED = { hanzi: '从我妈妈的角度来看，我和我妹妹住得太远了。', english: 'y' };
+
 describe('sentence making fix', () => {
   it('fixes HIS sentence, pinyin made by the app, cached', async () => {
     const { db } = fakeDb();
@@ -111,6 +124,58 @@ describe('sentence making fix', () => {
     expect(calls).toHaveLength(1);
   });
 
+  it('the fixer is told what the check found (read from the cached check of the same sentence)', async () => {
+    const { db } = fakeDb();
+    const check = fakeClient([ANGLE_CHECK]);
+    await checkMadeSentence(db, ANGLE, { apiKey: 'k', client: check.client });
+    const { client, calls } = fakeClient([FIXED], 'fix_sentence');
+    const r = await fixMadeSentence(db, ANGLE, { apiKey: 'k', client }, 'IGNORED — the server has its own check');
+    expect(r.fix.hanzi).toBe(FIXED.hanzi);
+    const turn = calls[0].messages[0].content as string;
+    expect(turn).toContain('What the check found wrong: 从…的角度 used right — unclear what the angle reveals');
+    expect(turn).toContain('should lead to what she thinks or feels');
+    expect(turn).not.toContain('IGNORED');
+    expect(r.problem.split('should lead to what she thinks').length).toBe(2); // said once
+  });
+
+  it('no cached check: the app\'s copy of the problem goes in the prompt (cleaned, capped); none at all is said', async () => {
+    const a = fakeClient([FIXED], 'fix_sentence');
+    await fixMadeSentence(null, ANGLE, { apiKey: 'k', client: a.client }, '  unclear what\n the angle reveals ');
+    expect(a.calls[0].messages[0].content).toContain('What the check found wrong: unclear what the angle reveals');
+    const b = fakeClient([FIXED], 'fix_sentence');
+    await fixMadeSentence(null, ANGLE, { apiKey: 'k', client: b.client }, { not: 'text' });
+    expect(b.calls[0].messages[0].content).toContain('What the check found wrong: (not given');
+  });
+
+  it('a re-punctuated "fix" goes back with why (its own answer + an error tool_result naming the problem)', async () => {
+    const { client, calls } = fakeClient([REPUNCTUATED, FIXED], 'fix_sentence');
+    const r = await fixMadeSentence(null, ANGLE, { apiKey: 'k', client }, 'unclear what the angle reveals');
+    expect(r.fix.hanzi).toBe(FIXED.hanzi);
+    expect(calls).toHaveLength(2);
+    const repair = calls[1].messages;
+    expect(repair).toHaveLength(3);
+    expect(repair[1]).toMatchObject({ role: 'assistant', content: [{ type: 'tool_use', input: REPUNCTUATED }] });
+    expect(repair[2].content[0]).toMatchObject({ type: 'tool_result', is_error: true });
+    expect(repair[2].content[0].content).toMatch(/only the punctuation or spacing changed/);
+    expect(repair[2].content[0].content).toMatch(/Change the WORDS so the problem is gone: unclear what the angle reveals/);
+  });
+
+  it('a model that only ever re-punctuates → a non-retryable failure (502), never "busy"', async () => {
+    const { client, calls } = fakeClient([REPUNCTUATED, REPUNCTUATED, REPUNCTUATED], 'fix_sentence');
+    const err = await fixMadeSentence(null, ANGLE, { apiKey: 'k', client }, 'x').catch((e) => e);
+    expect(err).toBeInstanceOf(StructuredCallError);
+    expect(err.retryable).toBe(false);
+    expect(err.message).toBe(SENTENCE_FIX_FAILED);
+    expect(calls).toHaveLength(3);
+    expect(calls[2].model).not.toBe(calls[0].model); // the last try on the fallback model
+  });
+
+  it('the repair note', () => {
+    expect(sentenceFixRepairNote(new Error('network'), 'p')).toBeNull();
+    expect(sentenceFixRepairNote(new SentenceFixRejected('invalid'), 'p')).toMatch(/simplified Chinese characters/);
+    expect(sentenceFixRepairNote(new SentenceFixRejected('same'), '')).not.toMatch(/gone:/);
+  });
+
   it('a "fix" that is his own sentence is retried, never shown', async () => {
     const { client, calls } = fakeClient([{ hanzi: '我本来要去健身馆但是我学中文', english: 'x' }, { hanzi: '我本来要去健身房，可是后来去学中文了。', english: 'y' }], 'fix_sentence');
     const { fix } = await fixMadeSentence(null, { words: ['本来', '要'], sentence: '我本来要去健身馆，但是我学中文。' }, { apiKey: 'k', client });
@@ -121,6 +186,12 @@ describe('sentence making fix', () => {
 
 describe('the E2E stand-in', () => {
   const deps = { apiKey: 'e2e', client: fakeSentenceMakingClient() };
+  it('从…的角度 (a problem of meaning): no fix without the problem — with it, the fix', async () => {
+    const err = await fixMadeSentence(null, ANGLE, deps).catch((e) => e);
+    expect(err).toBeInstanceOf(StructuredCallError);
+    expect(err.retryable).toBe(false);
+    expect((await fixMadeSentence(null, ANGLE, deps, 'unclear what the angle reveals')).fix.hanzi).toBe('从我妈妈的角度来看，我和我妹妹住得太远了。');
+  });
   it('本来…要 + 健身馆 → needs_work; its fix', async () => {
     const i = { words: ['本来', '要'], sentence: '我本来要去健身馆，但是我学中文。' };
     expect((await checkMadeSentence(null, i, deps)).feedback.grade).toBe('needs_work');
