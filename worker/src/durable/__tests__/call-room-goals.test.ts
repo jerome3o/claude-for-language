@@ -179,6 +179,13 @@ describe('CallRoom: 🎯 structures to use', () => {
     expect((t.of('goals').at(-1)!.goals as CallGoals).goals[0]).toMatchObject({ name: '一…就…', fixed: ['一', '就'], source: 'added' });
   });
 
+  it('two joins at once get the same list', async () => {
+    const { room } = await openRoom('c1');
+    const r = room as unknown as { goals(): Promise<CallGoals | null> };
+    const [a, b] = await Promise.all([r.goals(), r.goals()]);
+    expect(a!.goals.map((g) => g.id)).toEqual(b!.goals.map((g) => g.id));
+  });
+
   it('a solo call: the caller is the student', async () => {
     exec("INSERT INTO calls (id, relationship_id, created_by, status) VALUES ('solo', NULL, ?, 'live')", STUDENT);
     const { welcome } = await openRoom('solo');

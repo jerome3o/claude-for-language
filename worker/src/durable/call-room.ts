@@ -1220,8 +1220,15 @@ export class CallRoom extends DurableObject<Env> {
    * mini lessons (services/calls/goals.ts) and kept in storage. Never in the way of joining: any
    * failure → null (no list), tried again on the next join.
    */
+  private goalsLoading: Promise<CallGoals | null> | null = null;
   private async goals(): Promise<CallGoals | null> {
     if (this.goalsCache !== undefined) return this.goalsCache;
+    // Both people joining at once must get the SAME list (ids), so one load at a time.
+    if (!this.goalsLoading) this.goalsLoading = this.loadGoals().finally(() => { this.goalsLoading = null; });
+    return this.goalsLoading;
+  }
+
+  private async loadGoals(): Promise<CallGoals | null> {
     try {
       if ((await this.ctx.storage.get<boolean>('goalsInit')) === true) {
         this.goalsCache = sanitizeCallGoals(await this.ctx.storage.get('goals'));
