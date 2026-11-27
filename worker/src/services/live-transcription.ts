@@ -28,6 +28,12 @@ export const LIVE_KEY_TTL_SECONDS = 1800;
  * stop it at SPEAKING_MAX_SECONDS, shared/lesson/speakingTake.ts). Caps a runaway session.
  */
 export const LIVE_MAX_SESSION_SECONDS = 420;
+/**
+ * A video call's structure listener (docs/VIDEO_CALLS.md "Structures to use") streams the student's
+ * mic for the whole call: one session lasts up to the key's life, and the device starts a fresh one
+ * (with a fresh key) a few minutes before that.
+ */
+export const LIVE_CALL_MAX_SESSION_SECONDS = 1800;
 
 export class LiveTranscriptionError extends Error {
   constructor(message: string, readonly status: number) {
@@ -39,6 +45,7 @@ export async function mintLiveSession(
   env: Pick<Env, 'SONIOX_API_KEY'>,
   userId: string,
   fetchImpl: typeof fetch = fetch,
+  purpose: 'take' | 'call' = 'take',
 ): Promise<LiveTranscriptionSession> {
   const key = (env.SONIOX_API_KEY || '').trim();
   if (!key) return { provider: 'upload' };
@@ -49,7 +56,7 @@ export async function mintLiveSession(
       usage_type: 'transcribe_websocket',
       expires_in_seconds: LIVE_KEY_TTL_SECONDS,
       client_reference_id: userId.slice(0, 256),
-      max_session_duration_seconds: LIVE_MAX_SESSION_SECONDS,
+      max_session_duration_seconds: purpose === 'call' ? LIVE_CALL_MAX_SESSION_SECONDS : LIVE_MAX_SESSION_SECONDS,
       // The device reuses one key for every take until a minute before it expires.
       single_use: false,
     }),

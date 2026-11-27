@@ -184,3 +184,11 @@
 .cr-activity-title { font-weight: 600; }
 .cr-activity-score { font-size: 0.85rem; color: #166534; white-space: nowrap; }
 .cr-activity-lines { margin: 0.25rem 0 0; padding-left: 1.1rem; font-size: 0.9rem; display: flex; flex-direction: column; gap: 0.2rem; }
+
+/* 🎯 Structures you used (shared/calls/goals.ts) */
+.cr-goals { list-style: none; margin: 0.5rem 0 0; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; }
+.cr-goals li { display: flex; flex-direction: column; gap: 0.15rem; padding: 0.55rem 0.7rem; border-radius: 10px; background: var(--color-surface-muted, #f3f4f6); }
+.cr-goals li.used { background: #dcfce7; color: #14532d; }
+.cr-goal-name { font-size: 1.15rem; font-weight: 700; }
+.cr-goal-said { font-size: 1rem; }
+@media (prefers-color-scheme: dark) { .cr-goals li.used { background: rgba(22, 101, 52, 0.35); color: #dcfce7; } }

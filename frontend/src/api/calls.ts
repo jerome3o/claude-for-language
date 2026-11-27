@@ -41,6 +41,14 @@ export function glossBoardText(
   return request(`/calls/${callId}/gloss`, { method: 'POST', body: JSON.stringify({ text, direction }), signal });
 }
 
+/** 🎯 Is the structure really used in what he said (one small model check; 503 = no answer — count the words' match)? */
+export function checkCallGoal(
+  callId: string,
+  body: { name: string; line?: string | null; meaning?: string | null; fixed: string[]; sentence: string },
+): Promise<{ ok: boolean; reason?: string; cached?: boolean }> {
+  return request(`/calls/${callId}/goals/check`, { method: 'POST', body: JSON.stringify(body) });
+}
+
 export function listCalls(opts: { relationshipId?: string; live?: boolean } = {}): Promise<{ calls: CallListItem[] }> {
   const q = new URLSearchParams();
   if (opts.relationshipId) q.set('relationship_id', opts.relationshipId);

@@ -45,6 +45,7 @@ import { AnnotationStore } from '../services/calls/annotations';
 import { track as trackUsage } from '../services/analytics';
 import { holdReloads } from '../utils/appUpdates';
 import { displayCaptureOptions, shareAudioOf, shareSurfaceOf, type ShareAudio, type ShareSurface } from '@shared/calls';
+import { sanitizeCallGoals, type CallGoals, type CallGoalsAction } from '@shared/calls';
 import { chimeNeedsTick, chimeStep, EMPTY_CHIME_STATE, sanitizeTimer, type CallTimer, type CallTimerAction, type ChimeAlert, type ChimeEvent, type ChimeState } from '@shared/calls';
 import { DEFAULT_ANNOT_PERSIST, announceDevice, deviceOnWhenOpened, CAMERA_ON_AT_START, type AnnotStroke, type AnnotText, type SharedView, type StageView, type ViewMode } from '@shared/calls';
 import { materialTarget, type PresentedMaterial } from '@shared/materials';
@@ -125,6 +126,18 @@ export function useCall(callId: string, myUserId: string) {
   const [screenSurface, setScreenSurface] = useState<ShareSurface | null>(null);
   /** The call timer (shared/calls/timer.ts), in room time; `roomNow()` is the room's clock here. */
   const [timer, setTimer] = useState<CallTimer | null>(null);
+  /** 🎯 Structures to use (shared/calls/goals.ts): the room's list (null = none / an older room); newest version wins. */
+  const [goals, setGoalsState] = useState<CallGoals | null>(null);
+  const goalsRef = useRef<CallGoals | null>(null);
+  /** The latest change: who made it (my own client id = mine), for the tick chime. */
+  const [goalsFrom, setGoalsFrom] = useState<{ from: string | null; v: number } | null>(null);
+  const takeGoals = (next: CallGoals | null, from: string | null = null) => {
+    const cur = goalsRef.current;
+    if (next && cur && next.v < cur.v) return;
+    goalsRef.current = next;
+    setGoalsState(next);
+    if (next) setGoalsFrom({ from, v: next.v });
+  };
   /** The other person joined / left (shared/calls/chime.ts): toasts + chimes, newest last. */
   const [presenceAlerts, setPresenceAlerts] = useState<Array<ChimeAlert & { id: number }>>([]);
   const chimeRef = useRef<ChimeState>(EMPTY_CHIME_STATE);
@@ -490,6 +503,8 @@ export function useCall(callId: string, myUserId: string) {
         takeActivity(msg.activity ?? null);
         setTutorId(msg.tutor_id ?? null);
         setTimer(sanitizeTimer(msg.timer ?? null));
+        goalsRef.current = null; // the room's word is final after a (re)join
+        takeGoals(sanitizeCallGoals(msg.goals ?? null));
         presence({ type: 'welcome', peers: msg.peers });
         setSharedView(msg.view ?? null);
         setViewWelcome((n) => n + 1);
@@ -580,6 +595,9 @@ export function useCall(callId: string, myUserId: string) {
         return;
       case 'timer':
         setTimer(sanitizeTimer(msg.timer));
+        return;
+      case 'goals':
+        takeGoals(sanitizeCallGoals(msg.goals), msg.from ?? null);
         return;
       case 'share_stopped':
         // The tutor stopped my screen share: stop capturing, like my own Stop button.
@@ -951,6 +969,10 @@ export function useCall(callId: string, myUserId: string) {
 
   // ---- the call timer (shared/calls/timer.ts): the room refuses anyone but the tutor (solo: anyone)
   const timerAction = useCallback((action: CallTimerAction) => roomRef.current?.send({ type: 'timer', action }) ?? false, []);
+  // ---- 🎯 structures to use (shared/calls/goals.ts): the room checks who may do what
+  const goalsAction = useCallback((action: CallGoalsAction) => roomRef.current?.send({ type: 'goals', action }) ?? false, []);
+  /** This page's client id in the room (my own changes come back with it as `from`). */
+  const selfClientId = useCallback(() => selfIdRef.current, []);
   /** The room's clock on this device (the timer is kept in room time). */
   const roomNow = useCallback(() => Date.now() + (roomRef.current?.clockOffset ?? 0), []);
 
@@ -1052,7 +1074,7 @@ export function useCall(callId: string, myUserId: string) {
     presenting, presentMaterial, turnMaterialPage, stopPresenting, materialAnnotations: materialAnnotRef.current, materialAnnot,
     activity, startActivity, actInActivity, closeActivity,
     tutorId, sharedView, viewWelcome, sendView, reserveViewCid, lastViewCid, announceViewMode, stopTheirShare, shareStoppedBy, dismissShareStopped,
-    screenSurface, timer, timerAction, roomNow, presenceAlerts, dismissPresenceAlert,
+    screenSurface, timer, timerAction, roomNow, goals, goalsFrom, goalsAction, selfClientId, presenceAlerts, dismissPresenceAlert,
     hasCamera: !!localStream?.getVideoTracks().length,
     hasMic: !!localStream?.getAudioTracks().length,
     myUserId,

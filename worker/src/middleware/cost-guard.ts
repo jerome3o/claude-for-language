@@ -53,6 +53,8 @@ const AI_PATHS: RegExp[] = [
   /^\/api\/phone\/persona-reply$/,
   // ＋ Add tab (docs/ADD_TAB.md): photo → Chinese lines (a Gemini vision call). English → words is /api/ai/*.
   /^\/api\/ocr\/words$/,
+  // 🎯 Structures in a video call: is the structure really used in what he said (one small model call)?
+  /^\/api\/calls\/[^/]+\/goals\/check$/,
 ];
 
 const JOB_PATHS: RegExp[] = [

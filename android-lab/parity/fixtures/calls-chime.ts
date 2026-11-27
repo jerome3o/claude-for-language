@@ -82,7 +82,7 @@ for (let k = 0; k < 60; k++) {
   runs.push({ steps });
 }
 
-const kinds: ChimeKind[] = ['join', 'leave', 'timer'];
+const kinds: ChimeKind[] = ['join', 'leave', 'timer', 'goal'];
 const samples = kinds.map((kind) => ({
   kind,
   length: chimeLengthMs(kind),

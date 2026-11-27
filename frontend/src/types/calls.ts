@@ -84,6 +84,8 @@ export interface CallReport {
   vocabulary: CallReportWord[];
   corrections: Array<{ said: string; better: string; pinyin?: string; explanation: string }>;
   follow_ups: string[];
+  /** 🎯 What the lesson's structures came to (shared/calls/goals.ts `goalsSummary`). */
+  structures?: import('@shared/calls').GoalsSummary;
   model: string;
   generated_at: string;
 }
@@ -98,6 +100,8 @@ export interface CallDetail {
   board_text?: string;
   /** In-call activities played in the lesson (shared/call-activities), oldest first. */
   activities?: CallActivityResult[];
+  /** 🎯 Structures the student aimed to use in the lesson (shared/calls/goals.ts). */
+  goals?: import('@shared/calls').CallGoal[];
   /** The connection log both sides reported (shared/calls/connection.ts). */
   diagnostics?: CallDiagEntry[];
   chat: CallChatMessage[];

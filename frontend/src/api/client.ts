@@ -952,6 +952,11 @@ export async function getLiveTranscriptionSession(): Promise<import('@shared/tra
   return fetchJSON('/transcribe/live', { method: 'POST' });
 }
 
+/** A video call's structure listener: a key for one long session (docs/VIDEO_CALLS.md "Structures to use"). */
+export async function getCallListenSession(): Promise<import('@shared/transcription/soniox').LiveTranscriptionSession> {
+  return fetchJSON('/transcribe/live', { method: 'POST', body: JSON.stringify({ purpose: 'call' }) });
+}
+
 /**
  * POST /api/transcribe — the upload path. `liveError` says why the live stream gave nothing
  * (logged by the server, so a broken live path shows up in its logs).

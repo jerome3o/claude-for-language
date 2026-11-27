@@ -22,6 +22,9 @@ import { useDesktopOverlay } from '../services/calls/desktopOverlay';
 import { ANNOT_COLORS, defaultAnnotColor, myShareTile, myShareHint, shareAudioNote, theirShareSoundLabel, HIDE_MY_SHARE_LABEL, ANNOT_PIP_LABEL, ANNOT_PIP_HINT, DRAW_ON_MY_SHARE_LABEL, canControlTimer, callSoundsLabel, TIMER_UP_LABEL, TIMER_BUTTON_LABEL } from '@shared/calls';
 import { loadCallSounds, playChime, saveCallSounds } from '../services/calls/callSounds';
 import { CallTimerPill } from '../components/calls/CallTimerPill';
+import { CallGoalsChip, CallGoalsPanel } from '../components/calls/CallGoalsPanel';
+import { useCallGoals } from '../hooks/useCallGoals';
+import { GOALS_MENU_LABEL, mayActOnGoals } from '@shared/calls';
 import {
   arrangeTiles,
   boardButton,
@@ -331,6 +334,60 @@ export function CallPage() {
   // Activities prepared for this student from their earlier lessons — the tutor's list (docs/VIDEO_CALLS.md "Prepared activities").
   const callRelId = detail?.call.relationship_id ?? null;
   const prep = usePreparedActivities(callRelId, { enabled: iLead && !!callRelId, source: 'call' });
+  // ---- 🎯 structures to use (shared/calls/goals.ts): the list both see, auto-ticks from the student's own speech.
+  const goalsState = useCallGoals({
+    callId,
+    live: call.phase === 'live',
+    myUserId: user!.id,
+    goals: call.goals,
+    goalsAction: call.goalsAction,
+    micOn: call.micOn,
+    micTrack: call.localStream?.getAudioTracks()[0] ?? null,
+  });
+  const [goalsOpen, setGoalsOpen] = useState(false);
+  const [goalsFlashAt, setGoalsFlashAt] = useState(0);
+  const toggleGoals = useCallback((how: 'chip' | 'menu' | 'auto') => {
+    setGoalsOpen((open) => {
+      if (!open) track('call.goals_open', { how, role: goalsState.isStudent ? 'student' : 'tutor', goals: call.goals?.goals.length ?? 0 });
+      return !open;
+    });
+  }, [goalsState.isStudent, call.goals]);
+  // Opens by itself for the student once per call, near the start (dismissible; remembered on the device).
+  const hasGoals = (call.goals?.goals.length ?? 0) > 0;
+  useEffect(() => {
+    if (call.phase !== 'live' || !goalsState.isStudent || !hasGoals) return;
+    const key = `call-goals-opened:${callId}`;
+    try {
+      if (localStorage.getItem(key)) return;
+      localStorage.setItem(key, '1');
+    } catch {
+      /* private mode: open it anyway */
+    }
+    setGoalsOpen(true);
+    track('call.goals_open', { how: 'auto', role: 'student', goals: call.goals?.goals.length ?? 0 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [call.phase, goalsState.isStudent, hasGoals, callId]);
+  // A structure just used: a soft chime on both devices and the chip flashes.
+  const usedRef = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    const goals = call.goals;
+    if (!goals) return;
+    const used = new Set(goals.goals.filter((g) => g.status === 'used').map((g) => g.id));
+    const before = usedRef.current;
+    usedRef.current = used;
+    if (!before) return; // the first list (a join / rejoin) never chimes
+    const fresh = goals.goals.filter((g) => used.has(g.id) && !before.has(g.id));
+    if (!fresh.length) return;
+    if (soundsRef.current) playChime('goal', call.devicePrefs.speakerId ?? null);
+    setGoalsFlashAt(Date.now());
+    for (const g of fresh) track('call.goals_tick', { by: g.used?.by ?? 'auto', mine: goalsState.isStudent, source: g.source });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [call.goals]);
+  useEffect(() => {
+    if (!goalsFlashAt) return;
+    const t = setTimeout(() => setGoalsFlashAt(0), 3000);
+    return () => clearTimeout(t);
+  }, [goalsFlashAt]);
   // The board page I'm on (the text board's session changes it).
   const [boardPage, setBoardPage] = useState(call.textBoard.page);
   useEffect(() => call.textBoard.subscribe(() => setBoardPage(call.textBoard.page)), [call.textBoard]);
@@ -800,6 +857,7 @@ export function CallPage() {
           onFinished={onTimerFinished}
           openSignal={timerOpenSignal}
         />
+        <CallGoalsChip goals={call.goals} open={goalsOpen} onToggle={() => toggleGoals('chip')} flash={goalsFlashAt > 0} />
         <div className="call-view-wrap">
           {theyOwnView && <span className="call-view-note" data-testid="they-own-view">{theyLookAroundText(otherName)}</span>}
           <button
@@ -857,6 +915,20 @@ export function CallPage() {
             <span>⏹ {shareStoppedNote(call.shareStoppedBy.name.split(' ')[0])}</span>
             <button type="button" onClick={call.dismissShareStopped} aria-label="Dismiss">✕</button>
           </div>
+        )}
+        {goalsOpen && call.goals && (
+          <CallGoalsPanel
+            goals={call.goals}
+            isStudent={goalsState.isStudent}
+            canTick={mayActOnGoals({ kind: 'tick' }, call.myUserId, call.tutorId, call.goals.student_id)}
+            listenStatus={goalsState.listenStatus}
+            startedAt={call.startedAt}
+            onAction={(a) => {
+              call.goalsAction(a);
+              if (a.kind === 'remove' || a.kind === 'move' || a.kind === 'untick') track('call.goals_edit', { action: a.kind });
+            }}
+            onClose={() => setGoalsOpen(false)}
+          />
         )}
         <CallTiles
           layout={layout}
@@ -1032,6 +1104,7 @@ export function CallPage() {
             <div className="call-more-menu" role="menu" onClick={() => setMoreOpen(false)}>
               <button type="button" role="menuitem" onClick={() => setPresentOpen(true)} data-testid="menu-present-material">📑 Present material</button>
               <button type="button" role="menuitem" onClick={() => setActivitiesOpen(true)} data-testid="menu-activities">🎲 Activities</button>
+              {call.goals && <button type="button" role="menuitem" onClick={() => { setGoalsOpen(false); toggleGoals('menu'); }} data-testid="menu-goals">{GOALS_MENU_LABEL}</button>}
               {canControlTimer(call.myUserId, call.tutorId) && (
                 <button type="button" role="menuitem" onClick={() => setTimerOpenSignal((n) => n + 1)} data-testid="menu-timer">{TIMER_BUTTON_LABEL}</button>
               )}

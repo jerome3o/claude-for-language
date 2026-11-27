@@ -47,6 +47,7 @@ describe('which requests count', () => {
   it('groups the costly endpoints; reads and ordinary writes never count', () => {
     expect(costGroupFor('POST', '/api/ai/generate-deck')).toBe('ai');
     expect(costGroupFor('POST', '/api/sentence/coach')).toBe('ai');
+    expect(costGroupFor('POST', '/api/calls/c1/goals/check')).toBe('ai');
     expect(costGroupFor('POST', '/api/sentences/explain-text')).toBe('ai');
     expect(costGroupFor('POST', '/api/sentences/abc123/explain')).toBe('ai');
     expect(costGroupFor('POST', '/api/coach/conversations/c1/messages')).toBe('ai');

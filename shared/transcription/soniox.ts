@@ -89,12 +89,15 @@ export function buildSonioxConfig(
   model: string = SONIOX_RT_MODEL,
   languageHints: readonly string[] = SONIOX_LANGUAGE_HINTS,
   legacyApiKey: string | null = null,
+  /** `enable_endpoint_detection` (a `<end>` token when the speaker pauses): the call's structure listener. */
+  endpointDetection = false,
 ): Record<string, unknown> {
   const config: Record<string, unknown> = {
     ...(legacyApiKey ? { api_key: legacyApiKey } : {}),
     model,
     language_hints: [...languageHints],
     audio_format: audio.kind,
+    ...(endpointDetection ? { enable_endpoint_detection: true } : {}),
   };
   if (audio.kind === 'pcm_s16le') {
     config.sample_rate = audio.sampleRate;

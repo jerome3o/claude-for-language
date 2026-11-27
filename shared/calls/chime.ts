@@ -19,7 +19,7 @@
 /** How long someone must stay away before "… left" (a reconnect takes a few seconds). */
 export const PEER_LEAVE_GRACE_MS = 8_000;
 
-export type ChimeKind = 'join' | 'leave' | 'timer';
+export type ChimeKind = 'join' | 'leave' | 'timer' | 'goal';
 
 export interface ChimePeer {
   client_id: string;
@@ -130,7 +130,7 @@ export interface ChimeTone {
 /**
  * The three chimes, made on the device (WebAudio on the web, PCM on Android — nothing to license):
  * join = a rising major third (E5 → G♯5), leave = a falling one, lower and quieter (C5 → A4),
- * timer = three bell notes (A5 · E5 · A5).
+ * timer = three bell notes (A5 · E5 · A5), goal = a soft fifth up (G5 → D6) when a structure is used.
  */
 export const CHIME_TONES: Record<ChimeKind, ChimeTone[]> = {
   join: [
@@ -145,6 +145,11 @@ export const CHIME_TONES: Record<ChimeKind, ChimeTone[]> = {
     { freq: 880.0, at: 0, ms: 700, gain: 0.2 },
     { freq: 659.25, at: 260, ms: 700, gain: 0.2 },
     { freq: 880.0, at: 520, ms: 1100, gain: 0.2 },
+  ],
+  // 🎯 A structure was used (./goals.ts): a soft, bright fifth up (G5 → D6), short — it plays mid-sentence.
+  goal: [
+    { freq: 783.99, at: 0, ms: 260, gain: 0.12 },
+    { freq: 1174.66, at: 110, ms: 420, gain: 0.12 },
   ],
 };
 
