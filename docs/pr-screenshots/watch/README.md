@@ -33,4 +33,19 @@ Unfolded / landscape: the video on the left, the card, controls and transcript o
 ![Offline](09-offline.png)
 Offline: the video says it needs a connection; the transcript (kept on the device) is still readable.
 
-Lab app screenshots (Roborazzi) are in [`lab/`](lab/).
+## Lab app (Roborazzi; the WebView player is a placeholder box in screenshot tests)
+
+![Lab: list](lab/watch-01-list.png)
+My videos, the paste box and Find on YouTube.
+
+![Lab: player](lab/watch-03-player.png)
+The player: the line card with word chips, ⏮ 🔁 ⏯ ⏭, speed, 拼 / EN / Pause after each line / Listen first, the transcript.
+
+![Lab: listen first](lab/watch-04-player-listen-first.png)
+Listen first: the card covered until tapped.
+
+![Lab: transcribing](lab/watch-06-player-transcribing.png)
+While the transcript is being made.
+
+![Lab: unfolded](lab/watch-08-player-unfolded.png)
+Unfolded: the video left, the rest right.
