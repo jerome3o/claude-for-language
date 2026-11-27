@@ -124,6 +124,7 @@ object NavRules {
         Regex("^/connections/[^/]+/claude/[^/]+/?$"),
         Regex("^/audio-lessons/[^/]+/?$"),
         Regex("^/podcasts/episodes/[^/]+/?$"),
+        Regex("^/watch/(?!share/?$)[^/]+/?$"), // 📺 Watch player (the list and /watch/share keep the bar)
         Regex("^/readers/(?!generate$)[^/]+(/(edit|print|recap))?/?$"),
         Regex("^/library/[^/]+/(edit|print|try)/?$"),
         Regex("^/library/catalogue/[^/]+/?$"),
